@@ -66,12 +66,12 @@ function MessageBubble({ msg }: { msg: MessageItem }) {
       </div>
 
       <div className={`flex items-center gap-1.5 ${isOutbound ? 'flex-row-reverse' : 'flex-row'}`}>
-        <span className="text-[10px] text-[#B0B8C1] dark:text-gray-600">
+        <span className="text-tiny text-[#B0B8C1] dark:text-gray-600">
           {formatTime(msg.created_at)}
         </span>
         {msg.response_source && <SourceBadge source={msg.response_source} />}
         {msg.auto_response_confidence !== null && (
-          <span className="text-[10px] tabular-nums text-[#B0B8C1]">
+          <span className="text-tiny tabular-nums text-[#B0B8C1] dark:text-gray-600">
             {Math.round(msg.auto_response_confidence * 100)}%
           </span>
         )}
@@ -108,14 +108,14 @@ function ContactItem({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-[14px] font-medium text-[#191F28] dark:text-white">
+          <span className="truncate text-body font-medium text-[#191F28] dark:text-white">
             {displayName}
           </span>
-          <span className="shrink-0 text-[10px] text-[#B0B8C1] dark:text-gray-600">
+          <span className="shrink-0 text-tiny text-[#B0B8C1] dark:text-gray-600">
             {formatRelativeTime(contact.last_message_time)}
           </span>
         </div>
-        <p className="mt-0.5 truncate text-[12px] text-[#8B95A1] dark:text-gray-500">
+        <p className="mt-0.5 truncate text-caption text-[#8B95A1] dark:text-gray-500">
           {contact.last_direction === 'outbound' ? '↗ ' : '↙ '}
           {contact.last_message}
         </p>
@@ -236,7 +236,7 @@ const Messages = () => {
       <div className="flex w-72 shrink-0 flex-col overflow-hidden border-r border-[#F2F4F6] dark:border-gray-800 lg:w-80">
 
         <div className="flex items-center justify-between px-4 py-3">
-          <h2 className="text-[14px] font-semibold text-[#191F28] dark:text-white">대화</h2>
+          <h2 className="text-body font-semibold text-[#191F28] dark:text-white">대화</h2>
           <Button
             color="light"
             size="xs"
@@ -265,7 +265,7 @@ const Messages = () => {
           {filteredContacts.length === 0 ? (
             <div className="empty-state py-12">
               <Avatar rounded size="lg" />
-              <p className="text-[12px]">
+              <p className="text-caption">
                 {searchQuery ? '검색 결과가 없습니다' : '연락처가 없습니다'}
               </p>
             </div>
@@ -291,7 +291,7 @@ const Messages = () => {
             <div className="rounded-2xl bg-[#F2F4F6] p-6 dark:bg-[#1E1E24]">
               <MessageSquareText size={32} className="text-[#B0B8C1] dark:text-gray-600" />
             </div>
-            <p className="text-[14px] text-[#B0B8C1]">
+            <p className="text-body text-[#B0B8C1] dark:text-gray-600">
               왼쪽에서 대화를 선택하세요
             </p>
           </div>
@@ -310,11 +310,11 @@ const Messages = () => {
                   size="sm"
                 />
                 <div>
-                  <p className="text-[14px] font-semibold text-[#191F28] dark:text-white">
+                  <p className="text-body font-semibold text-[#191F28] dark:text-white">
                     {selectedContact.customer_name ?? selectedContact.phone}
                   </p>
                   {selectedContact.customer_name && (
-                    <p className="text-[12px] text-[#B0B8C1]">
+                    <p className="text-caption text-[#B0B8C1] dark:text-gray-600">
                       {selectedContact.phone}
                     </p>
                   )}
@@ -344,7 +344,7 @@ const Messages = () => {
                 </div>
               ) : messages.length === 0 ? (
                 <div className="empty-state py-12">
-                  <p className="text-[12px]">대화 내역이 없습니다</p>
+                  <p className="text-caption">대화 내역이 없습니다</p>
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">

@@ -14,12 +14,20 @@ import {
   ToggleSwitch,
   Badge,
   Spinner,
+  Table,
+  TableHead,
+  TableHeadCell,
+  TableBody,
+  TableRow,
+  TableCell,
 } from 'flowbite-react';
 
 interface Room {
   id: number;
   room_number: string;
   room_type: string;
+  base_capacity: number;
+  max_capacity: number;
   is_active: boolean;
   sort_order: number;
   created_at: string;
@@ -28,6 +36,8 @@ interface Room {
 interface RoomForm {
   room_number: string;
   room_type: string;
+  base_capacity: number;
+  max_capacity: number;
   sort_order: number;
   is_active: boolean;
 }
@@ -35,6 +45,8 @@ interface RoomForm {
 const EMPTY_FORM: RoomForm = {
   room_number: '',
   room_type: '',
+  base_capacity: 2,
+  max_capacity: 4,
   sort_order: 1,
   is_active: true,
 };
@@ -51,7 +63,6 @@ const RoomManagement = () => {
   const [deleteTarget, setDeleteTarget] = useState<Room | null>(null);
 
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   useEffect(() => {
     loadRooms();
@@ -80,6 +91,8 @@ const RoomManagement = () => {
     setForm({
       room_number: room.room_number,
       room_type: room.room_type,
+      base_capacity: room.base_capacity,
+      max_capacity: room.max_capacity,
       sort_order: room.sort_order,
       is_active: room.is_active,
     });
@@ -132,27 +145,18 @@ const RoomManagement = () => {
 
   const onDragEnd = () => {
     setDraggingIndex(null);
-    setDragOverIndex(null);
   };
 
-  const onDropZoneDragOver = (e: DragEvent, insertIndex: number) => {
+  const onDragOver = (e: DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    setDragOverIndex(insertIndex);
   };
 
-  const onDropZoneDragLeave = () => {
-    setDragOverIndex(null);
-  };
-
-  const onDropZoneDrop = async (e: DragEvent, insertIndex: number) => {
+  const onDrop = async (e: DragEvent, targetIndex: number) => {
     e.preventDefault();
-    setDragOverIndex(null);
     setDraggingIndex(null);
 
     const sourceIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
-    let targetIndex = insertIndex;
-    if (sourceIndex < insertIndex) targetIndex = insertIndex - 1;
     if (sourceIndex === targetIndex) return;
 
     const newRooms = [...rooms];
@@ -175,73 +179,6 @@ const RoomManagement = () => {
 
   // ── Render ───────────────────────────────────────────
 
-  const renderDropZone = (insertIndex: number) => {
-    const isActive =
-      dragOverIndex === insertIndex &&
-      draggingIndex !== null &&
-      draggingIndex !== insertIndex &&
-      draggingIndex !== insertIndex - 1;
-
-    return (
-      <div
-        key={`drop-${insertIndex}`}
-        onDragOver={(e) => onDropZoneDragOver(e, insertIndex)}
-        onDragLeave={onDropZoneDragLeave}
-        onDrop={(e) => onDropZoneDrop(e, insertIndex)}
-        className={`h-1 rounded-full transition-all ${
-          isActive ? 'my-1 h-2 bg-[#3182F6]' : 'bg-transparent'
-        }`}
-      />
-    );
-  };
-
-  const renderRoomCard = (room: Room, index: number) => {
-    const isDragging = draggingIndex === index;
-
-    return (
-      <div
-        key={room.id}
-        draggable
-        onDragStart={(e) => onDragStart(e, index)}
-        onDragEnd={onDragEnd}
-        className={`transition-opacity ${isDragging ? 'cursor-grabbing opacity-40' : 'cursor-grab'}`}
-      >
-        <div className="flex items-center gap-3 rounded-xl bg-[#F2F4F6] px-4 py-3 transition-colors hover:bg-[#E5E8EB] dark:bg-[#1E1E24] dark:hover:bg-[#2C2C34]">
-          <GripVertical size={16} className="drag-handle shrink-0" />
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-[12px] font-semibold tabular-nums text-[#4E5968] dark:bg-[#2C2C34] dark:text-gray-300">
-            {index + 1}
-          </span>
-          <span className="font-semibold text-[#191F28] dark:text-white">{room.room_number}</span>
-          <Badge color="gray">{room.room_type}</Badge>
-          {room.is_active ? (
-            <Badge color="success">활성</Badge>
-          ) : (
-            <Badge color="gray">비활성</Badge>
-          )}
-          <span className="ml-auto hidden text-[12px] text-[#B0B8C1] sm:inline">
-            {new Date(room.created_at).toLocaleString('ko-KR')}
-          </span>
-          <div className="flex items-center gap-1">
-            <Button
-              color="light"
-              size="xs"
-              onClick={(e: React.MouseEvent) => { e.stopPropagation(); openEdit(room); }}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              color="light"
-              size="xs"
-              onClick={(e: React.MouseEvent) => { e.stopPropagation(); setDeleteTarget(room); }}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="space-y-6">
       <div>
@@ -253,43 +190,111 @@ const RoomManagement = () => {
             <h1 className="page-title">객실 설정</h1>
             <p className="page-subtitle">객실을 추가, 수정, 삭제하고 순서를 변경합니다.</p>
           </div>
+          <Button color="blue" size="sm" className="ml-auto" onClick={openCreate}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            객실 추가
+          </Button>
         </div>
       </div>
 
       <div className="section-card">
         <div className="section-header">
-          <Button color="blue" size="sm" onClick={openCreate}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            객실 추가
-          </Button>
-          <div className="flex items-center gap-1.5 text-[12px] text-[#B0B8C1]">
+          <div className="flex items-center gap-1.5 text-caption text-[#B0B8C1] dark:text-gray-600">
             <GripVertical size={14} />
             <span>드래그하여 순서 변경</span>
           </div>
         </div>
 
-        <div className="p-4">
-          {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <Spinner size="lg" />
-            </div>
-          ) : rooms.length === 0 ? (
-            <div className="empty-state">
-              <Home size={40} strokeWidth={1} />
-              <p className="text-[14px]">등록된 객실이 없습니다</p>
-            </div>
-          ) : (
-            <div className="space-y-1">
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <Spinner size="lg" />
+          </div>
+        ) : rooms.length === 0 ? (
+          <div className="empty-state">
+            <Home size={40} strokeWidth={1} />
+            <p className="text-body">등록된 객실이 없습니다</p>
+          </div>
+        ) : (
+          <Table hoverable striped>
+            <TableHead>
+              <TableRow>
+                <TableHeadCell className="w-px text-center" />
+                <TableHeadCell className="w-px text-center">#</TableHeadCell>
+                <TableHeadCell className="w-px text-center">객실</TableHeadCell>
+                <TableHeadCell className="w-px text-center">타입</TableHeadCell>
+                <TableHeadCell className="w-px text-center">인원</TableHeadCell>
+                <TableHeadCell className="w-px text-center">상태</TableHeadCell>
+                <TableHeadCell />
+                <TableHeadCell className="w-px text-center">작업</TableHeadCell>
+              </TableRow>
+            </TableHead>
+            <TableBody className="divide-y">
               {rooms.map((room, index) => (
-                <div key={room.id}>
-                  {renderDropZone(index)}
-                  {renderRoomCard(room, index)}
-                </div>
+                <TableRow
+                  key={room.id}
+                  draggable
+                  onDragStart={(e) => onDragStart(e, index)}
+                  onDragEnd={onDragEnd}
+                  onDragOver={onDragOver}
+                  onDrop={(e) => onDrop(e, index)}
+                  className={`transition-opacity ${
+                    draggingIndex === index ? 'opacity-40' : ''
+                  }`}
+                >
+                  <TableCell className="text-center px-3">
+                    <GripVertical size={16} className="drag-handle mx-auto" />
+                  </TableCell>
+                  <TableCell className="text-center tabular-nums font-semibold text-[#8B95A1] dark:text-gray-500">
+                    {index + 1}
+                  </TableCell>
+                  <TableCell className="text-center font-semibold text-[#191F28] dark:text-white">
+                    {room.room_number}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-center">
+                      <Badge color="gray">{room.room_type}</Badge>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-center text-[#4E5968] dark:text-gray-400">
+                    <span className="text-caption text-[#8B95A1] dark:text-gray-500">기준</span>{' '}
+                    <span className="tabular-nums font-semibold">{room.base_capacity}인</span>
+                    <span className="mx-1 text-[#B0B8C1] dark:text-gray-600">|</span>
+                    <span className="text-caption text-[#8B95A1] dark:text-gray-500">최대</span>{' '}
+                    <span className="tabular-nums font-semibold">{room.max_capacity}인</span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-center">
+                      {room.is_active ? (
+                        <Badge color="success">활성</Badge>
+                      ) : (
+                        <Badge color="failure">비활성</Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell />
+                  <TableCell className="text-center">
+                    <div className="flex justify-center gap-1">
+                      <Button
+                        color="light"
+                        size="xs"
+                        onClick={() => openEdit(room)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        color="light"
+                        size="xs"
+                        onClick={() => setDeleteTarget(room)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
               ))}
-              {renderDropZone(rooms.length)}
-            </div>
-          )}
-        </div>
+            </TableBody>
+          </Table>
+        )}
       </div>
 
       {/* Room Modal */}
@@ -298,7 +303,7 @@ const RoomManagement = () => {
         <ModalBody>
           <div className="flex flex-col gap-5">
             <div className="space-y-2">
-              <Label htmlFor="room-number">객실 번호 <span className="text-[#F04452]">*</span></Label>
+              <Label htmlFor="room-number">객실 번호 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
               <TextInput
                 id="room-number"
                 value={form.room_number}
@@ -308,7 +313,7 @@ const RoomManagement = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="room-type">객실 타입 <span className="text-[#F04452]">*</span></Label>
+              <Label htmlFor="room-type">객실 타입 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
               <TextInput
                 id="room-type"
                 value={form.room_type}
@@ -317,22 +322,41 @@ const RoomManagement = () => {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="sort-order">정렬 순서</Label>
-              <TextInput
-                id="sort-order"
-                type="number"
-                min={1}
-                value={form.sort_order}
-                onChange={(e) => setForm((f) => ({ ...f, sort_order: Number(e.target.value) }))}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="base-capacity">기준 인원</Label>
+                <TextInput
+                  id="base-capacity"
+                  type="number"
+                  min={1}
+                  value={String(form.base_capacity ?? 2)}
+                  onChange={(e) => setForm((f) => ({ ...f, base_capacity: parseInt(e.target.value) || 1 }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="max-capacity">최대 인원</Label>
+                <TextInput
+                  id="max-capacity"
+                  type="number"
+                  min={1}
+                  value={String(form.max_capacity ?? 4)}
+                  onChange={(e) => setForm((f) => ({ ...f, max_capacity: parseInt(e.target.value) || 1 }))}
+                />
+              </div>
             </div>
 
-            <ToggleSwitch
-              checked={form.is_active}
-              onChange={(v) => setForm((f) => ({ ...f, is_active: v }))}
-              label="활성화"
-            />
+            <div className="space-y-2">
+              <Label>객실 상태</Label>
+              <div className="flex items-center gap-3">
+                <ToggleSwitch
+                  checked={form.is_active}
+                  onChange={(v) => setForm((f) => ({ ...f, is_active: v }))}
+                />
+                <Badge color={form.is_active ? 'success' : 'failure'}>
+                  {form.is_active ? '활성' : '비활성'}
+                </Badge>
+              </div>
+            </div>
           </div>
         </ModalBody>
         <ModalFooter>
@@ -356,10 +380,10 @@ const RoomManagement = () => {
         <ModalBody>
           <div className="text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#FFEBEE] dark:bg-[#F04452]/10">
-              <Trash2 className="h-6 w-6 text-[#F04452]" />
+              <Trash2 className="h-6 w-6 text-[#F04452] dark:text-red-400" />
             </div>
-            <h3 className="mb-2 text-[18px] font-semibold text-[#191F28] dark:text-white">객실 삭제</h3>
-            <p className="mb-5 text-[14px] text-[#8B95A1]">
+            <h3 className="mb-2 text-heading font-semibold text-[#191F28] dark:text-white">객실 삭제</h3>
+            <p className="mb-5 text-body text-[#8B95A1] dark:text-gray-400">
               객실 <strong>"{deleteTarget?.room_number}"</strong>을(를) 정말 삭제하시겠습니까?
               이 작업은 되돌릴 수 없습니다.
             </p>

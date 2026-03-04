@@ -204,10 +204,10 @@ function ConfirmDeleteDialog({ open, message, onConfirm, onCancel }: ConfirmDele
       <ModalBody>
         <div className="text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-[#FFEBEE] dark:bg-red-900/20">
-            <Trash2 className="h-6 w-6 text-[#F04452]" />
+            <Trash2 className="h-6 w-6 text-[#F04452] dark:text-red-400" />
           </div>
-          <h3 className="mb-2 text-[14px] font-semibold text-[#191F28] dark:text-white">정말 삭제하시겠습니까?</h3>
-          <p className="mb-5 text-[13px] text-[#8B95A1] dark:text-gray-400">{message}</p>
+          <h3 className="mb-2 text-body font-semibold text-[#191F28] dark:text-white">정말 삭제하시겠습니까?</h3>
+          <p className="mb-5 text-label text-[#8B95A1] dark:text-gray-400">{message}</p>
         </div>
       </ModalBody>
       <ModalFooter className="flex justify-center gap-3 border-t border-[#F2F4F6] dark:border-gray-800">
@@ -550,7 +550,7 @@ const Templates: React.FC = () => {
     <div className="space-y-4">
       {/* Info banner + action */}
       <div className="flex items-center gap-4">
-        <div className="flex-1 rounded-2xl border border-[#E8F3FF] bg-[#E8F3FF] px-4 py-3 text-[13px] text-[#3182F6] dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
+        <div className="flex-1 rounded-2xl border border-[#E8F3FF] bg-[#E8F3FF] px-4 py-3 text-label text-[#3182F6] dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
           메시지 템플릿을 만들어두면 스케줄에서 자동으로 발송할 수 있습니다.{' '}
           <code className="rounded bg-[#F2F4F6] px-1 py-0.5 font-mono text-[#3182F6] dark:bg-blue-800/40">{'{{변수명}}'}</code>{' '}
           형식으로 변수를 사용하세요.
@@ -570,8 +570,8 @@ const Templates: React.FC = () => {
         ) : templates.length === 0 ? (
           <div className="empty-state">
             <FileText className="h-10 w-10" />
-            <p className="text-[14px] font-medium">템플릿이 없습니다</p>
-            <p className="text-[13px]">새 템플릿을 만들어 보세요</p>
+            <p className="text-body font-medium">템플릿이 없습니다</p>
+            <p className="text-label">새 템플릿을 만들어 보세요</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -595,7 +595,7 @@ const Templates: React.FC = () => {
                       <span className="tabular-nums text-gray-400 dark:text-gray-500">{t.id}</span>
                     </TableCell>
                     <TableCell>
-                      <code className="rounded bg-[#F2F4F6] px-1.5 py-0.5 font-mono text-[12px] text-[#3182F6] dark:bg-gray-700 dark:text-blue-400">
+                      <code className="rounded bg-[#F2F4F6] px-1.5 py-0.5 font-mono text-caption text-[#3182F6] dark:bg-gray-700 dark:text-blue-400">
                         {t.key}
                       </code>
                     </TableCell>
@@ -619,7 +619,7 @@ const Templates: React.FC = () => {
                           ))}
                         </div>
                       ) : (
-                        <span className="text-[12px] text-gray-400 dark:text-gray-500">없음</span>
+                        <span className="text-caption text-gray-400 dark:text-gray-500">없음</span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -631,7 +631,7 @@ const Templates: React.FC = () => {
                       {t.schedule_count > 0 ? (
                         <Badge color="blue" size="sm">{t.schedule_count}개</Badge>
                       ) : (
-                        <span className="text-[12px] text-gray-400 dark:text-gray-500">0</span>
+                        <span className="text-caption text-gray-400 dark:text-gray-500">0</span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -662,7 +662,7 @@ const Templates: React.FC = () => {
     <div className="space-y-4">
       {/* Info banner + actions */}
       <div className="flex items-center gap-4">
-        <div className="flex-1 rounded-2xl border border-[#E8F3FF] bg-[#E8F3FF] px-4 py-3 text-[13px] text-[#3182F6] dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
+        <div className="flex-1 rounded-2xl border border-[#E8F3FF] bg-[#E8F3FF] px-4 py-3 text-label text-[#3182F6] dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
           템플릿을 자동으로 발송할 시간을 설정합니다. 매일, 매주, 매시간, 또는 N분마다 발송할 수 있습니다.
         </div>
         <div className="flex items-center gap-2">
@@ -686,8 +686,8 @@ const Templates: React.FC = () => {
         ) : schedules.length === 0 ? (
           <div className="empty-state">
             <Clock className="h-10 w-10" />
-            <p className="text-[14px] font-medium">스케줄이 없습니다</p>
-            <p className="text-[13px]">새 발송 스케줄을 만들어 보세요</p>
+            <p className="text-body font-medium">스케줄이 없습니다</p>
+            <p className="text-label">새 발송 스케줄을 만들어 보세요</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -722,15 +722,15 @@ const Templates: React.FC = () => {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-0.5">
-                          <span className="text-[14px] text-[#4E5968] dark:text-gray-300">{s.template_name}</span>
-                          <code className="text-[12px] text-[#8B95A1] dark:text-gray-500">{s.template_key}</code>
+                          <span className="text-body text-[#4E5968] dark:text-gray-300">{s.template_name}</span>
+                          <code className="text-caption text-[#8B95A1] dark:text-gray-500">{s.template_key}</code>
                         </div>
                       </TableCell>
                       <TableCell>
                         <Badge color="indigo" size="sm">{getScheduleTypeLabel(s.schedule_type)}</Badge>
                       </TableCell>
                       <TableCell>
-                        <span className="text-[14px] text-[#4E5968] dark:text-gray-300">{formatScheduleTime(s)}</span>
+                        <span className="text-body text-[#4E5968] dark:text-gray-300">{formatScheduleTime(s)}</span>
                       </TableCell>
                       <TableCell>
                         <Badge color="gray" size="sm">{getTargetLabel(s)}</Badge>
@@ -778,7 +778,7 @@ const Templates: React.FC = () => {
     <div className="space-y-4">
       {/* Info banner + action */}
       <div className="flex items-center gap-4">
-        <div className="flex-1 rounded-2xl border border-[#E8F3FF] bg-[#E8F3FF] px-4 py-3 text-[13px] text-[#3182F6] dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
+        <div className="flex-1 rounded-2xl border border-[#E8F3FF] bg-[#E8F3FF] px-4 py-3 text-label text-[#3182F6] dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
           지금까지 발송한 메시지 이력입니다. 템플릿 스케줄 자동 발송과 수동 발송 모두 기록됩니다.
         </div>
         <Button size="sm" color="light" onClick={fetchCampaigns} disabled={loadingCampaigns}>
@@ -800,8 +800,8 @@ const Templates: React.FC = () => {
         ) : campaigns.length === 0 ? (
           <div className="empty-state">
             <BarChart3 className="h-10 w-10" />
-            <p className="text-[14px] font-medium">발송 이력이 없습니다</p>
-            <p className="text-[13px]">스케줄 또는 수동 발송 후 이력이 기록됩니다</p>
+            <p className="text-body font-medium">발송 이력이 없습니다</p>
+            <p className="text-label">스케줄 또는 수동 발송 후 이력이 기록됩니다</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -843,11 +843,11 @@ const Templates: React.FC = () => {
                       {c.failed_count > 0 ? (
                         <Badge color="failure" size="sm">{c.failed_count}</Badge>
                       ) : (
-                        <span className="text-[12px] text-gray-400 dark:text-gray-500">0</span>
+                        <span className="text-caption text-gray-400 dark:text-gray-500">0</span>
                       )}
                     </TableCell>
                     <TableCell>
-                      <span className="text-[14px] text-gray-500 dark:text-gray-400">
+                      <span className="text-body text-gray-500 dark:text-gray-400">
                         {c.sent_at ? new Date(c.sent_at).toLocaleString('ko-KR') : '-'}
                       </span>
                     </TableCell>
@@ -876,7 +876,7 @@ const Templates: React.FC = () => {
           {/* Key */}
           <div className="space-y-2">
             <Label htmlFor="t-key">
-              템플릿 키 <span className="text-[#F04452]">*</span>
+              템플릿 키 <span className="text-[#F04452] dark:text-red-400">*</span>
             </Label>
             <TextInput
               id="t-key"
@@ -887,16 +887,16 @@ const Templates: React.FC = () => {
               color={tKeyError ? 'failure' : undefined}
             />
             {tKeyError ? (
-              <p className="text-[12px] text-[#F04452]">{tKeyError}</p>
+              <p className="text-caption text-[#F04452] dark:text-red-400">{tKeyError}</p>
             ) : (
-              <p className="text-[12px] text-gray-400 dark:text-gray-500">시스템 고유 식별자. 영문 소문자와 _ 만 허용됩니다.</p>
+              <p className="text-caption text-gray-400 dark:text-gray-500">시스템 고유 식별자. 영문 소문자와 _ 만 허용됩니다.</p>
             )}
           </div>
 
           {/* Name */}
           <div className="space-y-2">
             <Label htmlFor="t-name">
-              템플릿 이름 <span className="text-[#F04452]">*</span>
+              템플릿 이름 <span className="text-[#F04452] dark:text-red-400">*</span>
             </Label>
             <TextInput
               id="t-name"
@@ -904,7 +904,7 @@ const Templates: React.FC = () => {
               value={tName}
               onChange={e => setTName(e.target.value)}
             />
-            <p className="text-[12px] text-gray-400 dark:text-gray-500">관리자가 보는 이름입니다. 한글로 작성하세요.</p>
+            <p className="text-caption text-gray-400 dark:text-gray-500">관리자가 보는 이름입니다. 한글로 작성하세요.</p>
           </div>
 
           {/* Category */}
@@ -923,7 +923,7 @@ const Templates: React.FC = () => {
           {/* Content */}
           <div className="space-y-2">
             <Label htmlFor="t-content">
-              메시지 내용 <span className="text-[#F04452]">*</span>
+              메시지 내용 <span className="text-[#F04452] dark:text-red-400">*</span>
             </Label>
             <Textarea
               id="t-content"
@@ -931,9 +931,9 @@ const Templates: React.FC = () => {
               placeholder={`예시:\n안녕하세요 {{name}}님!\n금일 객실은 {{building}}동 {{roomNum}}호입니다.\n비밀번호: {{password}}`}
               value={tContent}
               onChange={e => handleContentChange(e.target.value)}
-              className="font-mono text-[14px]"
+              className="font-mono text-body"
             />
-            <p className="text-[12px] text-gray-400 dark:text-gray-500">
+            <p className="text-caption text-gray-400 dark:text-gray-500">
               <code className="rounded bg-[#F2F4F6] px-1 py-0.5 font-mono text-[#3182F6] dark:bg-gray-700 dark:text-blue-400">{'{{변수명}}'}</code>{' '}
               형식으로 변수를 삽입하세요
             </p>
@@ -942,23 +942,23 @@ const Templates: React.FC = () => {
           {/* Detected variables */}
           {(detectedVars.valid.length > 0 || detectedVars.invalid.length > 0) && (
             <div className="rounded-2xl border border-[#F2F4F6] bg-[#F2F4F6] p-4 dark:border-gray-800 dark:bg-[#1E1E24]">
-              <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">감지된 변수</p>
+              <p className="mb-3 text-overline font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">감지된 변수</p>
               <div className="space-y-3">
                 {detectedVars.valid.length > 0 && (
                   <div className="space-y-1.5">
-                    <p className="flex items-center gap-1 text-[12px] font-medium text-[#00C9A7] dark:text-green-400">
+                    <p className="flex items-center gap-1 text-caption font-medium text-[#00C9A7] dark:text-green-400">
                       <CheckCircle className="h-3 w-3" /> 유효한 변수
                     </p>
                     <div className="flex flex-wrap gap-1.5">
                       {detectedVars.valid.map(v => (
                         <span
                           key={v}
-                          className="inline-flex items-center gap-1 rounded-xl bg-[#E8FAF5] px-2 py-0.5 text-[12px] text-[#00C9A7] dark:bg-green-900/20 dark:text-green-400"
+                          className="inline-flex items-center gap-1 rounded-xl bg-[#E8FAF5] px-2 py-0.5 text-caption text-[#00C9A7] dark:bg-green-900/20 dark:text-green-400"
                         >
                           <CheckCircle className="h-3 w-3" />
                           <code className="font-mono">{`{{${v}}}`}</code>
                           {availableVariables?.variables?.[v] && (
-                            <span className="text-[#00C9A7]"> — {availableVariables.variables[v].description}</span>
+                            <span className="text-[#00C9A7] dark:text-emerald-400"> — {availableVariables.variables[v].description}</span>
                           )}
                         </span>
                       ))}
@@ -967,18 +967,18 @@ const Templates: React.FC = () => {
                 )}
                 {detectedVars.invalid.length > 0 && (
                   <div className="space-y-1.5">
-                    <p className="flex items-center gap-1 text-[12px] font-medium text-[#F04452] dark:text-red-400">
+                    <p className="flex items-center gap-1 text-caption font-medium text-[#F04452] dark:text-red-400">
                       <XCircle className="h-3 w-3" /> 유효하지 않은 변수
                     </p>
                     <div className="flex flex-wrap gap-1.5">
                       {detectedVars.invalid.map(v => (
                         <span
                           key={v}
-                          className="inline-flex items-center gap-1 rounded-xl bg-[#FFEBEE] px-2 py-0.5 text-[12px] text-[#F04452] dark:bg-red-900/20 dark:text-red-400"
+                          className="inline-flex items-center gap-1 rounded-xl bg-[#FFEBEE] px-2 py-0.5 text-caption text-[#F04452] dark:bg-red-900/20 dark:text-red-400"
                         >
                           <XCircle className="h-3 w-3" />
                           <code className="font-mono">{`{{${v}}}`}</code>
-                          <span className="text-[#F04452]"> — 정의되지 않음</span>
+                          <span className="text-[#F04452] dark:text-red-400"> — 정의되지 않음</span>
                         </span>
                       ))}
                     </div>
@@ -993,7 +993,7 @@ const Templates: React.FC = () => {
             <div className="rounded-2xl border border-[#F2F4F6] dark:border-gray-800">
               <button
                 type="button"
-                className="flex w-full items-center justify-between px-4 py-3 text-[14px] font-medium text-[#4E5968] hover:bg-[#F2F4F6] dark:text-gray-300 dark:hover:bg-[#2C2C34]"
+                className="flex w-full items-center justify-between px-4 py-3 text-body font-medium text-[#4E5968] hover:bg-[#F2F4F6] dark:text-gray-300 dark:hover:bg-[#2C2C34]"
                 onClick={() => setShowVarRef(v => !v)}
               >
                 <span>사용 가능한 변수 참고</span>
@@ -1004,17 +1004,17 @@ const Templates: React.FC = () => {
                   <div className="space-y-4">
                     {Object.entries(availableVariables.categories ?? {}).map(([cat, vars]: [string, any]) => (
                       <div key={cat}>
-                        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">
+                        <p className="mb-2 text-overline font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">
                           {CATEGORY_ICON[cat] ?? cat}
                         </p>
                         <div className="flex flex-wrap gap-1.5">
                           {(vars as any[]).map((v: any) => (
                             <span
                               key={v.name}
-                              className="inline-flex items-center gap-1 rounded-xl bg-[#F2F4F6] px-2 py-0.5 text-[12px] text-[#4E5968] dark:bg-gray-700 dark:text-gray-300"
+                              className="inline-flex items-center gap-1 rounded-xl bg-[#F2F4F6] px-2 py-0.5 text-caption text-[#4E5968] dark:bg-gray-700 dark:text-gray-300"
                             >
                               <code className="font-mono text-[#3182F6] dark:text-blue-400">{`{{${v.name}}}`}</code>
-                              <span className="text-[#8B95A1]"> — {v.description}</span>
+                              <span className="text-[#8B95A1] dark:text-gray-400"> — {v.description}</span>
                             </span>
                           ))}
                         </div>
@@ -1029,8 +1029,8 @@ const Templates: React.FC = () => {
           {/* Active */}
           <div className="flex items-center justify-between rounded-2xl border border-[#F2F4F6] px-4 py-3 dark:border-gray-800">
             <div>
-              <p className="text-[14px] font-medium text-gray-900 dark:text-white">활성 상태</p>
-              <p className="text-[12px] text-gray-400 dark:text-gray-500">비활성화하면 이 템플릿을 사용할 수 없습니다</p>
+              <p className="text-body font-medium text-gray-900 dark:text-white">활성 상태</p>
+              <p className="text-caption text-gray-400 dark:text-gray-500">비활성화하면 이 템플릿을 사용할 수 없습니다</p>
             </div>
             <ToggleSwitch id="t-active" checked={tActive} onChange={setTActive} label="" />
           </div>
@@ -1060,18 +1060,18 @@ const Templates: React.FC = () => {
         <div className="space-y-5">
           {/* Schedule name */}
           <div className="space-y-2">
-            <Label>스케줄 이름 <span className="text-[#F04452]">*</span></Label>
+            <Label>스케줄 이름 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
             <TextInput
               placeholder="예: 파티 안내 자동 발송"
               value={sName}
               onChange={e => setSName(e.target.value)}
             />
-            <p className="text-[12px] text-gray-400 dark:text-gray-500">관리하기 쉽게 알아보기 쉬운 이름을 지어주세요</p>
+            <p className="text-caption text-gray-400 dark:text-gray-500">관리하기 쉽게 알아보기 쉬운 이름을 지어주세요</p>
           </div>
 
           {/* Template */}
           <div className="space-y-2">
-            <Label>발송할 템플릿 <span className="text-[#F04452]">*</span></Label>
+            <Label>발송할 템플릿 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
             <Select value={sTemplateId} onChange={e => setSTemplateId(e.target.value)}>
               <option value="">템플릿 선택</option>
               {templates.map(t => (
@@ -1086,7 +1086,7 @@ const Templates: React.FC = () => {
 
           {/* Schedule type */}
           <div className="space-y-3">
-            <Label>발송 주기 <span className="text-[#F04452]">*</span></Label>
+            <Label>발송 주기 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {[
                 { value: 'daily', label: '매일' },
@@ -1096,7 +1096,7 @@ const Templates: React.FC = () => {
               ].map(opt => (
                 <label
                   key={opt.value}
-                  className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-[14px] font-medium transition-colors ${
+                  className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-body font-medium transition-colors ${
                     sType === opt.value
                       ? 'border-[#3182F6] bg-[#E8F3FF] text-[#3182F6] dark:border-blue-400 dark:bg-blue-900/20 dark:text-blue-300'
                       : 'border-[#F2F4F6] bg-white text-[#4E5968] hover:bg-[#F2F4F6] dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-[#2C2C34]'
@@ -1147,7 +1147,7 @@ const Templates: React.FC = () => {
                       key={k}
                       type="button"
                       onClick={() => toggleDay(k)}
-                      className={`rounded-xl border px-3 py-1.5 text-[14px] font-medium transition-colors ${
+                      className={`rounded-xl border px-3 py-1.5 text-body font-medium transition-colors ${
                         sDayOfWeek.includes(k)
                           ? 'border-[#3182F6] bg-[#3182F6] text-white'
                           : 'border-[#F2F4F6] bg-white text-[#4E5968] hover:bg-[#F2F4F6] dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300'
@@ -1187,7 +1187,7 @@ const Templates: React.FC = () => {
                   <option key={i} value={String(i)}>매시간 {String(i).padStart(2, '0')}분</option>
                 ))}
               </Select>
-              <p className="text-[12px] text-gray-400 dark:text-gray-500">매시간 이 분에 발송됩니다 (예: 10분 → 1:10, 2:10, 3:10...)</p>
+              <p className="text-caption text-gray-400 dark:text-gray-500">매시간 이 분에 발송됩니다 (예: 10분 → 1:10, 2:10, 3:10...)</p>
             </div>
           )}
 
@@ -1204,9 +1204,9 @@ const Templates: React.FC = () => {
                   onChange={e => setSIntervalMinutes(e.target.value)}
                   className="w-32"
                 />
-                <span className="text-[14px] text-gray-500 dark:text-gray-400">분마다</span>
+                <span className="text-body text-gray-500 dark:text-gray-400">분마다</span>
               </div>
-              <p className="text-[12px] text-gray-400 dark:text-gray-500">N분마다 반복 발송됩니다</p>
+              <p className="text-caption text-gray-400 dark:text-gray-500">N분마다 반복 발송됩니다</p>
             </div>
           )}
 
@@ -1214,7 +1214,7 @@ const Templates: React.FC = () => {
 
           {/* Target type */}
           <div className="space-y-2">
-            <Label>발송 대상 <span className="text-[#F04452]">*</span></Label>
+            <Label>발송 대상 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
             <Select value={sTargetType} onChange={e => setSTargetType(e.target.value)}>
               <option value="all">전체 예약자</option>
               <option value="tag">특정 태그가 있는 사람</option>
@@ -1225,13 +1225,13 @@ const Templates: React.FC = () => {
 
           {sTargetType === 'tag' && (
             <div className="space-y-2">
-              <Label>태그 이름 <span className="text-[#F04452]">*</span></Label>
+              <Label>태그 이름 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
               <TextInput
                 placeholder="예: 파티만"
                 value={sTargetValue}
                 onChange={e => setSTargetValue(e.target.value)}
               />
-              <p className="text-[12px] text-gray-400 dark:text-gray-500">예약자에게 붙은 태그를 입력하세요 (예: 파티만, 1초, 2차만)</p>
+              <p className="text-caption text-gray-400 dark:text-gray-500">예약자에게 붙은 태그를 입력하세요 (예: 파티만, 1초, 2차만)</p>
             </div>
           )}
 
@@ -1255,7 +1255,7 @@ const Templates: React.FC = () => {
               ].map(opt => (
                 <label
                   key={opt.value}
-                  className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-2.5 text-[14px] font-medium transition-colors ${
+                  className={`flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-2.5 text-body font-medium transition-colors ${
                     sSmsType === opt.value
                       ? 'border-[#3182F6] bg-[#E8F3FF] text-[#3182F6] dark:border-blue-400 dark:bg-blue-900/20 dark:text-blue-300'
                       : 'border-[#F2F4F6] bg-white text-[#4E5968] hover:bg-[#F2F4F6] dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300'
@@ -1283,18 +1283,18 @@ const Templates: React.FC = () => {
               className="mt-0.5"
             />
             <div>
-              <label htmlFor="s-exclude" className="cursor-pointer text-[14px] font-medium text-gray-900 dark:text-white">
+              <label htmlFor="s-exclude" className="cursor-pointer text-body font-medium text-gray-900 dark:text-white">
                 이미 발송된 대상은 제외
               </label>
-              <p className="text-[12px] text-gray-400 dark:text-gray-500">이미 발송한 사람에게는 다시 보내지 않습니다</p>
+              <p className="text-caption text-gray-400 dark:text-gray-500">이미 발송한 사람에게는 다시 보내지 않습니다</p>
             </div>
           </div>
 
           {/* Active */}
           <div className="flex items-center justify-between rounded-2xl border border-[#F2F4F6] px-4 py-3 dark:border-gray-800">
             <div>
-              <p className="text-[14px] font-medium text-gray-900 dark:text-white">활성 상태</p>
-              <p className="text-[12px] text-gray-400 dark:text-gray-500">비활성화하면 자동 발송이 중단됩니다</p>
+              <p className="text-body font-medium text-gray-900 dark:text-white">활성 상태</p>
+              <p className="text-caption text-gray-400 dark:text-gray-500">비활성화하면 자동 발송이 중단됩니다</p>
             </div>
             <ToggleSwitch id="s-active" checked={sActive} onChange={setSActive} label="" />
           </div>
@@ -1319,13 +1319,13 @@ const Templates: React.FC = () => {
       <ModalHeader className="border-b border-[#F2F4F6] dark:border-gray-800">발송 대상 미리보기</ModalHeader>
       <ModalBody>
         <div className="space-y-4">
-          <div className="rounded-2xl border border-[#E8F3FF] bg-[#E8F3FF] px-4 py-3 text-[13px] text-[#3182F6] dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
+          <div className="rounded-2xl border border-[#E8F3FF] bg-[#E8F3FF] px-4 py-3 text-label text-[#3182F6] dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
             아래 사람들에게 메시지가 발송됩니다. 중복 발송 방지가 켜져 있으면 이미 발송된 사람은 제외됩니다.
           </div>
           {previewTargets.length === 0 ? (
             <div className="empty-state py-10">
               <Eye className="h-8 w-8" />
-              <p className="text-[14px]">대상이 없습니다</p>
+              <p className="text-body">대상이 없습니다</p>
             </div>
           ) : (
             <div className="section-card">
@@ -1350,19 +1350,19 @@ const Templates: React.FC = () => {
                           <span className="font-medium text-gray-900 dark:text-white">{p.customer_name}</span>
                         </TableCell>
                         <TableCell>
-                          <code className="rounded bg-[#F2F4F6] px-1.5 py-0.5 font-mono text-[12px] text-[#3182F6] dark:bg-gray-700 dark:text-blue-400">
+                          <code className="rounded bg-[#F2F4F6] px-1.5 py-0.5 font-mono text-caption text-[#3182F6] dark:bg-gray-700 dark:text-blue-400">
                             {p.phone}
                           </code>
                         </TableCell>
                         <TableCell>
-                          <span className="text-[14px] text-[#4E5968] dark:text-gray-300">{p.room_number ?? '-'}</span>
+                          <span className="text-body text-[#4E5968] dark:text-gray-300">{p.room_number ?? '-'}</span>
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-1">
                             {p.room_sms_sent && <Badge color="blue" size="sm">객실</Badge>}
                             {p.party_sms_sent && <Badge color="purple" size="sm">파티</Badge>}
                             {!p.room_sms_sent && !p.party_sms_sent && (
-                              <span className="text-[12px] text-gray-400 dark:text-gray-500">없음</span>
+                              <span className="text-caption text-gray-400 dark:text-gray-500">없음</span>
                             )}
                           </div>
                         </TableCell>
@@ -1373,7 +1373,7 @@ const Templates: React.FC = () => {
               </div>
             </div>
           )}
-          <p className="text-[14px] text-gray-500 dark:text-gray-400">
+          <p className="text-body text-gray-500 dark:text-gray-400">
             총 <strong className="font-semibold text-[#191F28] dark:text-white">{previewTargets.length}명</strong>에게 발송됩니다
           </p>
         </div>

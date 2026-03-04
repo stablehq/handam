@@ -295,7 +295,7 @@ export default function Reservations() {
               <CalendarDays size={18} />
             </div>
             <div>
-              <p className="stat-value text-xl">{stats.total}<span className="ml-0.5 text-[13px] font-normal text-[#B0B8C1]">건</span></p>
+              <p className="stat-value text-xl">{stats.total}<span className="ml-0.5 text-label font-normal text-[#B0B8C1] dark:text-gray-600">건</span></p>
               <p className="stat-label">총 예약</p>
             </div>
           </div>
@@ -307,7 +307,7 @@ export default function Reservations() {
               <CheckCircle size={18} />
             </div>
             <div>
-              <p className="stat-value text-xl">{stats.confirmed}<span className="ml-0.5 text-[13px] font-normal text-[#B0B8C1]">건</span></p>
+              <p className="stat-value text-xl">{stats.confirmed}<span className="ml-0.5 text-label font-normal text-[#B0B8C1] dark:text-gray-600">건</span></p>
               <p className="stat-label">확정</p>
             </div>
           </div>
@@ -319,7 +319,7 @@ export default function Reservations() {
               <Clock size={18} />
             </div>
             <div>
-              <p className="stat-value text-xl">{stats.pending}<span className="ml-0.5 text-[13px] font-normal text-[#B0B8C1]">건</span></p>
+              <p className="stat-value text-xl">{stats.pending}<span className="ml-0.5 text-label font-normal text-[#B0B8C1] dark:text-gray-600">건</span></p>
               <p className="stat-label">대기</p>
             </div>
           </div>
@@ -331,7 +331,7 @@ export default function Reservations() {
               <XCircle size={18} />
             </div>
             <div>
-              <p className="stat-value text-xl">{stats.cancelled}<span className="ml-0.5 text-[13px] font-normal text-[#B0B8C1]">건</span></p>
+              <p className="stat-value text-xl">{stats.cancelled}<span className="ml-0.5 text-label font-normal text-[#B0B8C1] dark:text-gray-600">건</span></p>
               <p className="stat-label">취소</p>
             </div>
           </div>
@@ -343,7 +343,7 @@ export default function Reservations() {
               <ShoppingBag size={18} />
             </div>
             <div>
-              <p className="stat-value text-xl">{stats.naver}<span className="ml-0.5 text-[13px] font-normal text-[#B0B8C1]">건</span></p>
+              <p className="stat-value text-xl">{stats.naver}<span className="ml-0.5 text-label font-normal text-[#B0B8C1] dark:text-gray-600">건</span></p>
               <p className="stat-label">네이버</p>
             </div>
           </div>
@@ -356,7 +356,7 @@ export default function Reservations() {
         <div className="p-4">
           <div className="filter-bar">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="filter-date" className="text-[12px]">날짜</Label>
+              <Label htmlFor="filter-date" className="text-caption">날짜</Label>
               <TextInput
                 id="filter-date"
                 type="date"
@@ -367,7 +367,7 @@ export default function Reservations() {
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="filter-status" className="text-[12px]">상태</Label>
+              <Label htmlFor="filter-status" className="text-caption">상태</Label>
               <Select
                 id="filter-status"
                 value={filterStatus}
@@ -383,7 +383,7 @@ export default function Reservations() {
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="filter-source" className="text-[12px]">출처</Label>
+              <Label htmlFor="filter-source" className="text-caption">출처</Label>
               <Select
                 id="filter-source"
                 value={filterSource}
@@ -403,7 +403,7 @@ export default function Reservations() {
               </Button>
             )}
 
-            <span className="ml-auto self-end text-[12px] tabular-nums text-gray-500">
+            <span className="ml-auto self-end text-caption tabular-nums text-gray-500">
               {filtered.length}건 표시
             </span>
           </div>
@@ -414,12 +414,12 @@ export default function Reservations() {
           {loading ? (
             <div className="flex flex-col items-center justify-center gap-3 py-16">
               <Spinner size="lg" />
-              <span className="text-[14px] text-[#B0B8C1]">불러오는 중...</span>
+              <span className="text-body text-[#B0B8C1] dark:text-gray-600">불러오는 중...</span>
             </div>
           ) : filtered.length === 0 ? (
             <div className="empty-state">
               <CalendarDays size={40} strokeWidth={1} />
-              <p className="text-[14px]">예약 내역이 없습니다.</p>
+              <p className="text-body">예약 내역이 없습니다.</p>
             </div>
           ) : (
             <Table hoverable striped>
@@ -446,7 +446,7 @@ export default function Reservations() {
                       <TableCell>
                         <div className="space-y-1">
                           <SourceBadge source={isNaver ? 'naver' : 'manual'} />
-                          <p className="text-[12px] tabular-nums text-gray-400">
+                          <p className="text-caption tabular-nums text-gray-400">
                             {isNaver ? r.external_id?.slice(0, 10) : `#${r.id}`}
                           </p>
                         </div>
@@ -462,8 +462,8 @@ export default function Reservations() {
                         </span>
                       </TableCell>
                       <TableCell>
-                        <p className="text-[14px] text-gray-900 dark:text-white">{fmtDate(r.date)}</p>
-                        {timeStr && <p className="text-[12px] text-gray-400">{timeStr}</p>}
+                        <p className="text-body text-gray-900 dark:text-white">{fmtDate(r.date)}</p>
+                        {timeStr && <p className="text-caption text-gray-400">{timeStr}</p>}
                       </TableCell>
                       <TableCell>
                         <StatusBadge status={r.status} />
@@ -475,17 +475,17 @@ export default function Reservations() {
                         {r.room_number ? (
                           <Badge color="info" size="sm">{r.room_number}</Badge>
                         ) : (
-                          <span className="text-[12px] text-gray-400">미배정</span>
+                          <span className="text-caption text-gray-400">미배정</span>
                         )}
                       </TableCell>
                       <TableCell>
-                        <p className="line-clamp-1 max-w-[120px] text-[14px] text-gray-500" title={r.notes ?? ''}>
+                        <p className="line-clamp-1 max-w-[120px] text-body text-gray-500" title={r.notes ?? ''}>
                           {r.notes ?? '-'}
                         </p>
                       </TableCell>
                       <TableCell>
                         {isNaver ? (
-                          <span className="text-[12px] text-gray-400">네이버 관리</span>
+                          <span className="text-caption text-gray-400">네이버 관리</span>
                         ) : (
                           <div className="flex items-center gap-1">
                             <Button color="light" size="xs" onClick={() => openEdit(r)} title="수정">
@@ -520,7 +520,7 @@ export default function Reservations() {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label htmlFor="f-name">
-                예약자 이름 <span className="text-[#F04452]">*</span>
+                예약자 이름 <span className="text-[#F04452] dark:text-red-400">*</span>
               </Label>
               <TextInput
                 id="f-name"
@@ -532,7 +532,7 @@ export default function Reservations() {
 
             <div className="space-y-2">
               <Label htmlFor="f-phone">
-                전화번호 <span className="text-[#F04452]">*</span>
+                전화번호 <span className="text-[#F04452] dark:text-red-400">*</span>
               </Label>
               <TextInput
                 id="f-phone"
@@ -544,7 +544,7 @@ export default function Reservations() {
 
             <div className="space-y-2">
               <Label htmlFor="f-date">
-                예약 날짜 <span className="text-[#F04452]">*</span>
+                예약 날짜 <span className="text-[#F04452] dark:text-red-400">*</span>
               </Label>
               <TextInput
                 id="f-date"
@@ -630,7 +630,7 @@ export default function Reservations() {
                     color={form.tags === t ? 'blue' : 'light'}
                     size="xs"
                     pill
-                    className="!text-[11px] !px-2 !py-0.5"
+                    className="!text-overline !px-2 !py-0.5"
                     onClick={() => setField('tags', t)}
                   >
                     {t}
@@ -680,10 +680,10 @@ export default function Reservations() {
         <ModalBody>
           <div className="text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#FFEBEE] dark:bg-[#F04452]/10">
-              <Trash2 className="h-6 w-6 text-[#F04452]" />
+              <Trash2 className="h-6 w-6 text-[#F04452] dark:text-red-400" />
             </div>
-            <h3 className="mb-2 text-[18px] font-semibold text-[#191F28] dark:text-white">예약을 삭제하시겠습니까?</h3>
-            <p className="mb-5 text-[14px] text-gray-500">이 작업은 되돌릴 수 없습니다. 예약 정보가 영구적으로 삭제됩니다.</p>
+            <h3 className="mb-2 text-heading font-semibold text-[#191F28] dark:text-white">예약을 삭제하시겠습니까?</h3>
+            <p className="mb-5 text-body text-gray-500">이 작업은 되돌릴 수 없습니다. 예약 정보가 영구적으로 삭제됩니다.</p>
             <div className="flex justify-center gap-3">
               <Button color="failure" onClick={handleDelete} disabled={deleting}>
                 {deleting ? (

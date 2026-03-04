@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 class RoomCreate(BaseModel):
     room_number: str
     room_type: str
+    base_capacity: int = 2
+    max_capacity: int = 4
     is_active: bool = True
     sort_order: int = 0
 
@@ -24,6 +26,8 @@ class RoomCreate(BaseModel):
 class RoomUpdate(BaseModel):
     room_number: Optional[str] = None
     room_type: Optional[str] = None
+    base_capacity: Optional[int] = None
+    max_capacity: Optional[int] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
 
@@ -32,6 +36,8 @@ class RoomResponse(BaseModel):
     id: int
     room_number: str
     room_type: str
+    base_capacity: int
+    max_capacity: int
     is_active: bool
     sort_order: int
     created_at: datetime
@@ -71,6 +77,8 @@ async def create_room(room: RoomCreate, db: Session = Depends(get_db)):
     db_room = Room(
         room_number=room.room_number,
         room_type=room.room_type,
+        base_capacity=room.base_capacity,
+        max_capacity=room.max_capacity,
         is_active=room.is_active,
         sort_order=room.sort_order,
     )

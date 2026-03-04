@@ -189,6 +189,8 @@ class Room(Base):
     id = Column(Integer, primary_key=True, index=True)
     room_number = Column(String(20), nullable=False, index=True)  # e.g., A101, B205, 별관 (duplicates allowed)
     room_type = Column(String(50), nullable=False)  # e.g., 더블룸, 트윈룸, 패밀리룸
+    base_capacity = Column(Integer, default=2)  # 기준 인원
+    max_capacity = Column(Integer, default=4)  # 최대 인원
     is_active = Column(Boolean, default=True)  # Active/inactive flag
     sort_order = Column(Integer, default=0)  # Display order
     created_at = Column(DateTime, default=datetime.utcnow)

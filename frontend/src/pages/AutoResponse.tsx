@@ -195,7 +195,7 @@ const AutoResponse = () => {
         <TabItem active title="응답 규칙">
           <div className="section-card">
             <div className="section-header">
-              <h3 className="text-[14px] font-semibold text-[#191F28] dark:text-white">응답 규칙 목록</h3>
+              <h3 className="text-body font-semibold text-[#191F28] dark:text-white">응답 규칙 목록</h3>
               <Button color="blue" size="sm" onClick={openCreate}>
                 <Plus className="mr-1.5 h-4 w-4" />
                 룰 추가
@@ -209,7 +209,7 @@ const AutoResponse = () => {
             ) : rules.length === 0 ? (
               <div className="empty-state">
                 <Zap size={40} strokeWidth={1} />
-                <p className="text-[14px]">등록된 규칙이 없습니다</p>
+                <p className="text-body">등록된 규칙이 없습니다</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -235,12 +235,12 @@ const AutoResponse = () => {
                           <span className="font-medium text-gray-900 dark:text-white">{rule.name}</span>
                         </TableCell>
                         <TableCell>
-                          <code className="rounded-lg bg-gray-100 px-1.5 py-0.5 font-mono text-[12px] text-blue-600 dark:bg-gray-700">
+                          <code className="rounded-lg bg-gray-100 px-1.5 py-0.5 font-mono text-caption text-blue-600 dark:bg-gray-700">
                             {rule.pattern}
                           </code>
                         </TableCell>
                         <TableCell>
-                          <span className="line-clamp-2 max-w-[240px] text-[14px] text-gray-600 dark:text-gray-300">
+                          <span className="line-clamp-2 max-w-[240px] text-body text-gray-600 dark:text-gray-300">
                             {rule.response}
                           </span>
                         </TableCell>
@@ -274,7 +274,7 @@ const AutoResponse = () => {
         <TabItem title="지식 문서">
           <div className="section-card">
             <div className="section-header">
-              <h3 className="text-[14px] font-semibold text-[#191F28] dark:text-white">지식 문서</h3>
+              <h3 className="text-body font-semibold text-[#191F28] dark:text-white">지식 문서</h3>
               <div>
                 <input
                   ref={fileInputRef}
@@ -304,7 +304,7 @@ const AutoResponse = () => {
             </div>
 
             {/* Info notice — Toss style */}
-            <div className="mx-5 mt-4 rounded-xl bg-[#E8F3FF] px-4 py-3 text-[13px] text-[#3182F6] dark:bg-[#3182F6]/10">
+            <div className="mx-5 mt-4 rounded-xl bg-[#E8F3FF] px-4 py-3 text-label text-[#3182F6] dark:bg-[#3182F6]/10">
               Demo 모드: 문서는 메타데이터만 저장되며 실제로 RAG 인덱싱되지 않습니다.
               프로덕션 모드에서는 ChromaDB에 임베딩되어 LLM 응답 생성 시 활용됩니다.
             </div>
@@ -316,7 +316,7 @@ const AutoResponse = () => {
             ) : documents.length === 0 ? (
               <div className="empty-state">
                 <FileText size={40} strokeWidth={1} />
-                <p className="text-[14px]">업로드된 문서가 없습니다</p>
+                <p className="text-body">업로드된 문서가 없습니다</p>
               </div>
             ) : (
               <div className="overflow-x-auto p-5 pt-4">
@@ -343,7 +343,7 @@ const AutoResponse = () => {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <span className="text-[14px] text-gray-500">
+                          <span className="text-body text-gray-500">
                             {new Date(doc.uploaded_at).toLocaleString('ko-KR')}
                           </span>
                         </TableCell>
@@ -375,7 +375,7 @@ const AutoResponse = () => {
         <ModalBody>
           <div className="flex flex-col gap-5">
             <div className="space-y-2">
-              <Label htmlFor="rule-name">이름 <span className="text-[#F04452]">*</span></Label>
+              <Label htmlFor="rule-name">이름 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
               <TextInput
                 id="rule-name"
                 value={form.name}
@@ -385,18 +385,18 @@ const AutoResponse = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="rule-pattern">패턴 (정규식) <span className="text-[#F04452]">*</span></Label>
+              <Label htmlFor="rule-pattern">패턴 (정규식) <span className="text-[#F04452] dark:text-red-400">*</span></Label>
               <TextInput
                 id="rule-pattern"
                 value={form.pattern}
                 onChange={(e) => setForm((f) => ({ ...f, pattern: e.target.value }))}
                 placeholder="(영업시간|몇시|언제)"
               />
-              <p className="text-[12px] text-[#B0B8C1]">정규식 패턴으로 수신 메시지를 매칭합니다</p>
+              <p className="text-caption text-[#B0B8C1] dark:text-gray-600">정규식 패턴으로 수신 메시지를 매칭합니다</p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="rule-response">응답 <span className="text-[#F04452]">*</span></Label>
+              <Label htmlFor="rule-response">응답 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
               <Textarea
                 id="rule-response"
                 rows={4}
@@ -416,7 +416,7 @@ const AutoResponse = () => {
                 value={form.priority}
                 onChange={(e) => setForm((f) => ({ ...f, priority: Number(e.target.value) }))}
               />
-              <p className="text-[12px] text-[#B0B8C1]">높은 숫자가 우선 매칭됩니다</p>
+              <p className="text-caption text-[#B0B8C1] dark:text-gray-600">높은 숫자가 우선 매칭됩니다</p>
             </div>
 
             <ToggleSwitch

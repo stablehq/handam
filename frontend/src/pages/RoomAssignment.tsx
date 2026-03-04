@@ -13,7 +13,6 @@ import {
   ModalFooter,
   TextInput,
   Label,
-  Select,
   Spinner,
 } from 'flowbite-react';
 import {
@@ -21,12 +20,11 @@ import {
   RefreshCw,
   X,
   UserPlus,
-  Pencil,
   Trash2,
-  Save,
-  XCircle,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  GripVertical,
 } from 'lucide-react';
 
 interface Reservation {
@@ -49,20 +47,8 @@ interface Reservation {
   source?: string;
 }
 
-const TAG_OPTIONS = ['1초', '2차만', '객후', '파티만', '객후,1초', '1초,2차만'];
-const ROOM_TYPE_OPTIONS = ['더블룸', '트윈룸', '패밀리룸', '디럭스룸', '스탠다드룸'];
 
 
-function getPartyLabel(tags: string | null): string {
-  if (!tags) return '';
-  const t = tags.split(',').map((s) => s.trim());
-  const has1 = t.some((v) => v === '1초');
-  const has2 = t.some((v) => v === '2차만');
-  if (has1 && has2) return '2';
-  if (has1) return '1';
-  if (has2) return '2차만';
-  return '';
-}
 
 function getSmsStatus(res: Reservation): { pending: string[]; sent: string[] } {
   const pending: string[] = [];
@@ -145,7 +131,7 @@ const SmsCell: React.FC<SmsCellProps> = ({ smsStatus, isEditing, onToggle }) => 
           onClick={() => scroll('left')}
           className="absolute left-0 z-10 flex items-center justify-center cursor-pointer bg-white/80 dark:bg-[#1E1E24]/80 rounded-full"
         >
-          <ChevronLeft size={12} className="text-[#8B95A1]" />
+          <ChevronLeft size={12} className="text-[#8B95A1] dark:text-gray-400" />
         </button>
       )}
       <div
@@ -163,11 +149,11 @@ const SmsCell: React.FC<SmsCellProps> = ({ smsStatus, isEditing, onToggle }) => 
                   onToggle(type);
                 }
               }}
-              className={isEditing ? 'cursor-pointer opacity-60 hover:opacity-100 transition-opacity' : ''}
+              className={`inline-flex items-center px-1.5 py-0 rounded text-[11px] leading-[18px] font-medium whitespace-nowrap
+                bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400
+                ${isEditing ? 'cursor-pointer opacity-60 hover:opacity-100 transition-opacity' : ''}`}
             >
-              <Badge color="gray" size="xs">
-                {type}
-              </Badge>
+              {type}
             </span>
           ))}
           {smsStatus.sent.map((type) => (
@@ -179,15 +165,15 @@ const SmsCell: React.FC<SmsCellProps> = ({ smsStatus, isEditing, onToggle }) => 
                   onToggle(type);
                 }
               }}
-              className={isEditing ? 'cursor-pointer' : ''}
+              className={`inline-flex items-center px-1.5 py-0 rounded text-[11px] leading-[18px] font-medium whitespace-nowrap
+                bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400
+                ${isEditing ? 'cursor-pointer' : ''}`}
             >
-              <Badge color="success" size="xs">
-                {type}
-              </Badge>
+              {type}
             </span>
           ))}
           {smsStatus.pending.length === 0 && smsStatus.sent.length === 0 && (
-            <span className="text-[#B0B8C1] dark:text-[#8B95A1] text-[12px]">-</span>
+            <span className="text-[#B0B8C1] dark:text-[#8B95A1] text-caption">-</span>
           )}
         </div>
       </div>
@@ -196,10 +182,33 @@ const SmsCell: React.FC<SmsCellProps> = ({ smsStatus, isEditing, onToggle }) => 
           onClick={() => scroll('right')}
           className="absolute right-0 z-10 flex items-center justify-center cursor-pointer bg-white/80 dark:bg-[#1E1E24]/80 rounded-full"
         >
-          <ChevronRight size={12} className="text-[#8B95A1]" />
+          <ChevronRight size={12} className="text-[#8B95A1] dark:text-gray-400" />
         </button>
       )}
     </div>
+  );
+};
+
+const InlineInput = ({ value, field, resId, className, placeholder, onSave }: {
+  value: string;
+  field: string;
+  resId: number;
+  className?: string;
+  placeholder?: string;
+  onSave: (resId: number, field: string, value: string) => void;
+}) => {
+  const [localValue, setLocalValue] = useState(value);
+  useEffect(() => setLocalValue(value), [value]);
+  return (
+    <input
+      className={`bg-transparent border-none outline-none w-full text-body
+        focus:bg-[#F2F4F6] focus:rounded focus:px-1 dark:focus:bg-[#2C2C34]
+        transition-colors ${className || ''}`}
+      value={localValue}
+      onChange={(e) => setLocalValue(e.target.value)}
+      onBlur={() => { if (localValue !== value) onSave(resId, field, localValue); }}
+      placeholder={placeholder}
+    />
   );
 };
 
@@ -252,8 +261,27 @@ const RoomAssignment = () => {
     setConfirmState({ open: true, title, content, onOk });
   };
 
-  const [inlineEditingId, setInlineEditingId] = useState<number | null>(null);
-  const [inlineEditValues, setInlineEditValues] = useState<any>({});
+  const [partyValues, setPartyValues] = useState<Record<number, string>>({});
+
+  const handleFieldSave = async (resId: number, field: string, value: string) => {
+    if (field === 'party') {
+      setPartyValues((prev) => ({ ...prev, [resId]: value }));
+      return;
+    }
+    try {
+      if (field === 'genderPeople') {
+        const match = (value || '').match(/^([가-힣]*)(\d*)$/);
+        const gender = match?.[1] || null;
+        const party_participants = match?.[2] ? Number(match[2]) : null;
+        await reservationsAPI.update(resId, { gender, party_participants });
+      } else {
+        await reservationsAPI.update(resId, { [field]: value });
+      }
+      fetchReservations(selectedDate);
+    } catch {
+      toast.error('저장 실패');
+    }
+  };
 
   const [smsColumnWidth, setSmsColumnWidth] = useState(200);
   const [isResizing, setIsResizing] = useState(false);
@@ -261,7 +289,7 @@ const RoomAssignment = () => {
   const [resizeStartWidth, setResizeStartWidth] = useState(200);
 
   const GUEST_COLS = useMemo(() => {
-    return `56px 120px 40px 40px 72px minmax(40px, 1fr) ${smsColumnWidth}px 50px`;
+    return `56px 120px 40px 40px 72px minmax(40px, 1fr) ${smsColumnWidth}px`;
   }, [smsColumnWidth]);
 
   const roomInfoMap = useMemo(() => {
@@ -278,6 +306,8 @@ const RoomAssignment = () => {
 
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [selectedCampaign, setSelectedCampaign] = useState<string>('');
+  const [campaignDropdownOpen, setCampaignDropdownOpen] = useState(false);
+  const campaignDropdownRef = useRef<HTMLDivElement>(null);
   const [targets, setTargets] = useState<any[]>([]);
   const [targetsLoading, setTargetsLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -350,6 +380,16 @@ const RoomAssignment = () => {
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isResizing, resizeStartX, resizeStartWidth]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (campaignDropdownRef.current && !campaignDropdownRef.current.contains(e.target as Node)) {
+        setCampaignDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     campaignsAPI
@@ -608,7 +648,19 @@ const RoomAssignment = () => {
     if (!values.customer_name) { toast.error('이름을 입력하세요'); return; }
     if (!values.phone) { toast.error('전화번호를 입력하세요'); return; }
     if (!values.date) { toast.error('날짜를 입력하세요'); return; }
-    if (!values.time) { toast.error('시간을 입력하세요'); return; }
+
+    // Map male_count/female_count to gender + party_participants
+    const maleCount = values.male_count ? Number(values.male_count) : 0;
+    const femaleCount = values.female_count ? Number(values.female_count) : 0;
+    const genderParts = [];
+    if (maleCount > 0) genderParts.push(`남${maleCount}`);
+    if (femaleCount > 0) genderParts.push(`여${femaleCount}`);
+    values.gender = genderParts.join('') || null;
+    values.party_participants = (maleCount + femaleCount) || null;
+    delete values.male_count;
+    delete values.female_count;
+
+    if (!values.time) values.time = '00:00';
 
     if (!editingId && values.guest_type) {
       if (values.guest_type === 'party_only') {
@@ -638,36 +690,6 @@ const RoomAssignment = () => {
     }
   };
 
-  const handleInlineEdit = (res: Reservation) => {
-    setInlineEditingId(res.id);
-    setInlineEditValues({
-      customer_name: res.customer_name,
-      phone: res.phone,
-      gender: res.gender,
-      party_participants: res.party_participants,
-      room_info: res.room_info,
-      notes: res.notes,
-      tags: res.tags,
-    });
-  };
-
-  const handleInlineSave = async () => {
-    if (!inlineEditingId) return;
-    try {
-      await reservationsAPI.update(inlineEditingId, inlineEditValues);
-      toast.success('수정 완료');
-      setInlineEditingId(null);
-      setInlineEditValues({});
-      fetchReservations(selectedDate);
-    } catch {
-      toast.error('저장 실패');
-    }
-  };
-
-  const handleInlineCancel = () => {
-    setInlineEditingId(null);
-    setInlineEditValues({});
-  };
 
   const handleSmsToggle = async (res: Reservation, smsType: string) => {
     try {
@@ -691,46 +713,27 @@ const RoomAssignment = () => {
     }
   };
 
-  // Source badge
-  const SourceBadge = ({ source }: { source?: string }) => {
-    if (source === 'naver')
-      return <Badge color="success" size="xs">네이버</Badge>;
-    if (source === 'manual')
-      return <Badge color="gray" size="xs">직접입력</Badge>;
-    return null;
-  };
-
   // Row drag state — returns Tailwind cursor class
-  const guestAreaCursor = (
-    isDragOver: boolean,
-    isEditing: boolean,
-    hasRes: boolean,
-    variant?: 'unassigned' | 'party',
-  ): string => {
-    if (isDragOver || isEditing) return 'cursor-default';
-    if (variant === 'unassigned' || variant === 'party') return 'cursor-grab';
-    if (hasRes) return 'cursor-grab';
+  const guestAreaCursor = (): string => {
     return 'cursor-default';
   };
 
   const renderRoomRow = (room: string) => {
     const res = assignedRooms.get(room);
     const isDragOver = dragOverRoom === room;
-    const isEditing = !!(res && inlineEditingId === res.id);
     const genderPeople = res
       ? [res.gender, res.party_participants].filter(Boolean).join('')
       : '';
-    const party = res ? getPartyLabel(res.tags) : '';
     const smsStatus = res ? getSmsStatus(res) : { pending: [], sent: [] };
 
     return (
       <div
         key={room}
-        className={`flex overflow-hidden select-none border-b border-[#F2F4F6] dark:border-gray-800 transition-colors
+        className={`group flex select-none border-b border-[#F2F4F6] dark:border-gray-800 transition-colors h-10
           ${isDragOver
             ? 'bg-[#E8F3FF] dark:bg-blue-900/20 ring-1 ring-inset ring-[#3182F6]/30 dark:ring-blue-700'
             : res
-              ? 'bg-white dark:bg-[#1E1E24] hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34]'
+              ? 'bg-white dark:bg-[#1E1E24]'
               : 'bg-[#F2F4F6]/50 dark:bg-[#17171C]/30'
           }`}
         onDragOver={(e) => onRoomDragOver(e, room)}
@@ -739,141 +742,53 @@ const RoomAssignment = () => {
       >
         {/* Room label */}
         <div className="flex items-center gap-1.5 flex-shrink-0 pl-3 pr-2 py-2 w-36 border-r border-[#F2F4F6] dark:border-gray-800">
-          <span className="font-semibold text-[#191F28] dark:text-white text-[14px]">{room}</span>
+          <span className="font-semibold text-[#191F28] dark:text-white text-body">{room}</span>
           {roomInfoMap[room] && (
-            <span className="text-[12px] text-[#B0B8C1] dark:text-[#8B95A1] truncate">{roomInfoMap[room]}</span>
+            <span className="text-caption text-[#B0B8C1] dark:text-[#8B95A1] truncate">{roomInfoMap[room]}</span>
           )}
         </div>
 
-        {/* Guest area */}
-        <div
-          draggable={!!res && !isEditing}
-          onDragStart={(e) => res && !isEditing && onDragStart(e, res.id)}
-          className={`flex-1 grid items-center gap-2 px-3 py-1.5 ${guestAreaCursor(isDragOver, isEditing, !!res)}`}
-          style={{
-            gridTemplateColumns: GUEST_COLS,
-          }}
-        >
+        {/* Guest row: grip + data as one layer */}
+        <div className={`flex-1 flex items-center -ml-7 rounded-lg transition-shadow duration-200 group-hover:shadow-[0_1px_8px_-2px_rgba(0,0,0,0.12),-6px_0_10px_-4px_rgba(0,0,0,0.08)] ${guestAreaCursor()}`}>
+          {res && (
+            <div
+              draggable
+              onDragStart={(e) => onDragStart(e, res.id)}
+              className="flex items-center justify-center w-7 px-0.5 flex-shrink-0 cursor-grab active:cursor-grabbing text-[#D5DAE0] group-hover:text-[#8B95A1] dark:text-gray-700 dark:group-hover:text-gray-400 transition-all duration-200"
+            >
+              <GripVertical size={14} />
+            </div>
+          )}
+          <div
+            className="flex-1 grid items-center gap-2 px-3 py-1.5"
+            style={{ gridTemplateColumns: GUEST_COLS }}
+          >
           {res ? (
-            isEditing ? (
-              <>
-                <div className="overflow-hidden">
-                  <TextInput
-                    sizing="sm"
-                    value={inlineEditValues.customer_name}
-                    onChange={(e) =>
-                      setInlineEditValues({ ...inlineEditValues, customer_name: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="overflow-hidden">
-                  <TextInput
-                    sizing="sm"
-                    value={inlineEditValues.phone}
-                    onChange={(e) =>
-                      setInlineEditValues({ ...inlineEditValues, phone: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="flex gap-1">
-                  <Select
-                    sizing="sm"
-                    value={inlineEditValues.gender || ''}
-                    onChange={(e) =>
-                      setInlineEditValues({ ...inlineEditValues, gender: e.target.value })
-                    }
-                  >
-                    <option value="">-</option>
-                    <option value="남">남</option>
-                    <option value="여">여</option>
-                  </Select>
-                  <TextInput
-                    type="number"
-                    sizing="sm"
-                    min={1}
-                    value={inlineEditValues.party_participants || ''}
-                    onChange={(e) =>
-                      setInlineEditValues({
-                        ...inlineEditValues,
-                        party_participants: Number(e.target.value),
-                      })
-                    }
-                  />
-                </div>
-                <div className="text-[14px] text-[#4E5968] dark:text-gray-300 text-center">{party}</div>
-                <div className="overflow-hidden">
-                  <Select
-                    sizing="sm"
-                    value={inlineEditValues.room_info || ''}
-                    onChange={(e) =>
-                      setInlineEditValues({ ...inlineEditValues, room_info: e.target.value })
-                    }
-                  >
-                    <option value="">-</option>
-                    {ROOM_TYPE_OPTIONS.map((type) => (
-                      <option key={type} value={type}>{type}</option>
-                    ))}
-                  </Select>
-                </div>
-                <div className="overflow-hidden">
-                  <TextInput
-                    sizing="sm"
-                    value={inlineEditValues.notes || ''}
-                    onChange={(e) =>
-                      setInlineEditValues({ ...inlineEditValues, notes: e.target.value })
-                    }
-                  />
-                </div>
-                <SmsCell
-                  smsStatus={smsStatus}
-                  isEditing={isEditing}
-                  onToggle={(type) => handleSmsToggle(res, type)}
-                />
-                <div className="flex gap-1 justify-center">
-                  <Button
-                    color="light"
-                    size="xs"
-                    onClick={handleInlineSave}
-                  >
-                    <Save size={14} />
-                  </Button>
-                  <Button
-                    color="light"
-                    size="xs"
-                    onClick={handleInlineCancel}
-                  >
-                    <XCircle size={14} />
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="overflow-hidden truncate flex items-center gap-1">
-                  <span className="font-medium text-[#191F28] dark:text-white text-[14px] truncate">{res.customer_name}</span>
-                  <SourceBadge source={res.source} />
-                </div>
-                <div className="overflow-hidden truncate text-[14px] text-[#8B95A1] dark:text-gray-400 tabular-nums">{res.phone}</div>
-                <div className="text-center text-[14px] text-[#4E5968] dark:text-gray-300 font-medium">{genderPeople || <span className="text-[#B0B8C1]">-</span>}</div>
-                <div className="text-center text-[14px] text-[#4E5968] dark:text-gray-300 font-medium">{party || <span className="text-[#B0B8C1]">-</span>}</div>
-                <div className="overflow-hidden truncate text-[14px] text-[#8B95A1] dark:text-gray-400">{res.room_info || <span className="text-[#B0B8C1]">-</span>}</div>
-                <div className="overflow-hidden truncate text-[14px] text-[#8B95A1] dark:text-gray-400">{res.notes || ''}</div>
-                <SmsCell smsStatus={smsStatus} isEditing={false} />
-                <div className="flex justify-center">
-                  <Button
-                    color="light"
-                    size="xs"
-                    onClick={(e) => { e.stopPropagation(); handleInlineEdit(res); }}
-                  >
-                    <Pencil size={14} />
-                  </Button>
-                </div>
-              </>
-            )
+            <>
+              <div className="overflow-hidden">
+                <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className="font-medium text-[#191F28] dark:text-white" placeholder="이름" />
+              </div>
+              <div className="overflow-hidden">
+                <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-gray-400 tabular-nums" placeholder="연락처" />
+              </div>
+              <div className="overflow-hidden text-center">
+                <InlineInput value={genderPeople} field="genderPeople" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
+              </div>
+              <div className="overflow-hidden text-center">
+                <InlineInput value={partyValues[res.id] || ''} field="party" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
+              </div>
+              <div className="overflow-hidden truncate text-body text-[#8B95A1] dark:text-gray-400">{res.room_info || <span className="text-[#B0B8C1]">-</span>}</div>
+              <div className="overflow-hidden">
+                <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-gray-400" placeholder="" />
+              </div>
+              <SmsCell smsStatus={smsStatus} isEditing={false} />
+            </>
           ) : (
-            <div className="overflow-hidden truncate col-span-full text-[14px] text-[#3182F6] dark:text-blue-400 italic">
+            <div className="overflow-hidden truncate col-span-full text-body text-[#3182F6] dark:text-blue-400 italic">
               {isDragOver ? '여기에 놓으세요' : ''}
             </div>
           )}
+          </div>
         </div>
       </div>
     );
@@ -881,39 +796,42 @@ const RoomAssignment = () => {
 
   const renderUnassignedRow = (res: Reservation) => {
     const genderPeople = [res.gender, res.party_participants].filter(Boolean).join('');
-    const party = getPartyLabel(res.tags);
     const smsStatus = getSmsStatus(res);
-    const isEditing = inlineEditingId === res.id;
 
     return (
       <div
         key={res.id}
-        className="flex overflow-hidden select-none border-b border-[#F2F4F6] dark:border-gray-800 bg-white dark:bg-[#1E1E24] hover:bg-[#FFF5E6]/40 dark:hover:bg-[#2C2C34] transition-colors"
-        draggable={!isEditing}
-        onDragStart={(e) => !isEditing && onDragStart(e, res.id)}
+        className="group select-none border-b border-[#F2F4F6] dark:border-gray-800 bg-white dark:bg-[#1E1E24] transition-colors h-10"
       >
-        <div
-          className={`flex-1 grid items-center gap-2 px-3 py-1.5 ${guestAreaCursor(false, isEditing, true, 'unassigned')}`}
-          style={{ gridTemplateColumns: GUEST_COLS }}
-        >
-          <div className="overflow-hidden truncate flex items-center gap-1">
-            <span className="font-medium text-[#191F28] dark:text-white text-[14px] truncate">{res.customer_name}</span>
-            <SourceBadge source={res.source} />
+        <div className={`flex items-center -ml-7 rounded-lg transition-shadow duration-200 group-hover:shadow-[0_1px_8px_-2px_rgba(0,0,0,0.12),-6px_0_10px_-4px_rgba(0,0,0,0.08)] ${guestAreaCursor()}`}>
+          <div
+            draggable
+            onDragStart={(e) => onDragStart(e, res.id)}
+            className="flex items-center justify-center w-7 px-0.5 flex-shrink-0 cursor-grab active:cursor-grabbing text-[#D5DAE0] group-hover:text-[#8B95A1] dark:text-gray-700 dark:group-hover:text-gray-400 transition-all duration-200"
+          >
+            <GripVertical size={14} />
           </div>
-          <div className="overflow-hidden truncate text-[14px] text-[#8B95A1] dark:text-gray-400 tabular-nums">{res.phone}</div>
-          <div className="text-center text-[14px] text-[#4E5968] dark:text-gray-300 font-medium">{genderPeople || <span className="text-[#B0B8C1]">-</span>}</div>
-          <div className="text-center text-[14px] text-[#4E5968] dark:text-gray-300 font-medium">{party || <span className="text-[#B0B8C1]">-</span>}</div>
-          <div className="overflow-hidden truncate text-[14px] text-[#8B95A1] dark:text-gray-400">{res.room_info || <span className="text-[#B0B8C1]">-</span>}</div>
-          <div className="overflow-hidden truncate text-[14px] text-[#8B95A1] dark:text-gray-400">{res.notes || ''}</div>
-          <SmsCell smsStatus={smsStatus} isEditing={false} />
-          <div className="flex justify-center">
-            <Button
-              color="light"
-              size="xs"
-              onClick={(e) => { e.stopPropagation(); handleInlineEdit(res); }}
-            >
-              <Pencil size={14} />
-            </Button>
+          <div
+            className="flex-1 grid items-center gap-2 px-3 py-1.5 overflow-hidden"
+            style={{ gridTemplateColumns: GUEST_COLS }}
+          >
+            <div className="overflow-hidden">
+              <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className="font-medium text-[#191F28] dark:text-white" placeholder="이름" />
+            </div>
+            <div className="overflow-hidden">
+              <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-gray-400 tabular-nums" placeholder="연락처" />
+            </div>
+            <div className="overflow-hidden text-center">
+              <InlineInput value={genderPeople} field="genderPeople" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
+            </div>
+            <div className="overflow-hidden text-center">
+                <InlineInput value={partyValues[res.id] || ''} field="party" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
+              </div>
+            <div className="overflow-hidden truncate text-body text-[#8B95A1] dark:text-gray-400">{res.room_info || <span className="text-[#B0B8C1]">-</span>}</div>
+            <div className="overflow-hidden">
+              <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-gray-400" placeholder="" />
+            </div>
+            <SmsCell smsStatus={smsStatus} isEditing={false} />
           </div>
         </div>
       </div>
@@ -921,143 +839,44 @@ const RoomAssignment = () => {
   };
 
   const renderPartyOnlyRow = (res: Reservation, _index: number) => {
-    const isEditing = inlineEditingId === res.id;
     const genderPeople = [res.gender, res.party_participants].filter(Boolean).join('');
-    const party = getPartyLabel(res.tags);
     const smsStatus = getSmsStatus(res);
 
     return (
       <div
         key={res.id}
-        className="flex overflow-hidden select-none border-b border-[#F2F4F6] dark:border-gray-800 bg-white dark:bg-[#1E1E24] hover:bg-[#F3EEFF]/40 dark:hover:bg-[#2C2C34] transition-colors"
-        draggable={!isEditing}
-        onDragStart={(e) => !isEditing && onDragStart(e, res.id)}
+        className="group select-none border-b border-[#F2F4F6] dark:border-gray-800 bg-white dark:bg-[#1E1E24] transition-colors h-10"
       >
-        <div
-          className={`flex-1 grid items-center gap-2 px-3 py-1.5 ${guestAreaCursor(false, isEditing, true, 'party')}`}
-          style={{ gridTemplateColumns: GUEST_COLS }}
-        >
-          {isEditing ? (
-            <>
-              <div className="overflow-hidden">
-                <TextInput
-                  sizing="sm"
-                  value={inlineEditValues.customer_name}
-                  onChange={(e) =>
-                    setInlineEditValues({ ...inlineEditValues, customer_name: e.target.value })
-                  }
-                />
+        <div className={`flex items-center -ml-7 rounded-lg transition-shadow duration-200 group-hover:shadow-[0_1px_8px_-2px_rgba(0,0,0,0.12),-6px_0_10px_-4px_rgba(0,0,0,0.08)] ${guestAreaCursor()}`}>
+          <div
+            draggable
+            onDragStart={(e) => onDragStart(e, res.id)}
+            className="flex items-center justify-center w-7 px-0.5 flex-shrink-0 cursor-grab active:cursor-grabbing text-[#D5DAE0] group-hover:text-[#8B95A1] dark:text-gray-700 dark:group-hover:text-gray-400 transition-all duration-200"
+          >
+            <GripVertical size={14} />
+          </div>
+          <div
+            className="flex-1 grid items-center gap-2 px-3 py-1.5 overflow-hidden"
+            style={{ gridTemplateColumns: GUEST_COLS }}
+          >
+            <div className="overflow-hidden">
+              <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className="font-medium text-[#191F28] dark:text-white" placeholder="이름" />
+            </div>
+            <div className="overflow-hidden">
+              <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-gray-400 tabular-nums" placeholder="연락처" />
+            </div>
+            <div className="overflow-hidden text-center">
+              <InlineInput value={genderPeople} field="genderPeople" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
+            </div>
+            <div className="overflow-hidden text-center">
+                <InlineInput value={partyValues[res.id] || ''} field="party" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
               </div>
-              <div className="overflow-hidden">
-                <TextInput
-                  sizing="sm"
-                  value={inlineEditValues.phone}
-                  onChange={(e) =>
-                    setInlineEditValues({ ...inlineEditValues, phone: e.target.value })
-                  }
-                />
-              </div>
-              <div className="flex gap-1">
-                <Select
-                  sizing="sm"
-                  value={inlineEditValues.gender || ''}
-                  onChange={(e) =>
-                    setInlineEditValues({ ...inlineEditValues, gender: e.target.value })
-                  }
-                >
-                  <option value="">-</option>
-                  <option value="남">남</option>
-                  <option value="여">여</option>
-                </Select>
-                <TextInput
-                  type="number"
-                  sizing="sm"
-                  min={1}
-                  value={inlineEditValues.party_participants || ''}
-                  onChange={(e) =>
-                    setInlineEditValues({
-                      ...inlineEditValues,
-                      party_participants: Number(e.target.value),
-                    })
-                  }
-                />
-              </div>
-              <div className="text-[14px] text-[#4E5968] dark:text-gray-300 text-center">{party}</div>
-              <div className="overflow-hidden">
-                <Select
-                  sizing="sm"
-                  value={inlineEditValues.room_info || ''}
-                  onChange={(e) =>
-                    setInlineEditValues({ ...inlineEditValues, room_info: e.target.value })
-                  }
-                >
-                  <option value="">-</option>
-                  {ROOM_TYPE_OPTIONS.map((type) => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </Select>
-              </div>
-              <div className="overflow-hidden">
-                <TextInput
-                  sizing="sm"
-                  value={inlineEditValues.notes || ''}
-                  onChange={(e) =>
-                    setInlineEditValues({ ...inlineEditValues, notes: e.target.value })
-                  }
-                />
-              </div>
-              <SmsCell
-                smsStatus={smsStatus}
-                isEditing={isEditing}
-                onToggle={(type) => handleSmsToggle(res, type)}
-              />
-              <div className="flex gap-1 justify-center">
-                <Button
-                  color="light"
-                  size="xs"
-                  onClick={handleInlineSave}
-                >
-                  <Save size={14} />
-                </Button>
-                <Button
-                  color="light"
-                  size="xs"
-                  onClick={handleInlineCancel}
-                >
-                  <XCircle size={14} />
-                </Button>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="overflow-hidden truncate flex items-center gap-1">
-                <span className="font-medium text-[#191F28] dark:text-white text-[14px] truncate">{res.customer_name}</span>
-                <SourceBadge source={res.source} />
-              </div>
-              <div className="overflow-hidden truncate text-[14px] text-[#8B95A1] dark:text-gray-400 tabular-nums">{res.phone}</div>
-              <div className="text-center text-[14px] text-[#4E5968] dark:text-gray-300 font-medium">{genderPeople || <span className="text-[#B0B8C1]">-</span>}</div>
-              <div className="text-center text-[14px] text-[#4E5968] dark:text-gray-300 font-medium">{party || <span className="text-[#B0B8C1]">-</span>}</div>
-              <div className="overflow-hidden truncate text-[14px] text-[#7B61FF] dark:text-[#7B61FF]">파티만</div>
-              <div className="overflow-hidden truncate text-[14px] text-[#8B95A1] dark:text-gray-400">{res.notes || ''}</div>
-              <SmsCell smsStatus={smsStatus} isEditing={false} />
-              <div className="flex gap-1 justify-center">
-                <Button
-                  color="light"
-                  size="xs"
-                  onClick={(e) => { e.stopPropagation(); handleInlineEdit(res); }}
-                >
-                  <Pencil size={14} />
-                </Button>
-                <Button
-                  color="failure"
-                  size="xs"
-                  onClick={(e) => { e.stopPropagation(); handleDeleteGuest(res.id); }}
-                >
-                  <Trash2 size={14} />
-                </Button>
-              </div>
-            </>
-          )}
+            <div className="overflow-hidden truncate text-body text-[#7B61FF] dark:text-[#7B61FF]">파티만</div>
+            <div className="overflow-hidden">
+              <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-gray-400" placeholder="" />
+            </div>
+            <SmsCell smsStatus={smsStatus} isEditing={false} />
+          </div>
         </div>
       </div>
     );
@@ -1093,38 +912,38 @@ const RoomAssignment = () => {
     return (
       <div
         onClick={() => navigateDate(direction)}
-        className="overflow-y-auto cursor-pointer rounded-xl border border-[#F2F4F6] dark:border-gray-800 bg-white dark:bg-[#1E1E24] px-2 py-2 w-28 flex-shrink-0 transition-all"
+        className="cursor-pointer rounded-xl border border-[#F2F4F6] dark:border-gray-800 bg-white dark:bg-[#1E1E24] px-2 flex-shrink-0 transition-all"
         style={{
           opacity: isActive ? 0.95 : 0.55,
           transform: isActive ? 'scale(1.03)' : 'scale(1)',
+          width: '8rem',
         }}
       >
-        <div className="flex justify-between items-center px-1 mb-1.5 h-7">
-          <span className="text-[12px] font-medium text-[#8B95A1] dark:text-gray-400">이름</span>
-          <span className="text-[12px] font-medium text-[#8B95A1] dark:text-gray-400">성별</span>
-        </div>
-        <div className="text-[12px] font-semibold text-[#B0B8C1] dark:text-[#8B95A1] text-center mb-1.5">
-          {date.format('M/D(ddd)')}
+        {/* Header — matches main table header */}
+        <div className="flex justify-between items-center px-1 h-10 border-b border-[#F2F4F6] dark:border-gray-800">
+          <span className="text-caption font-semibold text-[#8B95A1] dark:text-gray-400">이름</span>
+          <span className="text-caption font-semibold text-[#8B95A1] dark:text-gray-400">성별</span>
         </div>
         {activeRoomNumbers.map((room) => {
           const guest = roomMap.get(room);
+          const gp = guest ? [guest.gender, guest.party_participants].filter(Boolean).join('') : '';
           return (
             <div
               key={room}
-              className="flex overflow-hidden select-none mb-px rounded-lg px-1 py-0.5 hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34]"
+              className="flex overflow-hidden select-none border-b border-[#F2F4F6] dark:border-gray-800 px-1 h-10 items-center hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34]"
             >
               <div className="flex justify-between items-center overflow-hidden w-full">
                 {guest ? (
                   <>
-                    <span className="overflow-hidden truncate flex-1 text-[12px] text-[#4E5968] dark:text-gray-300">
+                    <span className="overflow-hidden truncate flex-1 text-caption text-[#4E5968] dark:text-gray-300">
                       {guest.customer_name}
                     </span>
-                    <span className="flex-shrink-0 ml-1 text-[12px] text-[#8B95A1] dark:text-gray-400">
-                      {guest.gender || '-'}
+                    <span className="flex-shrink-0 ml-1 text-caption text-[#8B95A1] dark:text-gray-400">
+                      {gp || '-'}
                     </span>
                   </>
                 ) : (
-                  <span className="text-[12px] text-[#B0B8C1] dark:text-gray-600">-</span>
+                  <span className="text-caption text-[#B0B8C1] dark:text-gray-600">-</span>
                 )}
               </div>
             </div>
@@ -1149,57 +968,74 @@ const RoomAssignment = () => {
       </div>
 
       {/* Campaign controls */}
-      <div className="section-card">
-        <div className="section-header">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">캠페인 발송</h2>
-        </div>
+      <div className="section-card !overflow-visible">
         <div className="section-body py-3">
           <div className="flex flex-wrap gap-2 items-center">
-            {/* Campaign chip selector */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {campaigns.map((campaign: any) => (
-                <Button
-                  key={campaign.id}
-                  color={selectedCampaign === campaign.id ? 'blue' : 'light'}
-                  size="sm"
-                  onClick={() => setSelectedCampaign(campaign.id)}
-                >
-                  {campaign.name}
-                </Button>
-              ))}
-              {campaigns.length === 0 && (
-                <Badge color="gray" size="sm">캠페인 없음</Badge>
+            {/* Campaign dropdown selector */}
+            <div className="relative" ref={campaignDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setCampaignDropdownOpen(!campaignDropdownOpen)}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border border-[#E5E8EB] dark:border-gray-600 bg-white dark:bg-[#1E1E24] text-[#191F28] dark:text-white hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34] transition-colors cursor-pointer"
+              >
+                {selectedCampaign
+                  ? campaigns.find((c: any) => c.id === selectedCampaign)?.name || '캠페인 선택'
+                  : '캠페인 선택'}
+                <ChevronDown size={14} className={`text-[#8B95A1] transition-transform ${campaignDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {campaignDropdownOpen && (
+                <div className="absolute top-full left-0 mt-1 z-30 min-w-[160px] rounded-xl border border-[#E5E8EB] dark:border-gray-600 bg-white dark:bg-[#1E1E24] shadow-lg shadow-black/8 py-1 animate-in fade-in slide-in-from-top-1 duration-150">
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedCampaign(''); setCampaignDropdownOpen(false); }}
+                    className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer
+                      ${!selectedCampaign ? 'bg-[#F2F4F6] dark:bg-[#2C2C34] text-[#3182F6] font-medium' : 'text-[#4E5968] dark:text-gray-300 hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34]'}`}
+                  >
+                    전체
+                  </button>
+                  {campaigns.map((campaign: any) => (
+                    <button
+                      key={campaign.id}
+                      type="button"
+                      onClick={() => { setSelectedCampaign(campaign.id); setCampaignDropdownOpen(false); }}
+                      className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer
+                        ${selectedCampaign === campaign.id ? 'bg-[#F2F4F6] dark:bg-[#2C2C34] text-[#3182F6] font-medium' : 'text-[#4E5968] dark:text-gray-300 hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34]'}`}
+                    >
+                      {campaign.name}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
 
-            <div className="flex items-center gap-2 ml-auto">
-              <Button
-                color="light"
-                size="sm"
-                onClick={loadTargets}
-                disabled={targetsLoading}
-              >
-                {targetsLoading ? (
-                  <Spinner size="xs" className="mr-1.5" />
-                ) : (
-                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-                )}
-                대상조회
-              </Button>
-              <Button
-                color="blue"
-                size="sm"
-                onClick={handleSendCampaign}
-                disabled={sending || targets.length === 0}
-              >
-                {sending ? (
-                  <Spinner size="xs" className="mr-1.5" />
-                ) : (
-                  <Send className="h-3.5 w-3.5 mr-1.5" />
-                )}
-                발송 ({targets.length}건)
-              </Button>
+            <Button
+              color="light"
+              size="sm"
+              onClick={loadTargets}
+              disabled={targetsLoading}
+            >
+              {targetsLoading ? (
+                <Spinner size="xs" className="mr-1.5" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              대상조회
+            </Button>
+            <Button
+              color="blue"
+              size="sm"
+              onClick={handleSendCampaign}
+              disabled={sending || targets.length === 0}
+            >
+              {sending ? (
+                <Spinner size="xs" className="mr-1.5" />
+              ) : (
+                <Send className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              발송 ({targets.length}건)
+            </Button>
 
+            <div className="flex items-center gap-2 ml-auto">
               <Button
                 color="blue"
                 size="sm"
@@ -1221,7 +1057,6 @@ const RoomAssignment = () => {
             </div>
           </div>
 
-          {/* Target list — slide down */}
           {targets.length > 0 && (
             <div className="mt-3 rounded-lg border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3">
               <div className="flex justify-between items-center mb-2">
@@ -1247,12 +1082,12 @@ const RoomAssignment = () => {
       </div>
 
       {/* Main grid card */}
-      <div className="section-card">
+      <div className="section-card !overflow-visible">
         {/* Date navigation header */}
         <div className="section-header">
           <button
             onClick={() => navigateDate('prev')}
-            className="cursor-pointer text-[14px] text-[#B0B8C1] dark:text-[#8B95A1] hover:text-[#8B95A1] dark:hover:text-gray-300 transition-colors w-24 text-center py-1 bg-transparent border-none"
+            className="cursor-pointer text-body text-[#B0B8C1] dark:text-[#8B95A1] hover:text-[#8B95A1] dark:hover:text-gray-300 transition-colors w-24 text-center py-1 bg-transparent border-none"
           >
             {selectedDate.subtract(1, 'day').format('M/D(ddd)')}
           </button>
@@ -1290,7 +1125,7 @@ const RoomAssignment = () => {
           </div>
           <button
             onClick={() => navigateDate('next')}
-            className="cursor-pointer text-[14px] text-[#B0B8C1] dark:text-[#8B95A1] hover:text-[#8B95A1] dark:hover:text-gray-300 transition-colors w-24 text-center py-1 bg-transparent border-none"
+            className="cursor-pointer text-body text-[#B0B8C1] dark:text-[#8B95A1] hover:text-[#8B95A1] dark:hover:text-gray-300 transition-colors w-24 text-center py-1 bg-transparent border-none"
           >
             {selectedDate.add(1, 'day').format('M/D(ddd)')}
           </button>
@@ -1300,7 +1135,7 @@ const RoomAssignment = () => {
           <div className="flex gap-3">
             {renderDayPreview(prevDayReservations, selectedDate.subtract(1, 'day'), 'prev')}
 
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 min-w-0">
               <div
                 className={
                   animDirection === 'left'
@@ -1311,23 +1146,23 @@ const RoomAssignment = () => {
                 }
               >
                 {/* Unified Table */}
-                <div className="overflow-x-auto rounded-xl border border-[#F2F4F6] dark:border-gray-800">
+                <div className="rounded-xl border border-[#F2F4F6] dark:border-gray-800">
                   {/* Header */}
-                  <div className="flex items-center h-9 bg-[#F2F4F6] dark:bg-[#17171C] border-b border-[#F2F4F6] dark:border-gray-800">
+                  <div className="flex items-center h-10 bg-[#F2F4F6] dark:bg-[#17171C] border-b border-[#F2F4F6] dark:border-gray-800">
                     <div className="flex-shrink-0 pl-3 pr-2 w-36 border-r border-[#F2F4F6] dark:border-gray-800">
-                      <span className="text-[12px] font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">객실</span>
+                      <span className="text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">객실</span>
                     </div>
                     <div
                       className="flex-1 grid gap-2 pl-3"
                       style={{ gridTemplateColumns: GUEST_COLS }}
                     >
-                      <div className="text-[12px] font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">이름</div>
-                      <div className="text-[12px] font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">전화번호</div>
-                      <div className="text-center text-[12px] font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">성별</div>
-                      <div className="text-center text-[12px] font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">파티</div>
-                      <div className="text-[12px] font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">예약객실</div>
-                      <div className="text-[12px] font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">메모</div>
-                      <div className="relative flex items-center text-[12px] font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">
+                      <div className="text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">이름</div>
+                      <div className="text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">전화번호</div>
+                      <div className="text-center text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">성별</div>
+                      <div className="text-center text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">파티</div>
+                      <div className="text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">예약객실</div>
+                      <div className="text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">메모</div>
+                      <div className="relative flex items-center text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">
                         문자
                         <div
                           id="sms-column-resizer"
@@ -1339,7 +1174,6 @@ const RoomAssignment = () => {
                           }}
                         />
                       </div>
-                      <div className="text-[12px] font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">작업</div>
                     </div>
                   </div>
 
@@ -1370,7 +1204,7 @@ const RoomAssignment = () => {
                         <div className="flex-shrink-0 w-36 flex items-center">
                           <Badge color="warning" size="sm">미배정</Badge>
                         </div>
-                        <p className="text-[14px] text-[#B0B8C1] dark:text-[#8B95A1] italic">미배정 예약이 없습니다</p>
+                        <p className="text-body text-[#B0B8C1] dark:text-[#8B95A1] italic">미배정 예약이 없습니다</p>
                       </div>
                     ) : (
                       <div className="flex">
@@ -1383,7 +1217,7 @@ const RoomAssignment = () => {
                       </div>
                     )}
                     {dragOverPool && (
-                      <div className="text-center py-2 text-[14px] text-[#FF9F00] dark:text-[#FF9F00] font-medium">
+                      <div className="text-center py-2 text-body text-[#FF9F00] dark:text-[#FF9F00] font-medium">
                         여기에 놓으면 배정 해제
                       </div>
                     )}
@@ -1405,7 +1239,7 @@ const RoomAssignment = () => {
                         <div className="flex-shrink-0 w-36 flex items-center">
                           <Badge color="purple" size="sm">파티만</Badge>
                         </div>
-                        <p className="text-[14px] text-[#B0B8C1] dark:text-[#8B95A1] italic">
+                        <p className="text-body text-[#B0B8C1] dark:text-[#8B95A1] italic">
                           {dragOverPartyZone
                             ? '여기에 놓으면 파티만 게스트로 전환됩니다'
                             : '파티만 게스트가 없습니다'}
@@ -1422,7 +1256,7 @@ const RoomAssignment = () => {
                       </div>
                     )}
                     {dragOverPartyZone && partyOnly.length > 0 && (
-                      <div className="text-center py-2 text-[14px] text-[#7B61FF] dark:text-[#7B61FF] font-medium">
+                      <div className="text-center py-2 text-body text-[#7B61FF] dark:text-[#7B61FF] font-medium">
                         여기에 놓으면 파티만 게스트로 전환됩니다
                       </div>
                     )}
@@ -1437,169 +1271,108 @@ const RoomAssignment = () => {
       </div>
 
       {/* Guest Form Modal */}
-      <Modal show={modalVisible} onClose={() => setModalVisible(false)} size="lg">
+      <Modal show={modalVisible} onClose={() => setModalVisible(false)} size="md">
         <ModalHeader>{editingId ? '게스트 수정' : '예약자 추가'}</ModalHeader>
         <ModalBody>
           <div className="flex flex-col gap-4">
             {!editingId && (
-              <div className="space-y-2">
-                <Label htmlFor="guest-type">예약자 타입</Label>
-                <Select
-                  id="guest-type"
-                  value={formValues.guest_type || 'manual'}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === 'party_only') {
-                      const currentTags = formValues.tags;
-                      if (!currentTags || !currentTags.includes('파티만')) {
-                        setFormValues({ ...formValues, guest_type: val, tags: '파티만' });
-                        return;
+              <div className="flex gap-2">
+                {[
+                  { value: 'manual', label: '미배정' },
+                  { value: 'party_only', label: '파티만' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      if (opt.value === 'party_only') {
+                        setFormValues({ ...formValues, guest_type: opt.value, tags: '파티만' });
+                      } else {
+                        setFormValues({ ...formValues, guest_type: opt.value });
                       }
-                    }
-                    setFormValues({ ...formValues, guest_type: val });
-                  }}
-                >
-                  <option value="manual">직접 입력 — 수동으로 추가된 예약자</option>
-                  <option value="party_only">파티만 — 객실 없이 파티만 참석</option>
-                </Select>
+                    }}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer
+                      ${(formValues.guest_type || 'manual') === opt.value
+                        ? 'bg-[#3182F6] text-white'
+                        : 'bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB] dark:bg-[#2C2C34] dark:text-gray-300 dark:hover:bg-[#3A3A44]'
+                      }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
             )}
 
-            <div className="space-y-2">
-              <Label htmlFor="customer-name">이름 <span className="text-[#F04452]">*</span></Label>
-              <TextInput
-                id="customer-name"
-                value={formValues.customer_name || ''}
-                onChange={(e) => setFormValues({ ...formValues, customer_name: e.target.value })}
-                placeholder="이름"
-                sizing="sm"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="phone">전화번호 <span className="text-[#F04452]">*</span></Label>
-              <TextInput
-                id="phone"
-                value={formValues.phone || ''}
-                onChange={(e) => setFormValues({ ...formValues, phone: e.target.value })}
-                placeholder="010-1234-5678"
-                sizing="sm"
-              />
-            </div>
-
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="date">날짜 <span className="text-[#F04452]">*</span></Label>
+                <Label htmlFor="customer-name">이름 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
                 <TextInput
-                  id="date"
-                  type="date"
-                  value={formValues.date || ''}
-                  onChange={(e) => setFormValues({ ...formValues, date: e.target.value })}
+                  id="customer-name"
+                  value={formValues.customer_name || ''}
+                  onChange={(e) => setFormValues({ ...formValues, customer_name: e.target.value })}
+                  placeholder="이름"
                   sizing="sm"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="time">시간 <span className="text-[#F04452]">*</span></Label>
+                <Label htmlFor="phone">전화번호 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
                 <TextInput
-                  id="time"
-                  type="time"
-                  value={formValues.time || ''}
-                  onChange={(e) => setFormValues({ ...formValues, time: e.target.value })}
-                  sizing="sm"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="gender">성별</Label>
-                <Select
-                  id="gender"
-                  value={formValues.gender || ''}
-                  onChange={(e) => setFormValues({ ...formValues, gender: e.target.value })}
-                >
-                  <option value="">성별 선택</option>
-                  <option value="남">남</option>
-                  <option value="여">여</option>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="party-participants">참여 인원</Label>
-                <TextInput
-                  id="party-participants"
-                  type="number"
-                  min={1}
-                  value={formValues.party_participants || 1}
-                  onChange={(e) =>
-                    setFormValues({ ...formValues, party_participants: Number(e.target.value) })
-                  }
+                  id="phone"
+                  value={formValues.phone || ''}
+                  onChange={(e) => setFormValues({ ...formValues, phone: e.target.value })}
+                  placeholder="010-1234-5678"
                   sizing="sm"
                 />
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="room-info">예약 객실</Label>
-              <Select
-                id="room-info"
-                value={formValues.room_info || ''}
-                onChange={(e) => setFormValues({ ...formValues, room_info: e.target.value })}
-              >
-                <option value="">예약 객실 타입 선택</option>
-                {ROOM_TYPE_OPTIONS.map((type) => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>태그</Label>
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {TAG_OPTIONS.map((tag) => {
-                  const currentTags = (formValues.tags || '')
-                    .split(',')
-                    .map((t: string) => t.trim())
-                    .filter(Boolean);
-                  const active = currentTags.includes(tag);
-                  return (
-                    <Button
-                      key={tag}
-                      type="button"
-                      color={active ? 'blue' : 'light'}
-                      size="xs"
-                      onClick={() => {
-                        const tags = (formValues.tags || '')
-                          .split(',')
-                          .map((t: string) => t.trim())
-                          .filter(Boolean);
-                        const newTags = active
-                          ? tags.filter((t: string) => t !== tag)
-                          : [...tags, tag];
-                        setFormValues({ ...formValues, tags: newTags.join(',') });
-                      }}
-                    >
-                      {tag}
-                    </Button>
-                  );
-                })}
-              </div>
+              <Label htmlFor="date">날짜 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
               <TextInput
-                value={formValues.tags || ''}
-                onChange={(e) => setFormValues({ ...formValues, tags: e.target.value })}
-                placeholder="태그 (쉼표로 구분, 예: 1초,2차만)"
+                id="date"
+                type="date"
+                value={formValues.date || ''}
+                onChange={(e) => setFormValues({ ...formValues, date: e.target.value })}
                 sizing="sm"
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label>성별 / 인원</Label>
+              <div className="flex gap-3">
+                <div className="flex items-center gap-0 flex-1">
+                  <span className="flex-shrink-0 px-3 py-1.5 rounded-l-lg bg-[#F2F4F6] dark:bg-[#2C2C34] border border-r-0 border-[#E5E8EB] dark:border-gray-600 text-sm font-medium text-[#4E5968] dark:text-gray-300">남</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={formValues.male_count ?? ''}
+                    onChange={(e) => setFormValues({ ...formValues, male_count: e.target.value ? Number(e.target.value) : null })}
+                    placeholder="0"
+                    className="w-full rounded-r-lg rounded-l-none border border-[#E5E8EB] dark:border-gray-600 bg-white dark:bg-[#1E1E24] text-sm text-[#191F28] dark:text-white px-3 py-1.5 focus:border-[#3182F6] focus:ring-[#3182F6] outline-none"
+                  />
+                </div>
+                <div className="flex items-center gap-0 flex-1">
+                  <span className="flex-shrink-0 px-3 py-1.5 rounded-l-lg bg-[#F2F4F6] dark:bg-[#2C2C34] border border-r-0 border-[#E5E8EB] dark:border-gray-600 text-sm font-medium text-[#4E5968] dark:text-gray-300">여</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={formValues.female_count ?? ''}
+                    onChange={(e) => setFormValues({ ...formValues, female_count: e.target.value ? Number(e.target.value) : null })}
+                    placeholder="0"
+                    className="w-full rounded-r-lg rounded-l-none border border-[#E5E8EB] dark:border-gray-600 bg-white dark:bg-[#1E1E24] text-sm text-[#191F28] dark:text-white px-3 py-1.5 focus:border-[#3182F6] focus:ring-[#3182F6] outline-none"
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="notes">메모</Label>
-              <textarea
+              <TextInput
                 id="notes"
-                className="w-full rounded-xl border border-[#F2F4F6] bg-[#F2F4F6] px-3 py-2 text-[14px] text-[#191F28] placeholder-[#B0B8C1] focus:border-[#3182F6] focus:ring-[#3182F6] dark:border-gray-800 dark:bg-[#1E1E24] dark:text-white dark:placeholder-gray-400"
                 value={formValues.notes || ''}
                 onChange={(e) => setFormValues({ ...formValues, notes: e.target.value })}
-                placeholder="추가 정보나 요청사항"
-                rows={3}
+                placeholder="메모"
+                sizing="sm"
               />
             </div>
           </div>

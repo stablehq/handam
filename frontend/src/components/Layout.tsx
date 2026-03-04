@@ -6,7 +6,6 @@ import {
   SidebarItemGroup,
   SidebarItems,
   Navbar,
-  DarkThemeToggle,
   Tooltip,
   Drawer,
 } from 'flowbite-react'
@@ -22,6 +21,8 @@ import {
   PanelLeftClose,
   PanelLeft,
   Menu,
+  Sun,
+  Moon,
 } from 'lucide-react'
 
 // ── Theme Context ──
@@ -49,6 +50,20 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     <ThemeContext.Provider value={{ theme, toggle }}>
       {children}
     </ThemeContext.Provider>
+  )
+}
+
+// ── Theme Toggle Button ──
+function ThemeToggleButton() {
+  const { theme, toggle } = useTheme()
+  return (
+    <button
+      onClick={toggle}
+      className="rounded-xl p-2 text-[#B0B8C1] hover:bg-[#F2F4F6] dark:text-gray-500 dark:hover:bg-[#1E1E24]"
+      aria-label={theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'}
+    >
+      {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+    </button>
   )
 }
 
@@ -95,8 +110,7 @@ function DesktopSidebar({
   const navigate = useNavigate()
   const location = useLocation()
 
-  const isActive = (path: string) =>
-    path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)
+  const isActive = (path: string) => location.pathname === path
 
   return (
     <aside
@@ -112,10 +126,10 @@ function DesktopSidebar({
           }`}
         >
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#3182F6] text-white">
-            <span className="text-[13px] font-bold">S</span>
+            <span className="text-label font-bold">S</span>
           </div>
           {!collapsed && (
-            <span className="text-[15px] font-bold text-[#191F28] dark:text-white">
+            <span className="text-subheading font-bold text-[#191F28] dark:text-white">
               SMS
             </span>
           )}
@@ -128,7 +142,7 @@ function DesktopSidebar({
                 <div className="mx-3 my-2 h-px bg-[#F2F4F6] dark:bg-gray-800" />
               )}
               {!collapsed && (
-                <p className="mb-1 px-3 text-[11px] font-semibold tracking-wide text-[#B0B8C1] dark:text-gray-600">
+                <p className="mb-1 px-3 text-overline font-semibold tracking-wide text-[#B0B8C1] dark:text-gray-600">
                   {group.title}
                 </p>
               )}
@@ -168,7 +182,7 @@ function DesktopSidebar({
             collapsed ? 'justify-center' : 'justify-between'
           }`}
         >
-          <DarkThemeToggle className="rounded-xl p-2 text-[#B0B8C1] hover:bg-[#F2F4F6] dark:text-gray-500 dark:hover:bg-[#1E1E24]" />
+          <ThemeToggleButton />
           <button
             onClick={onToggle}
             className="rounded-xl p-2 text-[#B0B8C1] hover:bg-[#F2F4F6] dark:text-gray-500 dark:hover:bg-[#1E1E24]"
@@ -187,8 +201,7 @@ function MobileSidebar() {
   const location = useLocation()
   const [open, setOpen] = useState(false)
 
-  const isActive = (path: string) =>
-    path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)
+  const isActive = (path: string) => location.pathname === path
 
   return (
     <>
@@ -202,9 +215,9 @@ function MobileSidebar() {
       <Drawer open={open} onClose={() => setOpen(false)} position="left">
         <div className="flex h-14 items-center gap-2.5 px-4">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#3182F6] text-white">
-            <span className="text-[13px] font-bold">S</span>
+            <span className="text-label font-bold">S</span>
           </div>
-          <span className="text-[15px] font-bold text-[#191F28] dark:text-white">
+          <span className="text-subheading font-bold text-[#191F28] dark:text-white">
             SMS
           </span>
         </div>
@@ -216,7 +229,7 @@ function MobileSidebar() {
                 {gi > 0 && (
                   <div className="mx-3 my-2 h-px bg-[#F2F4F6] dark:bg-gray-800" />
                 )}
-                <p className="mb-1 px-3 text-[11px] font-semibold tracking-wide text-[#B0B8C1] dark:text-gray-600">
+                <p className="mb-1 px-3 text-overline font-semibold tracking-wide text-[#B0B8C1] dark:text-gray-600">
                   {group.title}
                 </p>
                 {group.items.map((item) => (
@@ -287,12 +300,12 @@ export default function Layout({ children }: LayoutProps) {
           <div className="flex w-full items-center justify-between">
             <div className="flex items-center gap-3">
               {isMobile && <MobileSidebar />}
-              <h1 className="text-[15px] font-semibold text-[#191F28] dark:text-white">
+              <h1 className="text-subheading font-semibold text-[#191F28] dark:text-white">
                 {pageTitle}
               </h1>
             </div>
             <div className="flex items-center gap-1">
-              <DarkThemeToggle className="rounded-xl p-2 text-[#B0B8C1] hover:bg-[#F2F4F6] dark:text-gray-500 dark:hover:bg-[#1E1E24]" />
+              <ThemeToggleButton />
             </div>
           </div>
         </Navbar>
