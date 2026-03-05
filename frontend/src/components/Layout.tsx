@@ -8,8 +8,10 @@ import {
   Navbar,
   Tooltip,
   Drawer,
+  Badge,
 } from 'flowbite-react'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { useAuthStore } from '@/stores/auth-store'
 import {
   LayoutDashboard,
   CalendarRange,
@@ -23,6 +25,8 @@ import {
   Menu,
   Sun,
   Moon,
+  Users,
+  LogOut,
 } from 'lucide-react'
 
 // ── Theme Context ──
@@ -77,6 +81,7 @@ interface NavItem {
 interface NavGroup {
   title: string
   items: NavItem[]
+  requiredRoles?: string[]
 }
 
 const NAV_GROUPS: NavGroup[] = [
@@ -97,7 +102,39 @@ const NAV_GROUPS: NavGroup[] = [
       { path: '/auto-response', label: '자동 응답', icon: <Zap size={18} /> },
     ],
   },
+  {
+    title: '시스템',
+    requiredRoles: ['superadmin', 'admin'],
+    items: [
+      { path: '/users', label: '계정 관리', icon: <Users size={18} /> },
+    ],
+  },
 ]
+
+// ── Page Title Map ──
+const PAGE_TITLES: Record<string, string> = {
+  '/': '대시보드',
+  '/reservations': '예약 관리',
+  '/rooms': '객실 배정',
+  '/rooms/manage': '객실 설정',
+  '/templates': '템플릿 관리',
+  '/messages': '메시지',
+  '/auto-response': '자동 응답',
+  '/users': '계정 관리',
+}
+
+// ── Role Badge ──
+const ROLE_BADGE_COLORS: Record<string, string> = {
+  superadmin: 'purple',
+  admin: 'info',
+  staff: 'gray',
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  superadmin: '슈퍼관리자',
+  admin: '관리자',
+  staff: '직원',
+}
 
 // ── Desktop Sidebar ──
 function DesktopSidebar({
@@ -109,8 +146,13 @@ function DesktopSidebar({
 }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const user = useAuthStore((s) => s.user)
 
   const isActive = (path: string) => location.pathname === path
+
+  const visibleGroups = NAV_GROUPS.filter(
+    (g) => !g.requiredRoles || (user && g.requiredRoles.includes(user.role))
+  )
 
   return (
     <aside
@@ -136,7 +178,7 @@ function DesktopSidebar({
         </div>
 
         <SidebarItems className="mt-1">
-          {NAV_GROUPS.map((group, gi) => (
+          {visibleGroups.map((group, gi) => (
             <SidebarItemGroup key={group.title}>
               {gi > 0 && !collapsed && (
                 <div className="mx-3 my-2 h-px bg-[#F2F4F6] dark:bg-gray-800" />
@@ -199,9 +241,14 @@ function DesktopSidebar({
 function MobileSidebar() {
   const navigate = useNavigate()
   const location = useLocation()
+  const user = useAuthStore((s) => s.user)
   const [open, setOpen] = useState(false)
 
   const isActive = (path: string) => location.pathname === path
+
+  const visibleGroups = NAV_GROUPS.filter(
+    (g) => !g.requiredRoles || (user && g.requiredRoles.includes(user.role))
+  )
 
   return (
     <>
@@ -224,7 +271,7 @@ function MobileSidebar() {
 
         <Sidebar aria-label="Mobile navigation sidebar" className="w-full">
           <SidebarItems>
-            {NAV_GROUPS.map((group, gi) => (
+            {visibleGroups.map((group, gi) => (
               <SidebarItemGroup key={group.title}>
                 {gi > 0 && (
                   <div className="mx-3 my-2 h-px bg-[#F2F4F6] dark:bg-gray-800" />
@@ -256,17 +303,6 @@ function MobileSidebar() {
   )
 }
 
-// ── Page Title Map ──
-const PAGE_TITLES: Record<string, string> = {
-  '/': '대시보드',
-  '/reservations': '예약 관리',
-  '/rooms': '객실 배정',
-  '/rooms/manage': '객실 설정',
-  '/templates': '템플릿 관리',
-  '/messages': '메시지',
-  '/auto-response': '자동 응답',
-}
-
 // ── Layout ──
 interface LayoutProps {
   children: React.ReactNode
@@ -276,8 +312,15 @@ export default function Layout({ children }: LayoutProps) {
   const [collapsed, setCollapsed] = useState(false)
   const isMobile = useIsMobile()
   const location = useLocation()
+  const navigate = useNavigate()
+  const { user, logout } = useAuthStore()
 
   const pageTitle = PAGE_TITLES[location.pathname] || ''
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login')
+  }
 
   return (
     <div className="flex min-h-screen bg-white dark:bg-[#17171C]">
@@ -304,8 +347,26 @@ export default function Layout({ children }: LayoutProps) {
                 {pageTitle}
               </h1>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
+              {user && (
+                <>
+                  <span className="hidden text-label text-[#4E5968] dark:text-gray-300 sm:inline">
+                    {user.name}
+                  </span>
+                  <Badge color={ROLE_BADGE_COLORS[user.role] as any} size="sm">
+                    {ROLE_LABELS[user.role] || user.role}
+                  </Badge>
+                </>
+              )}
               <ThemeToggleButton />
+              <button
+                onClick={handleLogout}
+                className="rounded-xl p-2 text-[#B0B8C1] hover:bg-[#F2F4F6] dark:text-gray-500 dark:hover:bg-[#1E1E24]"
+                aria-label="로그아웃"
+                title="로그아웃"
+              >
+                <LogOut size={18} />
+              </button>
             </div>
           </div>
         </Navbar>

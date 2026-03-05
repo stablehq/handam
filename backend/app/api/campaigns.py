@@ -8,7 +8,8 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from ..db.database import get_db
-from ..db.models import CampaignLog, GenderStat, MessageTemplate
+from ..db.models import CampaignLog, GenderStat, MessageTemplate, User
+from ..auth.dependencies import get_current_user, require_admin_or_above
 from ..factory import get_sms_provider, get_storage_provider
 from ..campaigns.tag_manager import TagCampaignManager
 from ..notifications.service import NotificationService
@@ -127,7 +128,7 @@ class GenderStatsResponse(BaseModel):
 
 
 @router.get("/list")
-async def get_campaign_list():
+async def get_campaign_list(current_user: User = Depends(get_current_user)):
     """Get list of available independent campaigns"""
     return [
         {
@@ -149,7 +150,8 @@ class IndependentCampaignRequest(BaseModel):
 @router.post("/send")
 async def send_campaign(
     request: IndependentCampaignRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_or_above),
 ):
     """
     Send independent campaign by campaign_type
@@ -204,7 +206,8 @@ async def send_campaign(
 async def preview_campaign_targets(
     campaign_type: str,
     date: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Preview targets for a campaign before sending
@@ -261,7 +264,8 @@ async def get_campaign_targets(
     exclude_sent: bool = True,
     sms_type: str = 'room',
     date: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Get SMS targets filtered by tag
@@ -299,7 +303,8 @@ async def get_campaign_targets(
 @router.post("/send-by-tag")
 async def send_by_tag(
     request: CampaignRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_or_above),
 ):
     """
     Execute tag-based SMS campaign
@@ -334,7 +339,8 @@ async def send_by_tag(
 @router.get("/campaigns/{campaign_id}")
 async def get_campaign_stats(
     campaign_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get campaign statistics by ID"""
     sms_provider = get_sms_provider()
@@ -351,7 +357,8 @@ async def get_campaign_stats(
 @router.post("/notifications/room-guide")
 async def send_room_guide(
     request: RoomGuideRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_or_above),
 ):
     """
     Send room guide messages to confirmed guests
@@ -392,7 +399,8 @@ async def send_room_guide(
 @router.post("/notifications/party-guide")
 async def send_party_guide(
     request: PartyGuideRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_or_above),
 ):
     """
     Send party guide messages to unassigned guests
@@ -433,7 +441,8 @@ async def send_party_guide(
 @router.get("/gender-stats")
 async def get_gender_stats(
     date: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Get gender statistics for a specific date
@@ -476,7 +485,8 @@ async def get_gender_stats(
 @router.post("/gender-stats/refresh")
 async def refresh_gender_stats(
     date: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_or_above),
 ):
     """
     Refresh gender statistics from Google Sheets
@@ -518,7 +528,8 @@ async def refresh_gender_stats(
 async def get_campaign_history(
     skip: int = 0,
     limit: int = 50,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get campaign sending history"""
     campaigns = (
@@ -548,7 +559,8 @@ async def get_campaign_history(
 @router.get("/gender-stats/history")
 async def get_gender_stats_history(
     days: int = 8,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get gender statistics history for chart"""
     stats = (
@@ -573,7 +585,7 @@ async def get_gender_stats_history(
 
 
 @router.get("/templates")
-async def get_templates(db: Session = Depends(get_db)):
+async def get_templates(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get all message templates"""
     templates = db.query(MessageTemplate).filter_by(active=True).all()
 

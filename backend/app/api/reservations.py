@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, field_validator
 from typing import List, Optional, Union
 from app.db.database import get_db
-from app.db.models import Reservation, ReservationStatus
+from app.db.models import Reservation, ReservationStatus, User
 from app.factory import get_reservation_provider, get_storage_provider
+from app.auth.dependencies import get_current_user
 from app.templates.renderer import TemplateRenderer
 from datetime import datetime
 import logging
@@ -133,6 +134,7 @@ async def get_reservations(
     status: Optional[str] = None,
     date: Optional[str] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get reservations with pagination and filtering"""
     query = db.query(Reservation)
@@ -149,7 +151,7 @@ async def get_reservations(
 
 
 @router.post("", response_model=ReservationResponse)
-async def create_reservation(reservation: ReservationCreate, db: Session = Depends(get_db)):
+async def create_reservation(reservation: ReservationCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Create a new reservation"""
     # Convert status string to enum
     try:
@@ -179,7 +181,7 @@ async def create_reservation(reservation: ReservationCreate, db: Session = Depen
 
 @router.put("/{reservation_id}", response_model=ReservationResponse)
 async def update_reservation(
-    reservation_id: int, reservation: ReservationUpdate, db: Session = Depends(get_db)
+    reservation_id: int, reservation: ReservationUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     """Update a reservation"""
     db_reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
@@ -205,7 +207,7 @@ async def update_reservation(
 
 
 @router.delete("/{reservation_id}")
-async def delete_reservation(reservation_id: int, db: Session = Depends(get_db)):
+async def delete_reservation(reservation_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Delete a reservation"""
     db_reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not db_reservation:
@@ -218,7 +220,7 @@ async def delete_reservation(reservation_id: int, db: Session = Depends(get_db))
 
 @router.put("/{reservation_id}/room", response_model=ReservationResponse)
 async def assign_room(
-    reservation_id: int, request: RoomAssignRequest, db: Session = Depends(get_db)
+    reservation_id: int, request: RoomAssignRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     """Assign or unassign a room to a reservation"""
     db_reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
@@ -259,7 +261,7 @@ async def assign_room(
 
 
 @router.post("/sync/naver")
-async def sync_from_naver(db: Session = Depends(get_db)):
+async def sync_from_naver(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Sync reservations from Naver (mock: reads from JSON file)"""
     logger.info("Starting Naver reservation sync...")
 
@@ -307,7 +309,7 @@ async def sync_from_naver(db: Session = Depends(get_db)):
 
 
 @router.post("/sync/sheets")
-async def sync_to_google_sheets(db: Session = Depends(get_db)):
+async def sync_to_google_sheets(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Export reservations to Google Sheets (mock: writes to CSV file)"""
     logger.info("Starting Google Sheets sync...")
 

@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
 from app.db.database import get_db
-from app.db.models import Room
+from app.db.models import Room, User
+from app.auth.dependencies import get_current_user
 from datetime import datetime
 import logging
 
@@ -51,6 +52,7 @@ class RoomResponse(BaseModel):
 async def get_rooms(
     include_inactive: bool = False,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get all rooms"""
     query = db.query(Room)
@@ -63,7 +65,7 @@ async def get_rooms(
 
 
 @router.get("/{room_id}", response_model=RoomResponse)
-async def get_room(room_id: int, db: Session = Depends(get_db)):
+async def get_room(room_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get a single room by ID"""
     room = db.query(Room).filter(Room.id == room_id).first()
     if not room:
@@ -72,7 +74,7 @@ async def get_room(room_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=RoomResponse)
-async def create_room(room: RoomCreate, db: Session = Depends(get_db)):
+async def create_room(room: RoomCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Create a new room (duplicates allowed)"""
     db_room = Room(
         room_number=room.room_number,
@@ -94,7 +96,8 @@ async def create_room(room: RoomCreate, db: Session = Depends(get_db)):
 async def update_room(
     room_id: int,
     room: RoomUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Update a room"""
     db_room = db.query(Room).filter(Room.id == room_id).first()
@@ -114,7 +117,7 @@ async def update_room(
 
 
 @router.delete("/{room_id}")
-async def delete_room(room_id: int, db: Session = Depends(get_db)):
+async def delete_room(room_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Delete a room"""
     db_room = db.query(Room).filter(Room.id == room_id).first()
     if not db_room:

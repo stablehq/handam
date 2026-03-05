@@ -10,6 +10,12 @@ import enum
 Base = declarative_base()
 
 
+class UserRole(str, enum.Enum):
+    SUPERADMIN = "superadmin"
+    ADMIN = "admin"
+    STAFF = "staff"
+
+
 class MessageDirection(str, enum.Enum):
     INBOUND = "inbound"
     OUTBOUND = "outbound"
@@ -235,3 +241,18 @@ class TemplateSchedule(Base):
 
     # Relationship
     template = relationship("MessageTemplate", backref="schedules")
+
+
+class User(Base):
+    """User accounts for authentication"""
+
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(200), nullable=False)
+    name = Column(String(100), nullable=False)
+    role = Column(Enum(UserRole), nullable=False, default=UserRole.STAFF)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

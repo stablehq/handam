@@ -7,7 +7,8 @@ from sqlalchemy import or_
 from pydantic import BaseModel
 from typing import List, Optional
 from app.db.database import get_db
-from app.db.models import Message, MessageDirection, MessageStatus, Reservation
+from app.db.models import Message, MessageDirection, MessageStatus, Reservation, User
+from app.auth.dependencies import get_current_user
 from app.factory import get_sms_provider
 from datetime import datetime
 
@@ -53,7 +54,7 @@ class ContactResponse(BaseModel):
 
 # IMPORTANT: /contacts must be defined BEFORE /review-queue for correct route matching
 @router.get("/contacts", response_model=List[ContactResponse])
-async def get_contacts(db: Session = Depends(get_db)):
+async def get_contacts(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get unique contact list with last message preview"""
     # Get all messages, find unique phone numbers (excluding our own number)
     our_number = "010-9999-0000"
@@ -109,6 +110,7 @@ async def get_messages(
     direction: Optional[str] = None,
     phone: Optional[str] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get message history with pagination"""
     query = db.query(Message)
@@ -144,7 +146,7 @@ async def get_messages(
 
 
 @router.post("/send")
-async def send_sms(request: SendSMSRequest, db: Session = Depends(get_db)):
+async def send_sms(request: SendSMSRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Send SMS manually"""
     sms_provider = get_sms_provider()
     result = await sms_provider.send_sms(to=request.to, message=request.message)
@@ -166,7 +168,7 @@ async def send_sms(request: SendSMSRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/review-queue")
-async def get_review_queue(db: Session = Depends(get_db)):
+async def get_review_queue(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get messages that need human review"""
     messages = (
         db.query(Message)

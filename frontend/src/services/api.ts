@@ -7,6 +7,28 @@ const api = axios.create({
   },
 });
 
+// Auth interceptor - attach token
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('sms-token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// Auth interceptor - handle 401
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('sms-token')
+      localStorage.removeItem('sms-user')
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)
+
 // Messages API
 export const messagesAPI = {
   getAll: (params?: { skip?: number; limit?: number; direction?: string; phone?: string }) =>
@@ -164,5 +186,17 @@ export const templateSchedulesAPI = {
   preview: (id: number) => api.get(`/api/template-schedules/${id}/preview`),
   sync: () => api.post('/api/template-schedules/sync'),
 };
+
+// Auth API
+export const authAPI = {
+  login: (data: { username: string; password: string }) =>
+    api.post('/api/auth/login', data),
+  me: () => api.get('/api/auth/me'),
+  getUsers: () => api.get('/api/auth/users'),
+  createUser: (data: { username: string; password: string; name: string; role: string }) =>
+    api.post('/api/auth/users', data),
+  updateUser: (id: number, data: any) => api.put(`/api/auth/users/${id}`, data),
+  deleteUser: (id: number) => api.delete(`/api/auth/users/${id}`),
+}
 
 export default api;

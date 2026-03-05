@@ -5,14 +5,15 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.db.database import get_db
-from app.db.models import Message, Reservation, CampaignLog, GenderStat, MessageDirection, ReservationStatus
+from app.db.models import Message, Reservation, CampaignLog, GenderStat, MessageDirection, ReservationStatus, User
+from app.auth.dependencies import get_current_user
 from datetime import datetime
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
 @router.get("/stats")
-async def get_dashboard_stats(db: Session = Depends(get_db)):
+async def get_dashboard_stats(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get dashboard statistics"""
 
     # Total reservations

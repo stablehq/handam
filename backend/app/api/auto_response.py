@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.db.database import get_db
-from app.db.models import Message, MessageDirection, MessageStatus
+from app.db.models import Message, MessageDirection, MessageStatus, User
+from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.router.message_router import message_router
 from app.factory import get_sms_provider
 
@@ -21,7 +22,7 @@ class GenerateResponseFromTextRequest(BaseModel):
 
 
 @router.post("/generate")
-async def generate_auto_response(request: GenerateResponseRequest, db: Session = Depends(get_db)):
+async def generate_auto_response(request: GenerateResponseRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Generate auto-response for a message by ID"""
     # Get message from DB
     msg = db.query(Message).filter(Message.id == request.message_id).first()
@@ -70,14 +71,14 @@ async def generate_auto_response(request: GenerateResponseRequest, db: Session =
 
 
 @router.post("/test")
-async def test_auto_response(request: GenerateResponseFromTextRequest):
+async def test_auto_response(request: GenerateResponseFromTextRequest, current_user: User = Depends(require_admin_or_above)):
     """Test auto-response generation without saving to DB"""
     result = await message_router.generate_auto_response(request.message)
     return result
 
 
 @router.post("/reload-rules")
-async def reload_rules():
+async def reload_rules(current_user: User = Depends(require_admin_or_above)):
     """Hot reload rules from YAML file"""
     message_router.reload_rules()
     return {"status": "success", "message": "Rules reloaded"}

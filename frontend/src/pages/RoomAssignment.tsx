@@ -925,10 +925,9 @@ const RoomAssignment = () => {
           width: '6rem',
         }}
       >
-        {/* Header — matches main table header */}
-        <div className="flex items-center gap-1 px-1 h-12 border-b border-[#F2F4F6] dark:border-gray-800 bg-[#F2F4F6] dark:bg-[#17171C] rounded-t-xl">
-          <span className="text-caption font-semibold text-[#8B95A1] dark:text-gray-400 flex-1">이름</span>
-          <span className="text-caption font-semibold text-[#8B95A1] dark:text-gray-400 flex-shrink-0">성별</span>
+        {/* Header — show date */}
+        <div className="flex items-center justify-center h-12 border-b border-[#E5E8EB] dark:border-gray-700 bg-[#E5E8EB] dark:bg-[#2C2C34] rounded-t-xl -mx-2 px-2">
+          <span className="text-label font-semibold text-[#4E5968] dark:text-gray-300">{date.format('M/D (ddd)')}</span>
         </div>
         {activeRoomNumbers.map((room) => {
           const guest = roomMap.get(room);
@@ -941,7 +940,7 @@ const RoomAssignment = () => {
               <div className="flex items-center gap-1 overflow-hidden w-full">
                 {guest ? (
                   <>
-                    <span className="overflow-hidden truncate flex-1 text-caption text-[#4E5968] dark:text-gray-300">
+                    <span className="overflow-hidden truncate flex-1 text-caption text-[#191F28] dark:text-gray-200">
                       {guest.customer_name}
                     </span>
                     <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-gray-400">
@@ -1098,14 +1097,8 @@ const RoomAssignment = () => {
       {/* Main grid card */}
       <div className="section-card !overflow-visible">
         {/* Date navigation header */}
-        <div className="section-header">
-          <button
-            onClick={() => navigateDate('prev')}
-            className="cursor-pointer text-body text-[#B0B8C1] dark:text-[#8B95A1] hover:text-[#8B95A1] dark:hover:text-gray-300 transition-colors w-24 text-center py-1 bg-transparent border-none"
-          >
-            {selectedDate.subtract(1, 'day').format('M/D(ddd)')}
-          </button>
-          <div className="flex-1 flex justify-center items-center gap-1">
+        <div className="section-header justify-center">
+          <div className="flex items-center gap-1">
             <button
               onClick={() => navigateDate('prev')}
               className="cursor-pointer p-1 text-[#B0B8C1] hover:text-[#191F28] dark:text-gray-500 dark:hover:text-white transition-colors bg-transparent border-none"
@@ -1127,12 +1120,6 @@ const RoomAssignment = () => {
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
-          <button
-            onClick={() => navigateDate('next')}
-            className="cursor-pointer text-body text-[#B0B8C1] dark:text-[#8B95A1] hover:text-[#8B95A1] dark:hover:text-gray-300 transition-colors w-24 text-center py-1 bg-transparent border-none"
-          >
-            {selectedDate.add(1, 'day').format('M/D(ddd)')}
-          </button>
         </div>
 
         <div className="section-body !pt-2">
@@ -1154,19 +1141,19 @@ const RoomAssignment = () => {
                   {/* Header */}
                   <div className="flex items-center h-12 bg-[#F2F4F6] dark:bg-[#17171C] border-b border-[#F2F4F6] dark:border-gray-800">
                     <div className="flex-shrink-0 pl-3 pr-2 w-36 border-r border-[#F2F4F6] dark:border-gray-800">
-                      <span className="text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">객실</span>
+                      <span className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">객실</span>
                     </div>
                     <div
                       className="flex-1 grid gap-2 pl-3"
                       style={{ gridTemplateColumns: GUEST_COLS }}
                     >
-                      <div className="text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">이름</div>
-                      <div className="text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">전화번호</div>
-                      <div className="text-center text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">성별</div>
-                      <div className="text-center text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">파티</div>
-                      <div className="text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">예약객실</div>
-                      <div className="text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">메모</div>
-                      <div className="relative flex items-center text-caption font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">
+                      <div className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">이름</div>
+                      <div className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">전화번호</div>
+                      <div className="text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">성별</div>
+                      <div className="text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">파티</div>
+                      <div className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">예약객실</div>
+                      <div className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">메모</div>
+                      <div className="relative flex items-center justify-end text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">
                         문자
                         <div
                           id="sms-column-resizer"

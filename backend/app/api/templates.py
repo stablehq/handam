@@ -8,7 +8,8 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from app.db.database import get_db
-from app.db.models import MessageTemplate
+from app.db.models import MessageTemplate, User
+from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.templates.renderer import TemplateRenderer
 
 router = APIRouter()
@@ -62,7 +63,8 @@ class TemplatePreviewResponse(BaseModel):
 def get_templates(
     category: Optional[str] = None,
     active: Optional[bool] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get all message templates"""
     query = db.query(MessageTemplate)
@@ -95,7 +97,7 @@ def get_templates(
 
 
 @router.get("/api/templates/{template_id}", response_model=TemplateResponse)
-def get_template(template_id: int, db: Session = Depends(get_db)):
+def get_template(template_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get a specific template"""
     template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
 
@@ -117,7 +119,7 @@ def get_template(template_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/api/templates", response_model=TemplateResponse)
-def create_template(template: TemplateCreate, db: Session = Depends(get_db)):
+def create_template(template: TemplateCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
     """Create a new message template"""
     # Check if key already exists
     existing = db.query(MessageTemplate).filter(MessageTemplate.key == template.key).first()
@@ -153,7 +155,7 @@ def create_template(template: TemplateCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/api/templates/{template_id}", response_model=TemplateResponse)
-def update_template(template_id: int, template: TemplateUpdate, db: Session = Depends(get_db)):
+def update_template(template_id: int, template: TemplateUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
     """Update a message template"""
     db_template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
 
@@ -190,7 +192,7 @@ def update_template(template_id: int, template: TemplateUpdate, db: Session = De
 
 
 @router.delete("/api/templates/{template_id}")
-def delete_template(template_id: int, db: Session = Depends(get_db)):
+def delete_template(template_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
     """Delete a message template"""
     template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
 
@@ -216,7 +218,8 @@ def delete_template(template_id: int, db: Session = Depends(get_db)):
 def preview_template(
     template_id: int,
     request: TemplatePreviewRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Preview template with sample variables"""
     template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
@@ -246,7 +249,7 @@ def preview_template(
 
 
 @router.get("/api/template-variables")
-def get_available_variables():
+def get_available_variables(current_user: User = Depends(get_current_user)):
     """
     Get list of all available template variables
 

@@ -1,16 +1,18 @@
 """
 Scheduler API endpoints for managing automated jobs
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Any
 
 from ..scheduler.jobs import scheduler, get_job_info
+from ..auth.dependencies import require_admin_or_above
+from ..db.models import User
 
 router = APIRouter(prefix="/scheduler", tags=["scheduler"])
 
 
 @router.get("/jobs")
-async def get_jobs():
+async def get_jobs(current_user: User = Depends(require_admin_or_above)):
     """
     Get list of all scheduled jobs
 
@@ -27,7 +29,7 @@ async def get_jobs():
 
 
 @router.get("/jobs/{job_id}")
-async def get_job(job_id: str):
+async def get_job(job_id: str, current_user: User = Depends(require_admin_or_above)):
     """Get specific job details"""
     job = scheduler.get_job(job_id)
 
@@ -43,7 +45,7 @@ async def get_job(job_id: str):
 
 
 @router.post("/jobs/{job_id}/run")
-async def run_job_manual(job_id: str):
+async def run_job_manual(job_id: str, current_user: User = Depends(require_admin_or_above)):
     """
     Manually trigger a scheduled job
 
@@ -75,7 +77,7 @@ async def run_job_manual(job_id: str):
 
 
 @router.post("/jobs/{job_id}/pause")
-async def pause_job(job_id: str):
+async def pause_job(job_id: str, current_user: User = Depends(require_admin_or_above)):
     """Pause a scheduled job"""
     job = scheduler.get_job(job_id)
 
@@ -93,7 +95,7 @@ async def pause_job(job_id: str):
 
 
 @router.post("/jobs/{job_id}/resume")
-async def resume_job(job_id: str):
+async def resume_job(job_id: str, current_user: User = Depends(require_admin_or_above)):
     """Resume a paused job"""
     job = scheduler.get_job(job_id)
 
@@ -111,7 +113,7 @@ async def resume_job(job_id: str):
 
 
 @router.get("/status")
-async def get_scheduler_status():
+async def get_scheduler_status(current_user: User = Depends(require_admin_or_above)):
     """Get overall scheduler status"""
     return {
         "running": scheduler.running,
@@ -121,7 +123,7 @@ async def get_scheduler_status():
 
 
 @router.post("/shutdown")
-async def shutdown_scheduler():
+async def shutdown_scheduler(current_user: User = Depends(require_admin_or_above)):
     """
     Shutdown the scheduler
 

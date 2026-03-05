@@ -1,7 +1,10 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { useEffect } from 'react'
+import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom'
 import Layout, { ThemeProvider } from './components/Layout'
 import FlowbiteWrapper from './components/FlowbiteTheme'
+import ProtectedRoute from './components/ProtectedRoute'
 import { Toaster } from '@/components/ui/sonner'
+import { useAuthStore } from '@/stores/auth-store'
 import Dashboard from './pages/Dashboard'
 import Reservations from './pages/Reservations'
 import Messages from './pages/Messages'
@@ -9,14 +12,31 @@ import AutoResponse from './pages/AutoResponse'
 import RoomAssignment from './pages/RoomAssignment'
 import RoomManagement from './pages/RoomManagement'
 import Templates from './pages/Templates'
+import Login from './pages/Login'
+import UserManagement from './pages/UserManagement'
 
 function App() {
+  const loadFromStorage = useAuthStore((s) => s.loadFromStorage)
+
+  useEffect(() => {
+    loadFromStorage()
+  }, [loadFromStorage])
+
   return (
     <ThemeProvider>
       <FlowbiteWrapper>
         <Router>
-          <Layout>
-            <Routes>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Outlet />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            >
               <Route path="/" element={<Dashboard />} />
               <Route path="/reservations" element={<Reservations />} />
               <Route path="/rooms" element={<RoomAssignment />} />
@@ -24,8 +44,16 @@ function App() {
               <Route path="/messages" element={<Messages />} />
               <Route path="/auto-response" element={<AutoResponse />} />
               <Route path="/templates" element={<Templates />} />
-            </Routes>
-          </Layout>
+              <Route
+                path="/users"
+                element={
+                  <ProtectedRoute requiredRoles={['superadmin', 'admin']}>
+                    <UserManagement />
+                  </ProtectedRoute>
+                }
+              />
+            </Route>
+          </Routes>
         </Router>
         <Toaster position="top-right" richColors />
       </FlowbiteWrapper>

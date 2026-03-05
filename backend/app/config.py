@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     NAVER_RESERVATION_EMAIL: str = ""
     NAVER_RESERVATION_PASSWORD: str = ""
 
+    # JWT Authentication
+    JWT_SECRET_KEY: str = "dev-secret-key-change-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_HOURS: int = 24
+
     class Config:
         env_file = ".env"
         case_sensitive = False

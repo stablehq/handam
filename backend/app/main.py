@@ -3,7 +3,7 @@ FastAPI application entry point
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import messages, webhooks, auto_response, rules, documents, reservations, dashboard, campaigns, scheduler, rooms, templates, template_schedules
+from app.api import messages, webhooks, auto_response, rules, documents, reservations, dashboard, campaigns, scheduler, rooms, templates, template_schedules, auth
 from app.db.database import init_db
 from app.scheduler.jobs import start_scheduler, stop_scheduler
 import logging
@@ -48,6 +48,7 @@ async def shutdown_event():
 
 
 # Include routers
+app.include_router(auth.router)
 app.include_router(messages.router)
 app.include_router(webhooks.router)
 app.include_router(auto_response.router)
