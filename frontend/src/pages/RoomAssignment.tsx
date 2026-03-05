@@ -794,16 +794,19 @@ const RoomAssignment = () => {
     );
   };
 
-  const renderUnassignedRow = (res: Reservation) => {
+  const renderUnassignedRow = (res: Reservation, index: number) => {
     const genderPeople = [res.gender, res.party_participants].filter(Boolean).join('');
     const smsStatus = getSmsStatus(res);
 
     return (
       <div
         key={res.id}
-        className="group select-none border-b border-[#F2F4F6] dark:border-gray-800 bg-[#FAFBFC] dark:bg-[#1A1A20] transition-colors h-[48px] min-h-[48px] max-h-[48px]"
+        className="group flex select-none border-b border-[#F2F4F6] dark:border-gray-800 bg-white dark:bg-[#1E1E24] transition-colors h-[48px] min-h-[48px] max-h-[48px]"
       >
-        <div className={`flex items-center -ml-7 rounded-lg transition-shadow duration-200 group-hover:shadow-[0_1px_8px_-2px_rgba(0,0,0,0.12),-6px_0_10px_-4px_rgba(0,0,0,0.08)] ${guestAreaCursor()}`}>
+        <div className="flex items-center gap-1.5 flex-shrink-0 pl-3 pr-2 py-2 w-36 border-r border-[#F2F4F6] dark:border-gray-800">
+          {index === 0 && <span className="font-semibold text-[#191F28] dark:text-white text-body">미배정</span>}
+        </div>
+        <div className={`flex-1 flex items-center -ml-7 rounded-lg transition-shadow duration-200 group-hover:shadow-[0_1px_8px_-2px_rgba(0,0,0,0.12),-6px_0_10px_-4px_rgba(0,0,0,0.08)] ${guestAreaCursor()}`}>
           <div
             draggable
             onDragStart={(e) => onDragStart(e, res.id)}
@@ -825,9 +828,9 @@ const RoomAssignment = () => {
               <InlineInput value={genderPeople} field="genderPeople" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
             </div>
             <div className="overflow-hidden text-center">
-                <InlineInput value={partyValues[res.id] || ''} field="party" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
-              </div>
-            <div className="overflow-hidden truncate text-body text-[#8B95A1] dark:text-gray-400">{res.room_info || <span className="text-[#B0B8C1]">-</span>}</div>
+              <InlineInput value={partyValues[res.id] || ''} field="party" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
+            </div>
+            <div className="overflow-hidden truncate text-body text-[#FF9F00] dark:text-[#FF9F00]">미배정</div>
             <div className="overflow-hidden">
               <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-gray-400" placeholder="" />
             </div>
@@ -838,16 +841,19 @@ const RoomAssignment = () => {
     );
   };
 
-  const renderPartyOnlyRow = (res: Reservation, _index: number) => {
+  const renderPartyOnlyRow = (res: Reservation, index: number) => {
     const genderPeople = [res.gender, res.party_participants].filter(Boolean).join('');
     const smsStatus = getSmsStatus(res);
 
     return (
       <div
         key={res.id}
-        className="group select-none border-b border-[#F2F4F6] dark:border-gray-800 bg-white dark:bg-[#1E1E24] transition-colors h-[48px] min-h-[48px] max-h-[48px]"
+        className="group flex select-none border-b border-[#F2F4F6] dark:border-gray-800 bg-white dark:bg-[#1E1E24] transition-colors h-[48px] min-h-[48px] max-h-[48px]"
       >
-        <div className={`flex items-center -ml-7 rounded-lg transition-shadow duration-200 group-hover:shadow-[0_1px_8px_-2px_rgba(0,0,0,0.12),-6px_0_10px_-4px_rgba(0,0,0,0.08)] ${guestAreaCursor()}`}>
+        <div className="flex items-center gap-1.5 flex-shrink-0 pl-3 pr-2 py-2 w-36 border-r border-[#F2F4F6] dark:border-gray-800">
+          {index === 0 && <span className="font-semibold text-[#191F28] dark:text-white text-body">파티만</span>}
+        </div>
+        <div className={`flex-1 flex items-center -ml-7 rounded-lg transition-shadow duration-200 group-hover:shadow-[0_1px_8px_-2px_rgba(0,0,0,0.12),-6px_0_10px_-4px_rgba(0,0,0,0.08)] ${guestAreaCursor()}`}>
           <div
             draggable
             onDragStart={(e) => onDragStart(e, res.id)}
@@ -869,8 +875,8 @@ const RoomAssignment = () => {
               <InlineInput value={genderPeople} field="genderPeople" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
             </div>
             <div className="overflow-hidden text-center">
-                <InlineInput value={partyValues[res.id] || ''} field="party" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
-              </div>
+              <InlineInput value={partyValues[res.id] || ''} field="party" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
+            </div>
             <div className="overflow-hidden truncate text-body text-[#7B61FF] dark:text-[#7B61FF]">파티만</div>
             <div className="overflow-hidden">
               <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-gray-400" placeholder="" />
@@ -916,13 +922,13 @@ const RoomAssignment = () => {
         style={{
           opacity: isActive ? 0.95 : 0.55,
           transform: isActive ? 'scale(1.03)' : 'scale(1)',
-          width: '8rem',
+          width: '6rem',
         }}
       >
         {/* Header — matches main table header */}
-        <div className="flex justify-between items-center px-1 h-12 border-b border-[#F2F4F6] dark:border-gray-800">
-          <span className="text-caption font-semibold text-[#8B95A1] dark:text-gray-400">이름</span>
-          <span className="text-caption font-semibold text-[#8B95A1] dark:text-gray-400">성별</span>
+        <div className="flex items-center gap-1 px-1 h-12 border-b border-[#F2F4F6] dark:border-gray-800 bg-[#F2F4F6] dark:bg-[#17171C] rounded-t-xl">
+          <span className="text-caption font-semibold text-[#8B95A1] dark:text-gray-400 flex-1">이름</span>
+          <span className="text-caption font-semibold text-[#8B95A1] dark:text-gray-400 flex-shrink-0">성별</span>
         </div>
         {activeRoomNumbers.map((room) => {
           const guest = roomMap.get(room);
@@ -932,13 +938,13 @@ const RoomAssignment = () => {
               key={room}
               className="flex overflow-hidden select-none border-b border-[#F2F4F6] dark:border-gray-800 px-1 h-12 items-center hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34]"
             >
-              <div className="flex justify-between items-center overflow-hidden w-full">
+              <div className="flex items-center gap-1 overflow-hidden w-full">
                 {guest ? (
                   <>
                     <span className="overflow-hidden truncate flex-1 text-caption text-[#4E5968] dark:text-gray-300">
                       {guest.customer_name}
                     </span>
-                    <span className="flex-shrink-0 ml-1 text-caption text-[#8B95A1] dark:text-gray-400">
+                    <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-gray-400">
                       {gp || '-'}
                     </span>
                   </>
@@ -1099,14 +1105,13 @@ const RoomAssignment = () => {
           >
             {selectedDate.subtract(1, 'day').format('M/D(ddd)')}
           </button>
-          <div className="flex-1 flex justify-center items-center gap-2">
-            <Button
-              color="light"
-              size="xs"
+          <div className="flex-1 flex justify-center items-center gap-1">
+            <button
               onClick={() => navigateDate('prev')}
+              className="cursor-pointer p-1 text-[#B0B8C1] hover:text-[#191F28] dark:text-gray-500 dark:hover:text-white transition-colors bg-transparent border-none"
             >
               <ChevronLeft className="h-4 w-4" />
-            </Button>
+            </button>
             <TextInput
               type="date"
               sizing="sm"
@@ -1115,13 +1120,12 @@ const RoomAssignment = () => {
                 if (e.target.value) setSelectedDate(dayjs(e.target.value));
               }}
             />
-            <Button
-              color="light"
-              size="xs"
+            <button
               onClick={() => navigateDate('next')}
+              className="cursor-pointer p-1 text-[#B0B8C1] hover:text-[#191F28] dark:text-gray-500 dark:hover:text-white transition-colors bg-transparent border-none"
             >
               <ChevronRight className="h-4 w-4" />
-            </Button>
+            </button>
           </div>
           <button
             onClick={() => navigateDate('next')}
@@ -1131,7 +1135,7 @@ const RoomAssignment = () => {
           </button>
         </div>
 
-        <div className="section-body">
+        <div className="section-body !pt-2">
           <div className="flex gap-3">
             {renderDayPreview(prevDayReservations, selectedDate.subtract(1, 'day'), 'prev')}
 
@@ -1200,21 +1204,14 @@ const RoomAssignment = () => {
                     onDrop={onPoolDrop}
                   >
                     {unassigned.length === 0 && !loading ? (
-                      <div className="flex items-center gap-2 py-3 px-4">
-                        <div className="flex-shrink-0 w-36 flex items-center">
-                          <Badge color="warning" size="sm">미배정</Badge>
+                      <div className="group flex select-none border-b border-[#F2F4F6] dark:border-gray-800 bg-[#F2F4F6]/50 dark:bg-[#17171C]/30 transition-colors h-[48px] min-h-[48px] max-h-[48px]">
+                        <div className="flex items-center gap-1.5 flex-shrink-0 pl-3 pr-2 py-2 w-36 border-r border-[#F2F4F6] dark:border-gray-800">
+                          <span className="font-semibold text-[#191F28] dark:text-white text-body">미배정</span>
                         </div>
-                        <p className="text-body text-[#B0B8C1] dark:text-[#8B95A1] italic">미배정 예약이 없습니다</p>
+                        <div className="flex-1" />
                       </div>
                     ) : (
-                      <div className="flex">
-                        <div className="flex-shrink-0 flex items-center justify-start pl-3 w-36 border-r border-[#F2F4F6] dark:border-gray-800 py-2">
-                          <Badge color="warning" size="sm">미배정</Badge>
-                        </div>
-                        <div className="flex-1">
-                          {unassigned.map((res) => renderUnassignedRow(res))}
-                        </div>
-                      </div>
+                      unassigned.map((res, idx) => renderUnassignedRow(res, idx))
                     )}
                     {dragOverPool && (
                       <div className="text-center py-2 text-body text-[#FF9F00] dark:text-[#FF9F00] font-medium">
@@ -1235,25 +1232,14 @@ const RoomAssignment = () => {
                     onDrop={onPartyZoneDrop}
                   >
                     {partyOnly.length === 0 ? (
-                      <div className="flex items-center gap-2 py-3 px-4">
-                        <div className="flex-shrink-0 w-36 flex items-center">
-                          <Badge color="purple" size="sm">파티만</Badge>
+                      <div className="group flex select-none border-b border-[#F2F4F6] dark:border-gray-800 bg-[#F2F4F6]/50 dark:bg-[#17171C]/30 transition-colors h-[48px] min-h-[48px] max-h-[48px]">
+                        <div className="flex items-center gap-1.5 flex-shrink-0 pl-3 pr-2 py-2 w-36 border-r border-[#F2F4F6] dark:border-gray-800">
+                          <span className="font-semibold text-[#191F28] dark:text-white text-body">파티만</span>
                         </div>
-                        <p className="text-body text-[#B0B8C1] dark:text-[#8B95A1] italic">
-                          {dragOverPartyZone
-                            ? '여기에 놓으면 파티만 게스트로 전환됩니다'
-                            : '파티만 게스트가 없습니다'}
-                        </p>
+                        <div className="flex-1" />
                       </div>
                     ) : (
-                      <div className="flex">
-                        <div className="flex-shrink-0 flex items-center justify-start pl-3 w-36 border-r border-[#F2F4F6] dark:border-gray-800 py-2">
-                          <Badge color="purple" size="sm">파티만</Badge>
-                        </div>
-                        <div className="flex-1">
-                          {partyOnly.map((res, idx) => renderPartyOnlyRow(res, idx))}
-                        </div>
-                      </div>
+                      partyOnly.map((res, idx) => renderPartyOnlyRow(res, idx))
                     )}
                     {dragOverPartyZone && partyOnly.length > 0 && (
                       <div className="text-center py-2 text-body text-[#7B61FF] dark:text-[#7B61FF] font-medium">
