@@ -3,6 +3,7 @@ Reservations API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, and_
 from pydantic import BaseModel, field_validator
 from typing import List, Optional, Union
 from app.db.database import get_db
@@ -15,13 +16,6 @@ import logging
 
 router = APIRouter(prefix="/api/reservations", tags=["reservations"])
 logger = logging.getLogger(__name__)
-
-ROOM_INFO_MAP = {
-    "A101": "더블룸", "A102": "트윈룸", "A103": "패밀리룸",
-    "A104": "디럭스룸", "A105": "스탠다드룸",
-    "B201": "더블룸", "B202": "트윈룸", "B203": "패밀리룸",
-    "B204": "디럭스룸", "B205": "스탠다드룸",
-}
 
 
 class ReservationCreate(BaseModel):
@@ -95,6 +89,14 @@ class ReservationResponse(BaseModel):
     room_sms_sent: bool = False
     party_sms_sent: bool = False
     sent_sms_types: Optional[str] = None  # "객후,파티안내,객실안내"
+    end_date: Optional[str] = None
+    biz_item_name: Optional[str] = None
+    booking_count: Optional[int] = 1
+    booking_options: Optional[str] = None
+    custom_form_input: Optional[str] = None
+    total_price: Optional[int] = None
+    confirmed_datetime: Optional[str] = None
+    cancelled_datetime: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -122,6 +124,14 @@ def _to_response(res: Reservation) -> ReservationResponse:
         room_sms_sent=res.room_sms_sent or False,
         party_sms_sent=res.party_sms_sent or False,
         sent_sms_types=res.sent_sms_types,
+        end_date=res.end_date,
+        biz_item_name=res.biz_item_name,
+        booking_count=res.booking_count,
+        booking_options=res.booking_options,
+        custom_form_input=res.custom_form_input,
+        total_price=res.total_price,
+        confirmed_datetime=res.confirmed_datetime,
+        cancelled_datetime=res.cancelled_datetime,
         created_at=res.created_at,
         updated_at=res.updated_at,
     )
@@ -143,9 +153,25 @@ async def get_reservations(
         query = query.filter(Reservation.status == status)
 
     if date:
-        query = query.filter(Reservation.date == date)
+        # check-in <= date < check-out (end_date)
+        # If end_date is null, fall back to exact date match
+        query = query.filter(
+            or_(
+                and_(
+                    Reservation.date <= date,
+                    Reservation.end_date > date,
+                ),
+                and_(
+                    Reservation.date == date,
+                    Reservation.end_date.is_(None),
+                ),
+            )
+        )
 
-    reservations = query.order_by(Reservation.created_at.desc()).offset(skip).limit(limit).all()
+    # Order by most recent confirmation or cancellation datetime
+    reservations = query.order_by(
+        Reservation.confirmed_datetime.desc().nullslast(),
+    ).offset(skip).limit(limit).all()
 
     return [_to_response(res) for res in reservations]
 
@@ -234,22 +260,6 @@ async def assign_room(
         db_reservation.room_number = None
         db_reservation.room_password = None
     else:
-        # Check for duplicate assignment on the same date
-        conflict = (
-            db.query(Reservation)
-            .filter(
-                Reservation.date == db_reservation.date,
-                Reservation.room_number == room_number,
-                Reservation.id != reservation_id,
-            )
-            .first()
-        )
-        if conflict:
-            raise HTTPException(
-                status_code=409,
-                detail=f"객실 {room_number}은(는) 이미 {conflict.customer_name}에게 배정되어 있습니다.",
-            )
-
         db_reservation.room_number = room_number
         db_reservation.room_password = TemplateRenderer.generate_room_password(room_number)
         # Don't update room_info here - it should preserve the original reservation
@@ -262,50 +272,12 @@ async def assign_room(
 
 @router.post("/sync/naver")
 async def sync_from_naver(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Sync reservations from Naver (mock: reads from JSON file)"""
-    logger.info("Starting Naver reservation sync...")
+    """Sync reservations from Naver Smart Place API"""
+    from app.api.reservations_sync import sync_naver_to_db
 
     reservation_provider = get_reservation_provider()
-    reservations = await reservation_provider.sync_reservations()
-
-    added_count = 0
-    for res_data in reservations:
-        # Check if reservation already exists
-        existing = (
-            db.query(Reservation)
-            .filter(Reservation.external_id == res_data.get("external_id"))
-            .first()
-        )
-
-        if not existing:
-            # Convert status string to enum
-            try:
-                status_enum = ReservationStatus(res_data.get("status", "pending"))
-            except ValueError:
-                status_enum = ReservationStatus.PENDING
-
-            new_res = Reservation(
-                external_id=res_data.get("external_id"),
-                customer_name=res_data.get("customer_name"),
-                phone=res_data.get("phone"),
-                date=res_data.get("date"),
-                time=res_data.get("time"),
-                status=status_enum,
-                notes=res_data.get("notes"),
-                source="naver",
-            )
-            db.add(new_res)
-            added_count += 1
-
-    db.commit()
-    logger.info(f"Naver sync completed: {added_count} new reservations added")
-
-    return {
-        "status": "success",
-        "synced": len(reservations),
-        "added": added_count,
-        "message": f"Synced {len(reservations)} reservations from Naver (mock mode)",
-    }
+    result = await sync_naver_to_db(reservation_provider, db)
+    return result
 
 
 @router.post("/sync/sheets")

@@ -44,6 +44,7 @@ interface Reservation {
   customer_name: string;
   phone: string;
   date: string;
+  end_date?: string | null;
   time?: string | null;
   status: string;
   source?: string | null;
@@ -51,6 +52,13 @@ interface Reservation {
   gender?: string | null;
   room_info?: string | null;
   room_number?: string | null;
+  biz_item_name?: string | null;
+  booking_count?: number | null;
+  booking_options?: string | null;
+  custom_form_input?: string | null;
+  total_price?: number | null;
+  confirmed_datetime?: string | null;
+  cancelled_datetime?: string | null;
   tags?: string | null;
   notes?: string | null;
   created_at?: string | null;
@@ -91,6 +99,28 @@ function fmtTime(val: string | null | undefined): string {
   if (!val) return '';
   if (val.includes('T')) return dayjs(val).format('HH:mm');
   return val.slice(0, 5);
+}
+
+const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
+
+function fmtPeriod(start: string | null | undefined, end: string | null | undefined): string {
+  if (!start) return '-';
+  const sd = dayjs(start);
+  const s = `${sd.format('YY.MM.DD')}(${DAY_NAMES[sd.day()]})`;
+  if (!end) return s;
+  const ed = dayjs(end);
+  const e = `${ed.format('YY.MM.DD')}(${DAY_NAMES[ed.day()]})`;
+  return `${s} ~ ${e}`;
+}
+
+function fmtPrice(val: number | null | undefined): string {
+  if (val == null) return '-';
+  return `${val.toLocaleString()}원`;
+}
+
+function fmtDatetime(val: string | null | undefined): string {
+  if (!val) return '-';
+  return dayjs(val).format('MM.DD HH:mm');
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -543,10 +573,11 @@ export default function Reservations() {
                   <TableHeadCell className="whitespace-nowrap">예약ID</TableHeadCell>
                   <TableHeadCell className="whitespace-nowrap">이름</TableHeadCell>
                   <TableHeadCell className="whitespace-nowrap">전화번호</TableHeadCell>
-                  <TableHeadCell className="whitespace-nowrap">예약일시</TableHeadCell>
+                  <TableHeadCell className="whitespace-nowrap">이용기간</TableHeadCell>
                   <TableHeadCell className="whitespace-nowrap text-center">상태</TableHeadCell>
-                  <TableHeadCell className="whitespace-nowrap text-center">출처</TableHeadCell>
+                  <TableHeadCell className="whitespace-nowrap text-center">상품명</TableHeadCell>
                   <TableHeadCell className="whitespace-nowrap text-center">객실</TableHeadCell>
+                  <TableHeadCell className="whitespace-nowrap text-right">결제금액</TableHeadCell>
                   <TableHeadCell className="whitespace-nowrap">메모</TableHeadCell>
                   <TableHeadCell className="whitespace-nowrap">작업</TableHeadCell>
                 </TableRow>
@@ -554,7 +585,6 @@ export default function Reservations() {
               <TableBody className="divide-y">
                 {paginated.map((r) => {
                   const isNaver = !!r.external_id;
-                  const timeStr = fmtTime(r.time ?? r.date);
 
                   return (
                     <TableRow key={r.id}>
@@ -577,14 +607,13 @@ export default function Reservations() {
                         </span>
                       </TableCell>
                       <TableCell>
-                        <p className="text-body text-gray-900 dark:text-white">{fmtDate(r.date)}</p>
-                        {timeStr && <p className="text-caption text-gray-400">{timeStr}</p>}
+                        <span className="text-body tabular-nums">{fmtPeriod(r.date, r.end_date)}</span>
                       </TableCell>
                       <TableCell className="text-center">
                         <StatusBadge status={r.status} />
                       </TableCell>
                       <TableCell className="text-center">
-                        <SourceBadge source={r.source} />
+                        <span className="text-body">{r.biz_item_name || r.room_info || '-'}</span>
                       </TableCell>
                       <TableCell className="text-center">
                         {r.room_number ? (
@@ -592,6 +621,9 @@ export default function Reservations() {
                         ) : (
                           <span className="text-caption text-gray-400">미배정</span>
                         )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className="tabular-nums text-body text-gray-500">{fmtPrice(r.total_price)}</span>
                       </TableCell>
                       <TableCell>
                         <p className="line-clamp-1 max-w-[120px] text-body text-gray-500" title={r.notes ?? ''}>

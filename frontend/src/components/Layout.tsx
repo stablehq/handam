@@ -17,6 +17,7 @@ import {
   CalendarRange,
   BedDouble,
   Settings2,
+  Settings,
   FileText,
   MessageSquareText,
   Zap,
@@ -104,8 +105,8 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     title: '시스템',
-    requiredRoles: ['superadmin', 'admin'],
     items: [
+      { path: '/settings', label: '설정', icon: <Settings size={18} /> },
       { path: '/users', label: '계정 관리', icon: <Users size={18} /> },
     ],
   },
@@ -121,6 +122,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/messages': '메시지',
   '/auto-response': '자동 응답',
   '/users': '계정 관리',
+  '/settings': '설정',
 }
 
 // ── Role Badge ──

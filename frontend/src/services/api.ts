@@ -62,6 +62,8 @@ export const roomsAPI = {
     api.post('/api/rooms', data),
   update: (id: number, data: any) => api.put(`/api/rooms/${id}`, data),
   delete: (id: number) => api.delete(`/api/rooms/${id}`),
+  getBizItems: () => api.get('/api/rooms/naver/biz-items'),
+  syncBizItems: () => api.post('/api/rooms/naver/biz-items/sync'),
 };
 
 // Rules API
@@ -198,5 +200,14 @@ export const authAPI = {
   updateUser: (id: number, data: any) => api.put(`/api/auth/users/${id}`, data),
   deleteUser: (id: number) => api.delete(`/api/auth/users/${id}`),
 }
+
+// Settings API
+export const settingsAPI = {
+  getNaverStatus: () => api.get('/api/settings/naver/status'),
+  updateNaverCookie: (cookie: string) =>
+    api.post('/api/settings/naver/cookie', { cookie }),
+  clearNaverCookie: () => api.delete('/api/settings/naver/cookie'),
+  getBookmarklet: () => api.get('/api/settings/naver/bookmarklet'),
+};
 
 export default api;

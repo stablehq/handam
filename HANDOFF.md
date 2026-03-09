@@ -1,0 +1,34 @@
+# HANDOFF
+
+## Current [1773074502]
+- **Task**: Reservation system improvements - Naver sync, room assignment, UI redesign
+- **Completed**:
+  - Redesigned Reservations page table with 12 columns (상태, 이름, 전화번호, 예약번호, 이용기간, 상품명, 수량, 옵션, 요청사항, 결제금액, 확정일시, 취소일시)
+  - Added 8 new DB fields to Reservation model (end_date, biz_item_name, booking_count, booking_options, custom_form_input, total_price, confirmed_datetime, cancelled_datetime)
+  - Changed Naver sync from USEDATE to REGDATE (last 7 days registrations) to capture all new/cancelled reservations
+  - Reduced sync interval from 10min to 5min
+  - Removed all seed data and seed.py file
+  - Added Naver biz items sync and room linking (naver_biz_item_id on Room model)
+  - Auto-assign rooms during sync based on matching naver_biz_item_id
+  - Added gender fetching via Naver user API during sync (get_user_info per userId, cached)
+  - Fixed date filter to use stay period overlap (check-in <= date < check-out) instead of exact date match
+  - Fixed multi-guest room support: assignedRooms Map now holds Reservation[] instead of single Reservation
+  - Removed 409 conflict check on room assignment to allow multiple guests per room (dormitory/shared rooms)
+  - Room column width set to w-42 across RoomAssignment page
+- **Next Steps**:
+  - Verify multi-guest room rendering works correctly in browser
+  - Password generation for Korean room names needs fixing (user deferred: "나중에 결정할게")
+  - Consider adding age_group and visit_count display from user API data
+  - Test full Naver sync flow end-to-end with real data
+- **Blockers**: None
+- **Related Files**:
+  - `backend/app/api/reservations.py` - date filter with stay overlap, removed room conflict check
+  - `backend/app/api/reservations_sync.py` - auto-assign rooms, gender sync
+  - `backend/app/real/reservation.py` - REGDATE sync, user info fetching, biz items API
+  - `backend/app/db/models.py` - new Reservation fields, Room.naver_biz_item_id, NaverBizItem model
+  - `backend/app/api/rooms.py` - biz items sync endpoint
+  - `backend/app/scheduler/jobs.py` - 5min interval
+  - `frontend/src/pages/Reservations.tsx` - 12-column table redesign
+  - `frontend/src/pages/RoomAssignment.tsx` - multi-guest rooms, w-42 columns
+  - `frontend/src/pages/RoomManagement.tsx` - biz item linking UI
+  - `frontend/src/services/api.ts` - getBizItems, syncBizItems

@@ -14,6 +14,7 @@ import RoomManagement from './pages/RoomManagement'
 import Templates from './pages/Templates'
 import Login from './pages/Login'
 import UserManagement from './pages/UserManagement'
+import Settings from './pages/Settings'
 
 function App() {
   const loadFromStorage = useAuthStore((s) => s.loadFromStorage)
@@ -44,6 +45,7 @@ function App() {
               <Route path="/messages" element={<Messages />} />
               <Route path="/auto-response" element={<AutoResponse />} />
               <Route path="/templates" element={<Templates />} />
+              <Route path="/settings" element={<Settings />} />
               <Route
                 path="/users"
                 element={

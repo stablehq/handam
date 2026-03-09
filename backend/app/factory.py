@@ -32,9 +32,10 @@ def get_reservation_provider() -> ReservationProvider:
     else:
         logger.info("🚀 Using RealReservationProvider (DEMO_MODE=false)")
         from app.real.reservation import RealReservationProvider
+        from app.api.settings import get_naver_cookie
         return RealReservationProvider(
-            email=settings.NAVER_RESERVATION_EMAIL,
-            password=settings.NAVER_RESERVATION_PASSWORD,
+            business_id=settings.NAVER_BUSINESS_ID,
+            cookie=get_naver_cookie(),
         )
 
 

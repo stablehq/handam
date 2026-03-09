@@ -20,50 +20,20 @@ scheduler = AsyncIOScheduler()
 
 async def sync_naver_reservations_job():
     """
-    Sync reservations from Naver Booking API
+    Sync reservations from Naver Smart Place API
     Runs every 10 minutes from 10:10 to 21:59
 
-    TODO: Once Naver webhook is implemented (see app/api/webhooks.py),
-    reduce this job frequency to 1 hour as a backup/safety mechanism.
-    Webhook will provide real-time updates, and this scheduler will catch
-    any missed events or handle initial sync.
-
-    Ported from: stable-clasp-main/03_trigger.js:1-16 (processTodayAuto - first part)
+    Ported from: stable-clasp-main/03_trigger.js:1-16 (processTodayAuto)
     """
     logger.info("Running Naver reservations sync job")
 
     db = SessionLocal()
     try:
+        from ..api.reservations_sync import sync_naver_to_db
+
         reservation_provider = get_reservation_provider()
-
-        # Sync today's reservations
-        today = datetime.now()
-        reservations = await reservation_provider.sync_reservations(today)
-
-        logger.info(f"Synced {len(reservations)} reservations from Naver")
-
-        # Store in database
-        from ..db.models import Reservation
-
-        for res_data in reservations:
-            # Check if already exists
-            existing = db.query(Reservation).filter_by(
-                naver_booking_id=res_data.get('naver_booking_id')
-            ).first()
-
-            if existing:
-                # Update existing
-                for key, value in res_data.items():
-                    if hasattr(existing, key) and key != 'id':
-                        setattr(existing, key, value)
-                existing.updated_at = datetime.utcnow()
-            else:
-                # Create new
-                reservation = Reservation(**res_data)
-                db.add(reservation)
-
-        db.commit()
-        logger.info("Reservation sync completed successfully")
+        result = await sync_naver_to_db(reservation_provider, db)
+        logger.info(f"Scheduler sync result: {result['message']}")
 
     except Exception as e:
         logger.error(f"Error in reservation sync job: {e}")
@@ -132,13 +102,12 @@ def setup_scheduler():
     - Gender stats: Every hour, 10:00-22:00
     - Template schedules: Loaded dynamically from DB
     """
-    # Naver reservations sync - every 10 minutes from 10:10 to 21:59
-    # Ported from line 6-16
+    # Naver reservations sync - every 5 minutes from 10:00 to 21:59
     scheduler.add_job(
         sync_naver_reservations_job,
         trigger=CronTrigger(
             hour='10-21',
-            minute='*/10',
+            minute='*/5',
             timezone='Asia/Seoul'
         ),
         id='sync_naver_reservations',

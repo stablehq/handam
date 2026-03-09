@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
 from app.db.database import get_db
-from app.db.models import Room, User
+from app.db.models import Room, NaverBizItem, User
+from app.factory import get_reservation_provider
 from app.auth.dependencies import get_current_user
 from datetime import datetime
 import logging
@@ -22,6 +23,7 @@ class RoomCreate(BaseModel):
     max_capacity: int = 4
     is_active: bool = True
     sort_order: int = 0
+    naver_biz_item_id: Optional[str] = None
 
 
 class RoomUpdate(BaseModel):
@@ -31,6 +33,7 @@ class RoomUpdate(BaseModel):
     max_capacity: Optional[int] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
+    naver_biz_item_id: Optional[str] = None
 
 
 class RoomResponse(BaseModel):
@@ -41,6 +44,20 @@ class RoomResponse(BaseModel):
     max_capacity: int
     is_active: bool
     sort_order: int
+    naver_biz_item_id: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class NaverBizItemResponse(BaseModel):
+    id: int
+    biz_item_id: str
+    name: str
+    biz_item_type: Optional[str] = None
+    is_active: bool
     created_at: datetime
     updated_at: datetime
 
@@ -64,6 +81,44 @@ async def get_rooms(
     return rooms
 
 
+@router.get("/naver/biz-items", response_model=List[NaverBizItemResponse])
+async def get_naver_biz_items(db: Session = Depends(get_db)):
+    """Get stored Naver biz items"""
+    items = db.query(NaverBizItem).filter(NaverBizItem.is_active == True).order_by(NaverBizItem.name).all()
+    return items
+
+
+@router.post("/naver/biz-items/sync")
+async def sync_naver_biz_items(db: Session = Depends(get_db)):
+    """Sync biz items from Naver Smart Place API"""
+    provider = get_reservation_provider()
+    items = await provider.fetch_biz_items()
+
+    added = 0
+    updated = 0
+    for item_data in items:
+        existing = db.query(NaverBizItem).filter(
+            NaverBizItem.biz_item_id == item_data['biz_item_id']
+        ).first()
+
+        if existing:
+            existing.name = item_data['name']
+            existing.biz_item_type = item_data.get('biz_item_type')
+            existing.updated_at = datetime.utcnow()
+            updated += 1
+        else:
+            new_item = NaverBizItem(
+                biz_item_id=item_data['biz_item_id'],
+                name=item_data['name'],
+                biz_item_type=item_data.get('biz_item_type'),
+            )
+            db.add(new_item)
+            added += 1
+
+    db.commit()
+    return {"status": "success", "added": added, "updated": updated}
+
+
 @router.get("/{room_id}", response_model=RoomResponse)
 async def get_room(room_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get a single room by ID"""
@@ -83,6 +138,7 @@ async def create_room(room: RoomCreate, db: Session = Depends(get_db), current_u
         max_capacity=room.max_capacity,
         is_active=room.is_active,
         sort_order=room.sort_order,
+        naver_biz_item_id=room.naver_biz_item_id,
     )
     db.add(db_room)
     db.commit()

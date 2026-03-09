@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     # Naver Reservation (only needed when DEMO_MODE=false)
     NAVER_RESERVATION_EMAIL: str = ""
     NAVER_RESERVATION_PASSWORD: str = ""
+    NAVER_BUSINESS_ID: str = "819409"
+    NAVER_COOKIE: str = ""
 
     # JWT Authentication
     JWT_SECRET_KEY: str = "dev-secret-key-change-in-production"

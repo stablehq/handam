@@ -223,6 +223,8 @@ const RoomAssignment = () => {
   const navigate = useNavigate();
   const [selectedDate, setSelectedDate] = useState<Dayjs>(dayjs());
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  // Track which section unassigned reservations belong to: 'party' or 'unassigned'
+  const [sectionOverrides, setSectionOverrides] = useState<Record<number, 'party' | 'unassigned'>>({});
   const [prevDayReservations, setPrevDayReservations] = useState<Reservation[]>([]);
   const [nextDayReservations, setNextDayReservations] = useState<Reservation[]>([]);
   const [rooms, setRooms] = useState<any[]>([]);
@@ -283,6 +285,7 @@ const RoomAssignment = () => {
     }
   };
 
+
   const [smsColumnWidth, setSmsColumnWidth] = useState(200);
   const [isResizing, setIsResizing] = useState(false);
   const [resizeStartX, setResizeStartX] = useState(0);
@@ -303,6 +306,7 @@ const RoomAssignment = () => {
   const activeRoomNumbers = useMemo(() => {
     return rooms.filter((room) => room.is_active).map((room) => room.room_number);
   }, [rooms]);
+
 
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [selectedCampaign, setSelectedCampaign] = useState<string>('');
@@ -472,14 +476,22 @@ const RoomAssignment = () => {
   };
 
   const { assignedRooms, unassigned, partyOnly } = useMemo(() => {
-    const assigned = new Map<string, Reservation>();
+    const assigned = new Map<string, Reservation[]>();
     const unassignedList: Reservation[] = [];
     const partyOnlyList: Reservation[] = [];
 
     reservations.forEach((res) => {
       if (res.room_number) {
-        assigned.set(res.room_number, res);
-      } else if (res.tags?.includes('파티만')) {
+        // Has a room assigned → goes to that room's row
+        const list = assigned.get(res.room_number) || [];
+        list.push(res);
+        assigned.set(res.room_number, list);
+      } else if (sectionOverrides[res.id] === 'party') {
+        partyOnlyList.push(res);
+      } else if (sectionOverrides[res.id] === 'unassigned') {
+        unassignedList.push(res);
+      } else if (res.room_info?.includes('파티만')) {
+        // Default classification by original booking type
         partyOnlyList.push(res);
       } else {
         unassignedList.push(res);
@@ -491,7 +503,7 @@ const RoomAssignment = () => {
       unassigned: unassignedList,
       partyOnly: partyOnlyList,
     };
-  }, [reservations]);
+  }, [reservations, sectionOverrides]);
 
   const onDragStart = (e: DragEvent, resId: number) => {
     e.dataTransfer.setData('text/plain', String(resId));
@@ -510,13 +522,13 @@ const RoomAssignment = () => {
     setDragOverRoom(null);
     const resId = Number(e.dataTransfer.getData('text/plain'));
     if (!resId) return;
-    const current = assignedRooms.get(room);
-    if (current?.id === resId) return;
+    const currentList = assignedRooms.get(room) || [];
+    if (currentList.some((r) => r.id === resId)) return;
 
     setProcessing(true);
     try {
-      if (current) await reservationsAPI.assignRoom(current.id, { room_number: null });
       await reservationsAPI.assignRoom(resId, { room_number: room });
+      setSectionOverrides((prev) => { const next = { ...prev }; delete next[resId]; return next; });
       toast.success(`${room} 배정 완료`);
       await fetchReservations(selectedDate);
     } catch (err: any) {
@@ -539,17 +551,29 @@ const RoomAssignment = () => {
     const resId = Number(e.dataTransfer.getData('text/plain'));
     if (!resId) return;
     const res = reservations.find((r) => r.id === resId);
-    if (!res?.room_number) return;
+    if (!res) return;
 
-    setProcessing(true);
-    try {
-      await reservationsAPI.assignRoom(resId, { room_number: null });
-      toast.success('배정 해제 완료');
-      await fetchReservations(selectedDate);
-    } catch {
-      toast.error('배정 해제에 실패했습니다.');
-    } finally {
-      setProcessing(false);
+    // Already in unassigned section → nothing to do
+    if (!res.room_number && sectionOverrides[resId] === 'unassigned') return;
+    if (!res.room_number && !sectionOverrides[resId] && !res.room_info?.includes('파티만')) return;
+
+    if (res.room_number) {
+      // Unassign room via API
+      setProcessing(true);
+      try {
+        await reservationsAPI.assignRoom(resId, { room_number: null });
+        setSectionOverrides((prev) => ({ ...prev, [resId]: 'unassigned' }));
+        toast.success('미배정으로 이동');
+        await fetchReservations(selectedDate);
+      } catch {
+        toast.error('배정 해제에 실패했습니다.');
+      } finally {
+        setProcessing(false);
+      }
+    } else {
+      // Local section move (party → unassigned)
+      setSectionOverrides((prev) => ({ ...prev, [resId]: 'unassigned' }));
+      toast.success('미배정으로 이동');
     }
   };
 
@@ -569,33 +593,29 @@ const RoomAssignment = () => {
 
     const guest = reservations.find((r) => r.id === resId);
     if (!guest) return;
-    if (guest.tags?.includes('파티만')) return;
 
-    const hasRoom = !!guest.room_number;
-    showConfirm(
-      '파티만으로 전환',
-      hasRoom
-        ? '객실 배정을 해제하고 파티만 게스트로 변경하시겠습니까?'
-        : '파티만 게스트로 변경하시겠습니까?',
-      async () => {
-        setProcessing(true);
-        try {
-          if (hasRoom) {
-            await reservationsAPI.assignRoom(resId, { room_number: null });
-          }
-          if (!guest.tags?.includes('파티만')) {
-            const newTags = guest.tags ? `${guest.tags},파티만` : '파티만';
-            await reservationsAPI.update(resId, { tags: newTags });
-          }
-          toast.success('파티만으로 전환 완료');
-          await fetchReservations(selectedDate);
-        } catch {
-          toast.error('전환 실패');
-        } finally {
-          setProcessing(false);
-        }
-      },
-    );
+    // Already in party section → nothing to do
+    if (!guest.room_number && sectionOverrides[resId] === 'party') return;
+    if (!guest.room_number && !sectionOverrides[resId] && guest.room_info?.includes('파티만')) return;
+
+    if (guest.room_number) {
+      // Unassign room via API, then move to party section
+      setProcessing(true);
+      try {
+        await reservationsAPI.assignRoom(resId, { room_number: null });
+        setSectionOverrides((prev) => ({ ...prev, [resId]: 'party' }));
+        toast.success('파티만으로 이동');
+        await fetchReservations(selectedDate);
+      } catch {
+        toast.error('이동 실패');
+      } finally {
+        setProcessing(false);
+      }
+    } else {
+      // Local section move (unassigned → party)
+      setSectionOverrides((prev) => ({ ...prev, [resId]: 'party' }));
+      toast.success('파티만으로 이동');
+    }
   };
 
   const handleAddPartyGuest = () => {
@@ -718,21 +738,57 @@ const RoomAssignment = () => {
     return 'cursor-default';
   };
 
+  const renderGuestRow = (res: Reservation, showGrip: boolean) => {
+    const genderPeople = [res.gender, res.party_participants].filter(Boolean).join('');
+    const smsStatus = getSmsStatus(res);
+    return (
+      <div key={res.id} className={`flex items-center ${showGrip ? '' : 'pl-7'} rounded-lg transition-shadow duration-200 group-hover:shadow-[0_1px_8px_-2px_rgba(0,0,0,0.12),-6px_0_10px_-4px_rgba(0,0,0,0.08)] ${guestAreaCursor()}`}>
+        {showGrip && (
+          <div
+            draggable
+            onDragStart={(e) => onDragStart(e, res.id)}
+            className="flex items-center justify-center w-7 px-0.5 flex-shrink-0 cursor-grab active:cursor-grabbing text-[#D5DAE0] group-hover:text-[#8B95A1] dark:text-gray-700 dark:group-hover:text-gray-400 transition-all duration-200"
+          >
+            <GripVertical size={14} />
+          </div>
+        )}
+        <div
+          className="flex-1 grid items-center gap-2 px-3 py-1.5"
+          style={{ gridTemplateColumns: GUEST_COLS }}
+        >
+          <div className="overflow-hidden">
+            <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className="font-medium text-[#191F28] dark:text-white" placeholder="이름" />
+          </div>
+          <div className="overflow-hidden">
+            <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-gray-400 tabular-nums" placeholder="연락처" />
+          </div>
+          <div className="overflow-hidden text-center">
+            <InlineInput value={genderPeople} field="genderPeople" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
+          </div>
+          <div className="overflow-hidden text-center">
+            <InlineInput value={partyValues[res.id] || ''} field="party" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
+          </div>
+          <div className="overflow-hidden truncate text-body text-[#8B95A1] dark:text-gray-400">{res.room_info || <span className="text-[#B0B8C1]">-</span>}</div>
+          <div className="overflow-hidden">
+            <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-gray-400" placeholder="" />
+          </div>
+          <SmsCell smsStatus={smsStatus} isEditing={false} />
+        </div>
+      </div>
+    );
+  };
+
   const renderRoomRow = (room: string) => {
-    const res = assignedRooms.get(room);
+    const guests = assignedRooms.get(room) || [];
     const isDragOver = dragOverRoom === room;
-    const genderPeople = res
-      ? [res.gender, res.party_participants].filter(Boolean).join('')
-      : '';
-    const smsStatus = res ? getSmsStatus(res) : { pending: [], sent: [] };
 
     return (
       <div
         key={room}
-        className={`group flex select-none border-b border-[#F2F4F6] dark:border-gray-800 transition-colors h-[48px] min-h-[48px] max-h-[48px]
+        className={`group flex select-none border-b border-[#F2F4F6] dark:border-gray-800 transition-colors ${guests.length > 1 ? '' : 'h-[48px] min-h-[48px] max-h-[48px]'}
           ${isDragOver
             ? 'bg-[#E8F3FF] dark:bg-blue-900/20 ring-1 ring-inset ring-[#3182F6]/30 dark:ring-blue-700'
-            : res
+            : guests.length > 0
               ? 'bg-white dark:bg-[#1E1E24]'
               : 'bg-[#F2F4F6]/50 dark:bg-[#17171C]/30'
           }`}
@@ -741,54 +797,29 @@ const RoomAssignment = () => {
         onDrop={(e) => onRoomDrop(e, room)}
       >
         {/* Room label */}
-        <div className="flex items-center gap-1.5 flex-shrink-0 pl-3 pr-2 py-2 w-36 border-r border-[#F2F4F6] dark:border-gray-800">
+        <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-[#F2F4F6] dark:border-gray-800">
           <span className="font-semibold text-[#191F28] dark:text-white text-body">{room}</span>
           {roomInfoMap[room] && (
             <span className="text-caption text-[#B0B8C1] dark:text-[#8B95A1] truncate">{roomInfoMap[room]}</span>
           )}
         </div>
 
-        {/* Guest row: grip + data as one layer */}
-        <div className={`flex-1 flex items-center -ml-7 rounded-lg transition-shadow duration-200 group-hover:shadow-[0_1px_8px_-2px_rgba(0,0,0,0.12),-6px_0_10px_-4px_rgba(0,0,0,0.08)] ${guestAreaCursor()}`}>
-          {res && (
-            <div
-              draggable
-              onDragStart={(e) => onDragStart(e, res.id)}
-              className="flex items-center justify-center w-7 px-0.5 flex-shrink-0 cursor-grab active:cursor-grabbing text-[#D5DAE0] group-hover:text-[#8B95A1] dark:text-gray-700 dark:group-hover:text-gray-400 transition-all duration-200"
-            >
-              <GripVertical size={14} />
-            </div>
-          )}
-          <div
-            className="flex-1 grid items-center gap-2 px-3 py-1.5"
-            style={{ gridTemplateColumns: GUEST_COLS }}
-          >
-          {res ? (
-            <>
-              <div className="overflow-hidden">
-                <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className="font-medium text-[#191F28] dark:text-white" placeholder="이름" />
-              </div>
-              <div className="overflow-hidden">
-                <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-gray-400 tabular-nums" placeholder="연락처" />
-              </div>
-              <div className="overflow-hidden text-center">
-                <InlineInput value={genderPeople} field="genderPeople" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
-              </div>
-              <div className="overflow-hidden text-center">
-                <InlineInput value={partyValues[res.id] || ''} field="party" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-gray-300 font-medium text-center" placeholder="-" />
-              </div>
-              <div className="overflow-hidden truncate text-body text-[#8B95A1] dark:text-gray-400">{res.room_info || <span className="text-[#B0B8C1]">-</span>}</div>
-              <div className="overflow-hidden">
-                <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-gray-400" placeholder="" />
-              </div>
-              <SmsCell smsStatus={smsStatus} isEditing={false} />
-            </>
+        {/* Guest rows */}
+        <div className="flex-1 -ml-7">
+          {guests.length > 0 ? (
+            guests.map((res) => renderGuestRow(res, true))
           ) : (
-            <div className="overflow-hidden truncate col-span-full text-body text-[#3182F6] dark:text-blue-400 italic">
-              {isDragOver ? '여기에 놓으세요' : ''}
+            <div className={`flex items-center h-12 rounded-lg ${guestAreaCursor()}`}>
+              <div
+                className="flex-1 grid items-center gap-2 px-3 py-1.5 pl-10"
+                style={{ gridTemplateColumns: GUEST_COLS }}
+              >
+                <div className="overflow-hidden truncate col-span-full text-body text-[#3182F6] dark:text-blue-400 italic">
+                  {isDragOver ? '여기에 놓으세요' : ''}
+                </div>
+              </div>
             </div>
           )}
-          </div>
         </div>
       </div>
     );
@@ -1140,7 +1171,7 @@ const RoomAssignment = () => {
                 <div className="rounded-xl border border-[#F2F4F6] dark:border-gray-800">
                   {/* Header */}
                   <div className="flex items-center h-12 bg-[#F2F4F6] dark:bg-[#17171C] border-b border-[#F2F4F6] dark:border-gray-800">
-                    <div className="flex-shrink-0 pl-3 pr-2 w-36 border-r border-[#F2F4F6] dark:border-gray-800">
+                    <div className="flex-shrink-0 pl-3 pr-2 w-42 border-r border-[#F2F4F6] dark:border-gray-800">
                       <span className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">객실</span>
                     </div>
                     <div
@@ -1192,7 +1223,7 @@ const RoomAssignment = () => {
                   >
                     {unassigned.length === 0 && !loading ? (
                       <div className="group flex select-none border-b border-[#F2F4F6] dark:border-gray-800 bg-[#F2F4F6]/50 dark:bg-[#17171C]/30 transition-colors h-[48px] min-h-[48px] max-h-[48px]">
-                        <div className="flex items-center gap-1.5 flex-shrink-0 pl-3 pr-2 py-2 w-36 border-r border-[#F2F4F6] dark:border-gray-800">
+                        <div className="flex items-center gap-1.5 flex-shrink-0 pl-3 pr-2 py-2 w-42 border-r border-[#F2F4F6] dark:border-gray-800">
                           <span className="font-semibold text-[#191F28] dark:text-white text-body">미배정</span>
                         </div>
                         <div className="flex-1" />
@@ -1220,7 +1251,7 @@ const RoomAssignment = () => {
                   >
                     {partyOnly.length === 0 ? (
                       <div className="group flex select-none border-b border-[#F2F4F6] dark:border-gray-800 bg-[#F2F4F6]/50 dark:bg-[#17171C]/30 transition-colors h-[48px] min-h-[48px] max-h-[48px]">
-                        <div className="flex items-center gap-1.5 flex-shrink-0 pl-3 pr-2 py-2 w-36 border-r border-[#F2F4F6] dark:border-gray-800">
+                        <div className="flex items-center gap-1.5 flex-shrink-0 pl-3 pr-2 py-2 w-42 border-r border-[#F2F4F6] dark:border-gray-800">
                           <span className="font-semibold text-[#191F28] dark:text-white text-body">파티만</span>
                         </div>
                         <div className="flex-1" />

@@ -1,5 +1,5 @@
 import { useEffect, useState, DragEvent } from 'react';
-import { Home, Plus, Pencil, Trash2, GripVertical } from 'lucide-react';
+import { Home, Plus, Pencil, Trash2, GripVertical, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { roomsAPI } from '@/services/api';
 
@@ -20,6 +20,7 @@ import {
   TableBody,
   TableRow,
   TableCell,
+  Select,
 } from 'flowbite-react';
 
 interface Room {
@@ -31,6 +32,7 @@ interface Room {
   is_active: boolean;
   sort_order: number;
   created_at: string;
+  naver_biz_item_id?: string | null;
 }
 
 interface RoomForm {
@@ -39,6 +41,15 @@ interface RoomForm {
   base_capacity: number;
   max_capacity: number;
   sort_order: number;
+  is_active: boolean;
+  naver_biz_item_id: string;
+}
+
+interface NaverBizItem {
+  id: number;
+  biz_item_id: string;
+  name: string;
+  biz_item_type?: string | null;
   is_active: boolean;
 }
 
@@ -49,6 +60,7 @@ const EMPTY_FORM: RoomForm = {
   max_capacity: 4,
   sort_order: 1,
   is_active: true,
+  naver_biz_item_id: '',
 };
 
 const RoomManagement = () => {
@@ -64,8 +76,12 @@ const RoomManagement = () => {
 
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 
+  const [bizItems, setBizItems] = useState<NaverBizItem[]>([]);
+  const [syncingBizItems, setSyncingBizItems] = useState(false);
+
   useEffect(() => {
     loadRooms();
+    loadBizItems();
   }, []);
 
   const loadRooms = async () => {
@@ -77,6 +93,28 @@ const RoomManagement = () => {
       toast.error('객실 목록 로드 실패');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadBizItems = async () => {
+    try {
+      const res = await roomsAPI.getBizItems();
+      setBizItems(res.data);
+    } catch {
+      // silently fail - biz items are optional
+    }
+  };
+
+  const handleSyncBizItems = async () => {
+    setSyncingBizItems(true);
+    try {
+      const res = await roomsAPI.syncBizItems();
+      toast.success(`네이버 상품 동기화 완료 (${res.data.added}건 추가, ${res.data.updated}건 갱신)`);
+      loadBizItems();
+    } catch {
+      toast.error('상품 동기화 실패');
+    } finally {
+      setSyncingBizItems(false);
     }
   };
 
@@ -95,6 +133,7 @@ const RoomManagement = () => {
       max_capacity: room.max_capacity,
       sort_order: room.sort_order,
       is_active: room.is_active,
+      naver_biz_item_id: room.naver_biz_item_id || '',
     });
     setDialogOpen(true);
   };
@@ -190,10 +229,20 @@ const RoomManagement = () => {
             <h1 className="page-title">객실 설정</h1>
             <p className="page-subtitle">객실을 추가, 수정, 삭제하고 순서를 변경합니다.</p>
           </div>
-          <Button color="blue" size="sm" className="ml-auto" onClick={openCreate}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            객실 추가
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <Button color="light" size="sm" onClick={handleSyncBizItems} disabled={syncingBizItems}>
+              {syncingBizItems ? (
+                <Spinner size="sm" className="mr-1.5" />
+              ) : (
+                <RefreshCw className="mr-1.5 h-4 w-4" />
+              )}
+              상품 동기화
+            </Button>
+            <Button color="blue" size="sm" onClick={openCreate}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              객실 추가
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -224,6 +273,7 @@ const RoomManagement = () => {
                 <TableHeadCell className="w-px text-center">타입</TableHeadCell>
                 <TableHeadCell className="w-px text-center">인원</TableHeadCell>
                 <TableHeadCell className="w-px text-center">상태</TableHeadCell>
+                <TableHeadCell className="w-px text-center">네이버 상품</TableHeadCell>
                 <TableHeadCell />
                 <TableHeadCell className="w-px text-center">작업</TableHeadCell>
               </TableRow>
@@ -269,6 +319,11 @@ const RoomManagement = () => {
                       </span>
                     </div>
                   </TableCell>
+                  <TableCell className="text-center text-xs text-gray-500">
+                    {room.naver_biz_item_id
+                      ? bizItems.find((b) => b.biz_item_id === room.naver_biz_item_id)?.name || room.naver_biz_item_id
+                      : '-'}
+                  </TableCell>
                   <TableCell />
                   <TableCell className="text-center">
                     <div className="flex justify-center gap-1">
@@ -308,6 +363,34 @@ const RoomManagement = () => {
                 onChange={(e) => setForm((f) => ({ ...f, room_number: e.target.value }))}
                 placeholder="A101"
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="room-biz-item">네이버 상품 연동</Label>
+              <Select
+                id="room-biz-item"
+                value={form.naver_biz_item_id}
+                onChange={(e) => {
+                  const selectedId = e.target.value;
+                  if (selectedId) {
+                    const item = bizItems.find((b) => b.biz_item_id === selectedId);
+                    if (item) {
+                      setForm((f) => ({ ...f, naver_biz_item_id: selectedId, room_type: item.name }));
+                    } else {
+                      setForm((f) => ({ ...f, naver_biz_item_id: selectedId }));
+                    }
+                  } else {
+                    setForm((f) => ({ ...f, naver_biz_item_id: selectedId }));
+                  }
+                }}
+              >
+                <option value="">선택 안 함</option>
+                {bizItems.map((item) => (
+                  <option key={item.biz_item_id} value={item.biz_item_id}>
+                    {item.name}
+                  </option>
+                ))}
+              </Select>
             </div>
 
             <div className="space-y-2">

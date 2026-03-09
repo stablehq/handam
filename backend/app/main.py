@@ -3,7 +3,7 @@ FastAPI application entry point
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import messages, webhooks, auto_response, rules, documents, reservations, dashboard, campaigns, scheduler, rooms, templates, template_schedules, auth
+from app.api import messages, webhooks, auto_response, rules, documents, reservations, dashboard, campaigns, scheduler, rooms, templates, template_schedules, auth, settings
 from app.db.database import init_db
 from app.scheduler.jobs import start_scheduler, stop_scheduler
 import logging
@@ -61,6 +61,7 @@ app.include_router(campaigns.router)
 app.include_router(scheduler.router)
 app.include_router(templates.router)
 app.include_router(template_schedules.router)
+app.include_router(settings.router)
 
 
 @app.get("/")

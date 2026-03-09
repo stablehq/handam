@@ -111,6 +111,16 @@ class Reservation(Base):
     # Multi-booking flag
     is_multi_booking = Column(Boolean, default=False)
 
+    # Extended Naver booking data
+    end_date = Column(String(20), nullable=True)  # checkout date YYYY-MM-DD
+    biz_item_name = Column(String(200), nullable=True)  # product/room name from Naver
+    booking_count = Column(Integer, default=1)  # quantity
+    booking_options = Column(Text, nullable=True)  # JSON string from bookingOptionJson
+    custom_form_input = Column(Text, nullable=True)  # JSON string from customFormInputJson (요청사항)
+    total_price = Column(Integer, nullable=True)  # total payment amount
+    confirmed_datetime = Column(String(50), nullable=True)  # confirmation datetime ISO string
+    cancelled_datetime = Column(String(50), nullable=True)  # cancellation datetime ISO string
+
 
 class Rule(Base):
     """Auto-response rules"""
@@ -199,6 +209,21 @@ class Room(Base):
     max_capacity = Column(Integer, default=4)  # 최대 인원
     is_active = Column(Boolean, default=True)  # Active/inactive flag
     sort_order = Column(Integer, default=0)  # Display order
+    naver_biz_item_id = Column(String(50), nullable=True)  # Linked Naver product ID
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class NaverBizItem(Base):
+    """Naver Smart Place product/room types"""
+
+    __tablename__ = "naver_biz_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    biz_item_id = Column(String(50), unique=True, nullable=False, index=True)  # Naver bizItemId
+    name = Column(String(200), nullable=False)  # Product name from Naver
+    biz_item_type = Column(String(50), nullable=True)  # STANDARD etc.
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
