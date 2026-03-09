@@ -24,7 +24,23 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_db():
-    """Initialize database tables"""
-    from app.db.models import Base
+    """Initialize database tables and ensure default admin exists"""
+    from app.db.models import Base, User, UserRole
+    from app.auth.utils import hash_password
 
     Base.metadata.create_all(bind=engine)
+
+    # Ensure default admin account exists
+    db = SessionLocal()
+    try:
+        if not db.query(User).filter(User.username == "admin").first():
+            db.add(User(
+                username="admin",
+                hashed_password=hash_password("admin1234"),
+                name="관리자",
+                role=UserRole.SUPERADMIN,
+                is_active=True,
+            ))
+            db.commit()
+    finally:
+        db.close()
