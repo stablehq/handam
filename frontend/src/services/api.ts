@@ -102,23 +102,23 @@ export const dashboardAPI = {
 // Campaigns API
 export const campaignsAPI = {
   // New independent campaign APIs
-  getList: () => api.get('/campaigns/list'),
+  getList: () => api.get('/api/campaigns/list'),
   send: (data: { campaign_type: string; date?: string; variables?: any }) =>
-    api.post('/campaigns/send', data),
+    api.post('/api/campaigns/send', data),
   preview: (campaignType: string, date?: string) =>
-    api.get('/campaigns/preview', { params: { campaign_type: campaignType, date } }),
+    api.get('/api/campaigns/preview', { params: { campaign_type: campaignType, date } }),
 
   getHistory: (params?: { skip?: number; limit?: number }) =>
-    api.get('/campaigns/history', { params }),
+    api.get('/api/campaigns/history', { params }),
 };
 
 // Scheduler API
 export const schedulerAPI = {
-  getJobs: () => api.get('/scheduler/jobs'),
-  runJob: (jobId: string) => api.post(`/scheduler/jobs/${jobId}/run`),
-  pauseJob: (jobId: string) => api.post(`/scheduler/jobs/${jobId}/pause`),
-  resumeJob: (jobId: string) => api.post(`/scheduler/jobs/${jobId}/resume`),
-  getStatus: () => api.get('/scheduler/status'),
+  getJobs: () => api.get('/api/scheduler/jobs'),
+  runJob: (jobId: string) => api.post(`/api/scheduler/jobs/${jobId}/run`),
+  pauseJob: (jobId: string) => api.post(`/api/scheduler/jobs/${jobId}/pause`),
+  resumeJob: (jobId: string) => api.post(`/api/scheduler/jobs/${jobId}/resume`),
+  getStatus: () => api.get('/api/scheduler/status'),
 };
 
 // Templates API

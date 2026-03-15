@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_HOURS: int = 24
 
+    # CORS
+    CORS_ORIGINS: str = "*"
+
+    # Admin
+    ADMIN_DEFAULT_PASSWORD: str = "admin1234"
+
     class Config:
         env_file = ".env"
         case_sensitive = False

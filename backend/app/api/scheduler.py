@@ -8,7 +8,7 @@ from ..scheduler.jobs import scheduler, get_job_info
 from ..auth.dependencies import require_admin_or_above
 from ..db.models import User
 
-router = APIRouter(prefix="/scheduler", tags=["scheduler"])
+router = APIRouter(prefix="/api/scheduler", tags=["scheduler"])
 
 
 @router.get("/jobs")

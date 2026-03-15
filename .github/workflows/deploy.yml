@@ -1,0 +1,101 @@
+name: Deploy to Lightsail
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/stablehq/handam
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/backend:latest
+            ${{ env.IMAGE_PREFIX }}/backend:${{ github.sha }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/frontend:latest
+            ${{ env.IMAGE_PREFIX }}/frontend:${{ github.sha }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Transfer docker-compose to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.LIGHTSAIL_HOST }}
+          username: ${{ secrets.LIGHTSAIL_USER }}
+          key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+          source: "docker-compose.prod.yml"
+          target: "~/handam/"
+
+      - name: Deploy to Lightsail via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.LIGHTSAIL_HOST }}
+          username: ${{ secrets.LIGHTSAIL_USER }}
+          key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+          script: |
+            cd ~/handam
+
+            # .env.production 존재 확인
+            if [ ! -f .env.production ]; then
+              echo "ERROR: .env.production not found. Create it first."
+              exit 1
+            fi
+
+            # GHCR 로그인 (사전 설정된 토큰 사용)
+            cat ~/.ghcr-token | docker login ghcr.io -u stablehq --password-stdin
+
+            # 최신 이미지 pull
+            docker compose -f docker-compose.prod.yml pull
+
+            # 새 이미지로 재시작
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+            # 헬스체크 대기
+            for i in $(seq 1 30); do
+              if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+                echo "Health check passed"
+                break
+              fi
+              echo "Waiting for backend... ($i/30)"
+              sleep 2
+            done
+
+            # 최종 확인
+            curl -f http://localhost:8000/health || exit 1
+
+            # 미사용 이미지 정리
+            docker image prune -f

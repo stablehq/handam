@@ -21,14 +21,6 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
-      '/campaigns': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      '/scheduler': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
     },
   },
 })

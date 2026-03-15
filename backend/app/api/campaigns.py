@@ -15,7 +15,7 @@ from ..campaigns.tag_manager import TagCampaignManager
 from ..notifications.service import NotificationService
 from ..analytics.gender_analyzer import GenderAnalyzer
 
-router = APIRouter(prefix="/campaigns", tags=["campaigns"])
+router = APIRouter(prefix="/api/campaigns", tags=["campaigns"])
 
 
 # Campaign definitions - each campaign is independent
