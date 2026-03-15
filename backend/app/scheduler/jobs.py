@@ -10,7 +10,6 @@ import logging
 from ..db.database import SessionLocal
 from ..factory import get_reservation_provider, get_sms_provider
 from ..notifications.service import NotificationService
-from ..analytics.gender_analyzer import GenderAnalyzer
 from ..scheduler.room_reassign import daily_assign_rooms
 
 logger = logging.getLogger(__name__)
@@ -64,35 +63,6 @@ async def load_template_schedules():
         db.close()
 
 
-async def extract_gender_stats_job():
-    """
-    Extract gender statistics from Google Sheets
-    Runs every hour during party hours
-    """
-    logger.info("Running gender stats extraction job")
-
-    db = SessionLocal()
-    try:
-        analyzer = GenderAnalyzer(db)
-
-        today = datetime.now()
-        stat = await analyzer.extract_gender_stats(today)
-
-        if stat:
-            logger.info(f"Gender stats extracted: M={stat.male_count}, F={stat.female_count}")
-
-            # Log balance analysis
-            balance = analyzer.calculate_party_balance(stat)
-            logger.info(f"Party balance: {balance['recommendation']}")
-        else:
-            logger.warning("No gender stats extracted")
-
-    except Exception as e:
-        logger.error(f"Error in gender stats job: {e}")
-    finally:
-        db.close()
-
-
 async def daily_room_assign_job():
     """
     Daily room auto-assignment for today and tomorrow.
@@ -116,8 +86,7 @@ def setup_scheduler():
     Setup all scheduled jobs
 
     Schedule based on stable-clasp-main/03_trigger.js:
-    - Naver sync: Every 10 min, 10:10-21:59
-    - Gender stats: Every hour, 10:00-22:00
+    - Naver sync: Every 5 min, 10:00-21:59
     - Template schedules: Loaded dynamically from DB
     """
     # Naver reservations sync - every 5 minutes from 10:00 to 21:59
@@ -133,32 +102,12 @@ def setup_scheduler():
         replace_existing=True
     )
 
-    # Gender stats extraction - hourly
-    scheduler.add_job(
-        extract_gender_stats_job,
-        trigger=CronTrigger(
-            hour='10-22',
-            minute='0',
-            timezone='Asia/Seoul'
-        ),
-        id='extract_gender_stats',
-        name='Extract Gender Stats',
-        replace_existing=True
-    )
-
-    # Daily room auto-assignment - 6am and noon KST
+    # Daily room auto-assignment - 10am KST (당일+내일)
     scheduler.add_job(
         daily_room_assign_job,
-        trigger=CronTrigger(hour=6, minute=0, timezone='Asia/Seoul'),
-        id='daily_room_assign_morning',
-        name='객실 자동 배정 (오전)',
-        replace_existing=True,
-    )
-    scheduler.add_job(
-        daily_room_assign_job,
-        trigger=CronTrigger(hour=12, minute=0, timezone='Asia/Seoul'),
-        id='daily_room_assign_noon',
-        name='객실 자동 배정 (정오)',
+        trigger=CronTrigger(hour=10, minute=0, timezone='Asia/Seoul'),
+        id='daily_room_assign',
+        name='객실 자동 배정 (오전 10시)',
         replace_existing=True,
     )
 

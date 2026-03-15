@@ -122,7 +122,10 @@ def assign_room(
 
     dates = _date_range(from_date, end_date)
     is_dorm = _is_dormitory_room(db, room_number)
-    password = TemplateRenderer.generate_room_password(room_number)
+    # 객실에 고정 비밀번호가 있으면 사용, 없으면 자동 생성
+    room_obj = db.query(Room).filter(Room.room_number == room_number, Room.is_active == True).first()
+    password = (room_obj.default_password if room_obj and room_obj.default_password else
+                TemplateRenderer.generate_room_password(room_number))
 
     # Concurrency guard for non-dormitory rooms
     if not is_dorm:

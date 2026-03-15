@@ -35,6 +35,7 @@ interface Room {
   naver_biz_item_id?: string | null;
   is_dormitory: boolean;
   dormitory_beds: number;
+  default_password?: string | null;
 }
 
 interface RoomForm {
@@ -47,6 +48,7 @@ interface RoomForm {
   naver_biz_item_id: string;
   is_dormitory: boolean;
   dormitory_beds: number;
+  default_password: string;
 }
 
 interface NaverBizItem {
@@ -68,6 +70,7 @@ const EMPTY_FORM: RoomForm = {
   naver_biz_item_id: '',
   is_dormitory: false,
   dormitory_beds: 1,
+  default_password: '',
 };
 
 const RoomManagement = () => {
@@ -143,6 +146,7 @@ const RoomManagement = () => {
       naver_biz_item_id: room.naver_biz_item_id || '',
       is_dormitory: room.is_dormitory || false,
       dormitory_beds: room.dormitory_beds || 1,
+      default_password: room.default_password || '',
     });
     setDialogOpen(true);
   };
@@ -282,6 +286,7 @@ const RoomManagement = () => {
                 <TableHeadCell className="w-px text-center">타입</TableHeadCell>
                 <TableHeadCell className="w-px text-center">인원</TableHeadCell>
                 <TableHeadCell className="w-px text-center">상태</TableHeadCell>
+                <TableHeadCell className="w-px text-center">비밀번호</TableHeadCell>
                 <TableHeadCell className="w-px text-center">도미토리</TableHeadCell>
                 <TableHeadCell className="w-px text-center">네이버 상품</TableHeadCell>
                 <TableHeadCell />
@@ -328,6 +333,13 @@ const RoomManagement = () => {
                         {room.is_active ? '활성' : '비활성'}
                       </span>
                     </div>
+                  </TableCell>
+                  <TableCell className="text-center text-[#4E5968] dark:text-gray-400">
+                    {room.default_password ? (
+                      <span className="tabular-nums font-medium">{room.default_password}</span>
+                    ) : (
+                      <span className="text-caption text-[#B0B8C1] dark:text-gray-600">자동</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-center">
@@ -434,25 +446,37 @@ const RoomManagement = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="base-capacity">기준 인원</Label>
+                <Label htmlFor="base-capacity" className={form.is_dormitory ? 'text-[#B0B8C1]' : ''}>기준 인원</Label>
                 <TextInput
                   id="base-capacity"
                   type="number"
                   min={1}
                   value={String(form.base_capacity ?? 2)}
                   onChange={(e) => setForm((f) => ({ ...f, base_capacity: parseInt(e.target.value) || 1 }))}
+                  disabled={form.is_dormitory}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="max-capacity">최대 인원</Label>
+                <Label htmlFor="max-capacity" className={form.is_dormitory ? 'text-[#B0B8C1]' : ''}>최대 인원</Label>
                 <TextInput
                   id="max-capacity"
                   type="number"
                   min={1}
                   value={String(form.max_capacity ?? 4)}
                   onChange={(e) => setForm((f) => ({ ...f, max_capacity: parseInt(e.target.value) || 1 }))}
+                  disabled={form.is_dormitory}
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="default-password">객실 비밀번호</Label>
+              <TextInput
+                id="default-password"
+                placeholder="비어있으면 자동 생성"
+                value={form.default_password}
+                onChange={(e) => setForm((f) => ({ ...f, default_password: e.target.value }))}
+              />
             </div>
 
             <div className="space-y-2">

@@ -12,6 +12,8 @@ from app.auth.dependencies import get_current_user
 from datetime import datetime
 import logging
 
+from app.scheduler.room_reassign import auto_assign_rooms
+
 router = APIRouter(prefix="/api/rooms", tags=["rooms"])
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,7 @@ class RoomCreate(BaseModel):
     naver_biz_item_id: Optional[str] = None
     is_dormitory: bool = False
     dormitory_beds: int = 1
+    default_password: Optional[str] = None
 
 
 class RoomUpdate(BaseModel):
@@ -38,6 +41,7 @@ class RoomUpdate(BaseModel):
     naver_biz_item_id: Optional[str] = None
     is_dormitory: Optional[bool] = None
     dormitory_beds: Optional[int] = None
+    default_password: Optional[str] = None
 
 
 class RoomResponse(BaseModel):
@@ -51,6 +55,7 @@ class RoomResponse(BaseModel):
     naver_biz_item_id: Optional[str] = None
     is_dormitory: bool = False
     dormitory_beds: int = 1
+    default_password: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -150,6 +155,7 @@ async def create_room(room: RoomCreate, db: Session = Depends(get_db), current_u
         naver_biz_item_id=room.naver_biz_item_id,
         is_dormitory=room.is_dormitory,
         dormitory_beds=room.dormitory_beds,
+        default_password=room.default_password,
     )
     db.add(db_room)
     db.commit()
@@ -207,3 +213,41 @@ async def delete_room(room_id: int, db: Session = Depends(get_db), current_user:
 
     logger.info(f"Deleted room: {room_number}")
     return {"status": "success", "message": f"객실 '{room_number}'이(가) 삭제되었습니다."}
+
+
+@router.post("/auto-assign")
+async def trigger_auto_assign(
+    date: str = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    수동 트리거: 객실 자동 배정.
+    수동 배정(assigned_by='manual')은 유지하고,
+    자동 배정된 객실만 초기화 후 재배정.
+    """
+    from datetime import datetime as dt, timedelta
+
+    if not date:
+        date = dt.now().strftime("%Y-%m-%d")
+
+    today = date
+    tomorrow = (dt.strptime(date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # 기존 자동 배정만 삭제 (수동 배정 유지)
+    for target_date in [today, tomorrow]:
+        db.query(RoomAssignment).filter(
+            RoomAssignment.date == target_date,
+            RoomAssignment.assigned_by == "auto",
+        ).delete(synchronize_session="fetch")
+    db.commit()
+
+    # 재배정
+    result_today = auto_assign_rooms(db, today)
+    result_tomorrow = auto_assign_rooms(db, tomorrow)
+
+    return {
+        "status": "success",
+        "today": result_today,
+        "tomorrow": result_tomorrow,
+    }

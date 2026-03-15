@@ -236,6 +236,7 @@ class Room(Base):
     naver_biz_item_id = Column(String(50), nullable=True)  # Linked Naver product ID
     is_dormitory = Column(Boolean, default=False)
     dormitory_beds = Column(Integer, default=1)
+    default_password = Column(String(20), nullable=True)  # 객실 고정 비밀번호
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -421,6 +421,25 @@ const RoomAssignment = () => {
   const [sendConfirm, setSendConfirm] = useState<{ type: 'campaign' | 'schedule' | 'toggle'; scheduleId?: number; scheduleName?: string; resId?: number; templateKey?: string; customerName?: string } | null>(null);
   const [activeSchedules, setActiveSchedules] = useState<{id: number; schedule_name: string; template_name: string; template_key: string}[]>([]);
   const [selectedScheduleId, setSelectedScheduleId] = useState<number | null>(null);
+  const [autoAssignConfirm, setAutoAssignConfirm] = useState(false);
+  const [autoAssigning, setAutoAssigning] = useState(false);
+
+  const handleAutoAssign = useCallback(async () => {
+    setAutoAssigning(true);
+    try {
+      const dateStr = selectedDate.format('YYYY-MM-DD');
+      const res = await roomsAPI.autoAssign(dateStr);
+      const today = res.data.today;
+      const tomorrow = res.data.tomorrow;
+      toast.success(`객실 자동 배정 완료: 오늘 ${today.assigned}건, 내일 ${tomorrow.assigned}건`);
+      fetchReservations(selectedDate);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || '객실 자동 배정에 실패했습니다.');
+    } finally {
+      setAutoAssigning(false);
+      setAutoAssignConfirm(false);
+    }
+  }, [selectedDate]);
 
   const fetchRooms = useCallback(async () => {
     try {
@@ -1221,9 +1240,14 @@ const RoomAssignment = () => {
     <div className={`space-y-4 ${processing ? 'opacity-60 pointer-events-none' : ''}`}>
 
       {/* Page header */}
-      <div>
-        <h1 className="page-title">객실 배정</h1>
-        <p className="page-subtitle">날짜별 객실을 배정하고 SMS를 발송하세요</p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="page-title">객실 배정</h1>
+          <p className="page-subtitle">날짜별 객실을 배정하고 SMS를 발송하세요</p>
+        </div>
+        <Button color="blue" size="sm" onClick={() => setAutoAssignConfirm(true)} disabled={autoAssigning}>
+          {autoAssigning ? <><Spinner size="sm" className="mr-1.5" />배정 중...</> : <><UserPlus className="h-3.5 w-3.5 mr-1.5" />객실 자동 배정</>}
+        </Button>
       </div>
 
       {/* Summary stats */}
@@ -1782,6 +1806,32 @@ const RoomAssignment = () => {
         .cylinder-rotate-left  { animation: slideLeft  0.35s ease-in-out; }
         .cylinder-rotate-right { animation: slideRight 0.35s ease-in-out; }
       `}</style>
+
+      {/* 객실 자동 배정 확인 모달 */}
+      <Modal show={autoAssignConfirm} size="md" popup onClose={() => setAutoAssignConfirm(false)}>
+        <ModalHeader />
+        <ModalBody>
+          <div className="text-center">
+            <UserPlus className="mx-auto mb-4 h-10 w-10 text-[#3182F6]" />
+            <h3 className="mb-2 text-heading font-semibold text-gray-900 dark:text-white">
+              객실 자동 배정
+            </h3>
+            <p className="mb-6 text-body text-gray-500 dark:text-gray-400">
+              {selectedDate.format('YYYY-MM-DD')} 기준 당일·내일 예약에 대해<br />
+              객실을 자동 배정합니다.<br />
+              <span className="text-caption text-[#8B95A1]">수동 배정된 예약은 유지됩니다.</span>
+            </p>
+            <div className="flex justify-center gap-2">
+              <Button color="blue" onClick={handleAutoAssign} disabled={autoAssigning}>
+                {autoAssigning ? <><Spinner size="sm" className="mr-2" />배정 중...</> : '배정 진행'}
+              </Button>
+              <Button color="light" onClick={() => setAutoAssignConfirm(false)}>
+                취소
+              </Button>
+            </div>
+          </div>
+        </ModalBody>
+      </Modal>
     </div>
   );
 };
