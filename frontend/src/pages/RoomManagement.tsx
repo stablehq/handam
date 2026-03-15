@@ -58,6 +58,8 @@ interface NaverBizItem {
   biz_item_type?: string | null;
   is_exposed?: boolean;
   is_active: boolean;
+  is_dormitory: boolean;
+  dormitory_beds?: number | null;
 }
 
 const EMPTY_FORM: RoomForm = {
@@ -258,6 +260,78 @@ const RoomManagement = () => {
           </div>
         </div>
       </div>
+
+      {/* 네이버 상품 도미토리 설정 */}
+      {bizItems.length > 0 && (
+        <div className="section-card">
+          <div className="section-header">
+            <span className="text-subheading font-semibold">네이버 상품 · 도미토리 설정</span>
+          </div>
+          <div className="px-5 pb-4">
+            <div className="flex flex-col gap-2">
+              {bizItems.map((item) => (
+                <div key={item.biz_item_id} className={`flex items-center gap-3 rounded-lg px-3 py-2 transition-colors ${
+                  item.is_dormitory
+                    ? 'bg-[#9061F9]/10 ring-1 ring-[#9061F9]/30'
+                    : 'bg-gray-50 dark:bg-[#2C2C34]'
+                }`}>
+                  <button
+                    onClick={async () => {
+                      const newVal = !item.is_dormitory;
+                      try {
+                        await roomsAPI.updateBizItem(item.biz_item_id, {
+                          is_dormitory: newVal,
+                          dormitory_beds: newVal ? (item.dormitory_beds || 4) : null,
+                        });
+                        setBizItems((prev) =>
+                          prev.map((b) =>
+                            b.biz_item_id === item.biz_item_id
+                              ? { ...b, is_dormitory: newVal, dormitory_beds: newVal ? (b.dormitory_beds || 4) : null }
+                              : b
+                          )
+                        );
+                      } catch {
+                        toast.error('설정 변경 실패');
+                      }
+                    }}
+                    className={`shrink-0 rounded px-2 py-0.5 text-tiny font-semibold ${
+                      item.is_dormitory ? 'bg-[#9061F9] text-white' : 'bg-gray-200 text-[#8B95A1] dark:bg-gray-700'
+                    }`}
+                  >
+                    {item.is_dormitory ? '도미토리' : '일반'}
+                  </button>
+                  <span className="text-body flex-1">{item.name}</span>
+                  {item.is_dormitory && (
+                    <select
+                      value={item.dormitory_beds || 4}
+                      onChange={async (e) => {
+                        const beds = parseInt(e.target.value);
+                        try {
+                          await roomsAPI.updateBizItem(item.biz_item_id, { dormitory_beds: beds });
+                          setBizItems((prev) =>
+                            prev.map((b) =>
+                              b.biz_item_id === item.biz_item_id ? { ...b, dormitory_beds: beds } : b
+                            )
+                          );
+                        } catch {
+                          toast.error('인실 수 변경 실패');
+                        }
+                      }}
+                      className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-caption dark:border-gray-600 dark:bg-[#1E1E24]"
+                    >
+                      <option value={2}>2인실</option>
+                      <option value={4}>4인실</option>
+                      <option value={6}>6인실</option>
+                      <option value={8}>8인실</option>
+                    </select>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-caption text-[#B0B8C1]">일반/도미토리를 클릭하여 전환. 도미토리는 인실 수를 선택하세요.</p>
+          </div>
+        </div>
+      )}
 
       <div className="section-card">
         <div className="section-header">

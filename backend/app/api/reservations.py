@@ -223,14 +223,13 @@ async def get_reservations(
         Reservation.confirmed_datetime.desc().nullslast(),
     ).offset(skip).limit(limit).all()
 
-    if date:
-        results = []
-        for res in reservations:
-            override_room, override_password = room_assignment.get_room_for_date(db, res.id, date)
-            results.append(_to_response(res, override_room=override_room, override_password=override_password, db=db))
-        return results
-
-    return [_to_response(res, db=db) for res in reservations]
+    # 항상 RoomAssignment에서 객실 정보 조회 (소스 오브 트루스)
+    results = []
+    for res in reservations:
+        lookup_date = date or res.date
+        override_room, override_password = room_assignment.get_room_for_date(db, res.id, lookup_date)
+        results.append(_to_response(res, override_room=override_room, override_password=override_password, db=db))
+    return results
 
 
 @router.post("", response_model=ReservationResponse)
@@ -251,8 +250,11 @@ async def create_reservation(reservation: ReservationCreate, db: Session = Depen
         notes=reservation.notes,
         source=reservation.source,
         gender=reservation.gender,
+        male_count=reservation.male_count,
+        female_count=reservation.female_count,
         tags=reservation.tags,  # Already converted by validator
         party_participants=reservation.party_participants,
+        party_type=reservation.party_type,
         room_info=reservation.room_info,  # Original reservation room type
     )
     db.add(db_reservation)

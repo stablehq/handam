@@ -73,9 +73,9 @@ class RealReservationProvider:
         """
         now = datetime.now()
 
-        # Fetch by registration date: last 7 days to catch new bookings & cancellations
+        # Fetch by registration date: last 1 day (서버에서 5분마다 동기화하므로 충분)
         end_date = now
-        start_date = now - timedelta(days=7)
+        start_date = now - timedelta(days=1)
 
         start_str = start_date.strftime("%Y-%m-%dT00%%3A00%%3A00.000Z")
         end_str = end_date.strftime("%Y-%m-%dT23%%3A59%%3A59.999Z")
@@ -314,12 +314,16 @@ class RealReservationProvider:
 
                 items = []
                 for item in data:
+                    # 판매중(노출중)인 상품만 가져오기
+                    if not item.get('isImp', False):
+                        continue
                     items.append({
                         'biz_item_id': str(item.get('bizItemId', '')),
                         'name': item.get('name', ''),
                         'biz_item_type': item.get('bizItemType', ''),
-                        'is_exposed': bool(item.get('isImp', False)),
+                        'is_exposed': True,
                     })
+                logger.info(f"Fetched {len(items)} exposed biz items (total: {len(data)})")
                 return items
         except Exception as e:
             logger.error(f"Error fetching biz items: {e}")

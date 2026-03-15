@@ -10,6 +10,7 @@ import logging
 
 from app.db.models import Reservation, ReservationStatus
 from app.services import room_assignment
+from app.scheduler.room_reassign import auto_assign_rooms
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,23 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None) 
             added_count += 1
 
     db.commit()
+
+    # 새 예약이 추가되었으면 자동 배정 실행 (미배정 예약자만 대상)
+    if added_count > 0:
+        try:
+            # 모든 미배정 예약자에 대해 자동 배정 (날짜 제한 없음)
+            dates = set()
+            for res_data in reservations:
+                d = res_data.get("date")
+                if d:
+                    dates.add(d)
+            assigned_total = 0
+            for d in sorted(dates):
+                result = auto_assign_rooms(db, d)
+                assigned_total += result.get("assigned", 0)
+            logger.info(f"Auto-assigned {assigned_total} rooms after sync")
+        except Exception as e:
+            logger.error(f"Auto-assign after sync failed: {e}")
 
     logger.info(f"Naver sync completed: {added_count} added, {updated_count} updated")
 

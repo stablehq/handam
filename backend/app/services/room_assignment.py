@@ -109,6 +109,7 @@ def assign_room(
     from_date: str,
     end_date: Optional[str] = None,
     assigned_by: str = "auto",
+    skip_sms_sync: bool = False,
 ) -> List[RoomAssignment]:
     """
     Assign a room for date range [from_date, end_date).
@@ -167,8 +168,10 @@ def assign_room(
     # Update denormalized field
     sync_denormalized_field(db, reservation)
 
-    # Reconcile SMS tags based on new state
-    sync_sms_tags(db, reservation_id)
+    # skip_sms_sync=True이면 태그 동기화를 건너뜀 (일괄 처리 시 사용)
+    if not skip_sms_sync:
+        db.flush()
+        sync_sms_tags(db, reservation_id)
 
     return assignments
 

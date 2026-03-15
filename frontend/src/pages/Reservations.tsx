@@ -335,6 +335,8 @@ export default function Reservations() {
         status:             form.status,
         party_participants: (maleCount + femaleCount) || null,
         gender:             genderParts.join('') || null,
+        male_count:         maleCount || null,
+        female_count:       femaleCount || null,
         tags:               tags,
         notes:              form.notes.trim() || null,
         source:             'manual',

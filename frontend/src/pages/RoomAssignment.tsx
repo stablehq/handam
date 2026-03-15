@@ -79,8 +79,21 @@ function formatGenderPeople(res: Reservation): string {
   if (m > 0 && f > 0) return `남${m}여${f}`;
   if (m > 0) return `남${m}`;
   if (f > 0) return `여${f}`;
-  // Fallback to legacy gender + party_participants
-  if (res.gender && res.party_participants) return `${res.gender}${res.party_participants}`;
+  // Fallback: gender 문자열에서 숫자 파싱
+  if (res.gender) {
+    const maleMatch = res.gender.match(/남(\d+)/);
+    const femaleMatch = res.gender.match(/여(\d+)/);
+    if (maleMatch || femaleMatch) {
+      const parts: string[] = [];
+      if (maleMatch) parts.push(`남${maleMatch[1]}`);
+      if (femaleMatch) parts.push(`여${femaleMatch[1]}`);
+      return parts.join('');
+    }
+    // 단순 "남" or "여"
+    if (res.gender === '남' || res.gender === '여') {
+      return `${res.gender}${res.party_participants || 1}`;
+    }
+  }
   return '';
 }
 
@@ -463,22 +476,41 @@ const RoomAssignment = () => {
     fetchOne(date.add(1, 'day'), setNextDayReservations);
   }, []);
 
+  // 날짜 이동 방향 추적 (프리페치용)
+  const prevDateRef = useRef<Dayjs>(selectedDate);
+  const reservationsRef = useRef<Reservation[]>([]);
+  const prevDayRef = useRef<Reservation[]>([]);
+  const nextDayRef = useRef<Reservation[]>([]);
+
+  const filterActive = useCallback((data: any[]) =>
+    data.filter((r: Reservation) => r.status !== 'cancelled'), []);
+
   const fetchReservations = useCallback(async (date: Dayjs) => {
     setLoading(true);
     try {
       const dateStr = date.format('YYYY-MM-DD');
-      // Auto-assign SMS chips for active schedules before fetching reservations
       await templateSchedulesAPI.autoAssign(dateStr).catch(() => {});
-      const res = await reservationsAPI.getAll({ date: dateStr, limit: 200 });
-      setReservations(res.data.filter((r: Reservation) => r.status !== 'cancelled'));
+
+      // 당일 먼저 로딩
+      const current = await reservationsAPI.getAll({ date: dateStr, limit: 200 });
+      const curr = filterActive(current.data);
+      setReservations(curr);
+      reservationsRef.current = curr;
+      prevDateRef.current = date;
+      setLoading(false);
+
+      // 양옆 백그라운드 fetch
+      reservationsAPI.getAll({ date: date.subtract(1, 'day').format('YYYY-MM-DD'), limit: 200 })
+        .then(res => { const d = filterActive(res.data); setPrevDayReservations(d); prevDayRef.current = d; })
+        .catch(() => { setPrevDayReservations([]); prevDayRef.current = []; });
+      reservationsAPI.getAll({ date: date.add(1, 'day').format('YYYY-MM-DD'), limit: 200 })
+        .then(res => { const d = filterActive(res.data); setNextDayReservations(d); nextDayRef.current = d; })
+        .catch(() => { setNextDayReservations([]); nextDayRef.current = []; });
     } catch {
       toast.error('예약 목록을 불러오지 못했습니다.');
-    } finally {
       setLoading(false);
     }
-    // Also refresh prev/next day previews (연박자 room changes affect adjacent days)
-    fetchPreviews(date);
-  }, [fetchPreviews]);
+  }, [filterActive]);
 
   useEffect(() => {
     fetchRooms();
@@ -621,8 +653,8 @@ const RoomAssignment = () => {
         partyOnlyList.push(res);
       } else if (sectionOverrides[res.id] === 'unassigned') {
         unassignedList.push(res);
-      } else if (res.room_info?.includes('파티만')) {
-        // Default classification by original booking type
+      } else if (res.tags?.includes('파티만') || res.room_info?.includes('파티만')) {
+        // 태그 또는 상품명에 '파티만' 포함 시 파티만 섹션
         partyOnlyList.push(res);
       } else {
         unassignedList.push(res);
@@ -743,7 +775,7 @@ const RoomAssignment = () => {
 
     // Already in unassigned section → nothing to do
     if (!res.room_number && sectionOverrides[resId] === 'unassigned') return;
-    if (!res.room_number && !sectionOverrides[resId] && !res.room_info?.includes('파티만')) return;
+    if (!res.room_number && !sectionOverrides[resId] && !res.tags?.includes('파티만') && !res.room_info?.includes('파티만')) return;
 
     if (res.room_number) {
       // Optimistic update: clear room + remove unsent room_info tag
@@ -794,7 +826,7 @@ const RoomAssignment = () => {
 
     // Already in party section → nothing to do
     if (!guest.room_number && sectionOverrides[resId] === 'party') return;
-    if (!guest.room_number && !sectionOverrides[resId] && guest.room_info?.includes('파티만')) return;
+    if (!guest.room_number && !sectionOverrides[resId] && (guest.tags?.includes('파티만') || guest.room_info?.includes('파티만'))) return;
 
     if (guest.room_number) {
       // Optimistic update: clear room + remove unsent room_info tag
@@ -1048,10 +1080,67 @@ const RoomAssignment = () => {
 
   const renderRoomRow = (entry: { room_number: string; isDormitory: boolean; dormitory_beds: number }, rowIndex: number) => {
     const { room_number, isDormitory, dormitory_beds } = entry;
-    const guests = assignedRooms.get(room_number) || [];
+    const guestsRaw = assignedRooms.get(room_number) || [];
     const isDragOver = dragOverRoom === room_number;
-    const prevGuests = prevDayRoomMap.get(room_number) || [];
-    const nextGuests = nextDayRoomMap.get(room_number) || [];
+    const prevGuestsRaw = prevDayRoomMap.get(room_number) || [];
+    const nextGuestsRaw = nextDayRoomMap.get(room_number) || [];
+
+    // 도미토리: 연박자 행 위치를 날짜간 통일
+    let guests = guestsRaw;
+    let prevGuests = prevGuestsRaw;
+    let nextGuests = nextGuestsRaw;
+    if (isDormitory) {
+      // 원본을 ID순으로 정렬 → 어느 날짜에서 보든 같은 참조 순서
+      const byId = (a: Reservation, b: Reservation) => a.id - b.id;
+      const prevSorted = [...prevGuestsRaw].sort(byId);
+      const guestsSorted = [...guestsRaw].sort(byId);
+      const nextSorted = [...nextGuestsRaw].sort(byId);
+
+      // 리스트를 참조 리스트 기준으로 정렬:
+      // 연박자(참조에도 있는 사람)는 참조 인덱스에 맞추고, 신규는 빈자리에 채우기
+      const alignToRef = (list: Reservation[], refList: Reservation[]): Reservation[] => {
+        const refIds = refList.map((g) => g.id);
+        const continuing: { guest: Reservation; refIdx: number }[] = [];
+        const newG: Reservation[] = [];
+        for (const g of list) {
+          const refIdx = refIds.indexOf(g.id);
+          if (refIdx !== -1) {
+            continuing.push({ guest: g, refIdx });
+          } else {
+            newG.push(g);
+          }
+        }
+        continuing.sort((a, b) => a.refIdx - b.refIdx);
+
+        const result: Reservation[] = [];
+        let contIdx = 0;
+        let newIdx = 0;
+        const maxLen = Math.max(
+          continuing.length > 0 ? continuing[continuing.length - 1].refIdx + 1 : 0,
+          list.length,
+        );
+        for (let i = 0; i < maxLen; i++) {
+          if (contIdx < continuing.length && continuing[contIdx].refIdx === i) {
+            result.push(continuing[contIdx].guest);
+            contIdx++;
+          } else if (newIdx < newG.length) {
+            result.push(newG[newIdx]);
+            newIdx++;
+          }
+        }
+        while (newIdx < newG.length) {
+          result.push(newG[newIdx]);
+          newIdx++;
+        }
+        return result;
+      };
+
+      // ID 정렬된 전일을 기준으로 당일 정렬 → 안정적 행 위치
+      guests = alignToRef(guestsSorted, prevSorted);
+      prevGuests = alignToRef(prevSorted, guests);
+      nextGuests = alignToRef(nextSorted, guests);
+    }
+
     const maxOccupancy = Math.max(guests.length, prevGuests.length, nextGuests.length, 1);
     const visibleRows = isDormitory
       ? Math.min(dormitory_beds, maxOccupancy)
@@ -1076,7 +1165,6 @@ const RoomAssignment = () => {
         <div className={`flex-shrink-0 w-24 border-r-8 border-white dark:border-[#2C2C34] shadow-[inset_-1px_0_0_#E5E8EB,1px_0_0_#E5E8EB] z-[2] border-b border-b-[#E5E8EB] dark:border-b-gray-700 ${stripeBg}`}>
           <div className="divide-y divide-[#F2F4F6] dark:divide-[#2C2C34]">
             {Array.from({ length: totalRows }).map((_, i) => {
-              const prevGuests = prevDayRoomMap.get(room_number) || [];
               const prevGuest = prevGuests[i];
               const gp = prevGuest ? formatGenderPeople(prevGuest) : '';
               return (
@@ -1143,7 +1231,6 @@ const RoomAssignment = () => {
         <div className={`flex-shrink-0 w-24 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] border-b border-b-[#E5E8EB] dark:border-b-gray-700 ${stripeBg}`}>
           <div className="divide-y divide-[#F2F4F6] dark:divide-[#2C2C34]">
             {Array.from({ length: totalRows }).map((_, i) => {
-              const nextGuests = nextDayRoomMap.get(room_number) || [];
               const nextGuest = nextGuests[i];
               const gp = nextGuest ? formatGenderPeople(nextGuest) : '';
               return (
@@ -1166,16 +1253,75 @@ const RoomAssignment = () => {
   const navigateDate = useCallback(
     (direction: 'prev' | 'next') => {
       if (animDirection !== 'none') return;
-      const dir = direction === 'prev' ? 'left' : 'right';
-      setAnimDirection(dir);
-      setTimeout(() => {
-        setSelectedDate((prev) =>
-          direction === 'prev' ? prev.subtract(1, 'day') : prev.add(1, 'day'),
-        );
+      setAnimDirection(direction === 'prev' ? 'left' : 'right');
+
+      const newDate = direction === 'prev'
+        ? selectedDate.subtract(1, 'day')
+        : selectedDate.add(1, 'day');
+
+      // 애니메이션(200ms) + 데이터 fetch를 동시에 시작
+      const animPromise = new Promise((r) => setTimeout(r, 200));
+      const dateStr = newDate.format('YYYY-MM-DD');
+      const diff = direction === 'next' ? 1 : -1;
+
+      let dataPromise: Promise<void>;
+
+      if (diff === 1 && nextDayRef.current.length > 0) {
+        // 다음: 시프트 + 익일만 fetch
+        const newPrev = reservationsRef.current;
+        const newCurrent = nextDayRef.current;
+        dataPromise = reservationsAPI.getAll({ date: newDate.add(1, 'day').format('YYYY-MM-DD'), limit: 200 })
+          .catch(() => ({ data: [] }))
+          .then((res: any) => {
+            const nextData = filterActive(res.data);
+            reservationsRef.current = newCurrent;
+            prevDayRef.current = newPrev;
+            nextDayRef.current = nextData;
+            setReservations(newCurrent);
+            setPrevDayReservations(newPrev);
+            setNextDayReservations(nextData);
+          });
+      } else if (diff === -1 && prevDayRef.current.length > 0) {
+        // 이전: 시프트 + 전일만 fetch
+        const newNext = reservationsRef.current;
+        const newCurrent = prevDayRef.current;
+        dataPromise = reservationsAPI.getAll({ date: newDate.subtract(1, 'day').format('YYYY-MM-DD'), limit: 200 })
+          .catch(() => ({ data: [] }))
+          .then((res: any) => {
+            const prevData = filterActive(res.data);
+            reservationsRef.current = newCurrent;
+            nextDayRef.current = newNext;
+            prevDayRef.current = prevData;
+            setReservations(newCurrent);
+            setNextDayReservations(newNext);
+            setPrevDayReservations(prevData);
+          });
+      } else {
+        // 폴백: 당일 먼저
+        dataPromise = reservationsAPI.getAll({ date: dateStr, limit: 200 })
+          .then((res) => {
+            const curr = filterActive(res.data);
+            reservationsRef.current = curr;
+            setReservations(curr);
+            // 양옆 백그라운드
+            reservationsAPI.getAll({ date: newDate.subtract(1, 'day').format('YYYY-MM-DD'), limit: 200 })
+              .then(r => { const d = filterActive(r.data); setPrevDayReservations(d); prevDayRef.current = d; })
+              .catch(() => { setPrevDayReservations([]); prevDayRef.current = []; });
+            reservationsAPI.getAll({ date: newDate.add(1, 'day').format('YYYY-MM-DD'), limit: 200 })
+              .then(r => { const d = filterActive(r.data); setNextDayReservations(d); nextDayRef.current = d; })
+              .catch(() => { setNextDayReservations([]); nextDayRef.current = []; });
+          })
+          .catch(() => { toast.error('예약 목록을 불러오지 못했습니다.'); });
+      }
+
+      // 애니메이션과 fetch 둘 다 끝나면 날짜 전환
+      Promise.all([animPromise, dataPromise]).then(() => {
+        prevDateRef.current = newDate;
+        setSelectedDate(newDate);
         setAnimDirection('none');
-      }, 350);
+      });
     },
-    [animDirection],
+    [animDirection, selectedDate, filterActive],
   );
 
   // suppress unused navigate warning — keep for future routing
@@ -1427,12 +1573,13 @@ const RoomAssignment = () => {
 
         <div className="section-body !pt-2">
           <div
+            key={selectedDate.format('YYYY-MM-DD')}
             className={
               animDirection === 'left'
-                ? 'cylinder-rotate-left'
+                ? 'date-slide-left'
                 : animDirection === 'right'
-                  ? 'cylinder-rotate-right'
-                  : ''
+                  ? 'date-slide-right'
+                  : 'date-fade-in'
             }
           >
             {/* Unified Table */}
@@ -1791,20 +1938,21 @@ const RoomAssignment = () => {
 
       {/* Animations */}
       <style>{`
-        @keyframes slideLeft {
-          0%   { transform: translateX(0);    opacity: 1;   }
-          45%  { transform: translateX(-60px); opacity: 0.2; }
-          55%  { transform: translateX(40px);  opacity: 0.2; }
-          100% { transform: translateX(0);    opacity: 1;   }
+        @keyframes slideInFromLeft {
+          0%   { transform: translateX(-15px); opacity: 0; }
+          100% { transform: translateX(0);     opacity: 1; }
         }
-        @keyframes slideRight {
-          0%   { transform: translateX(0);   opacity: 1;   }
-          45%  { transform: translateX(60px); opacity: 0.2; }
-          55%  { transform: translateX(-40px);opacity: 0.2; }
-          100% { transform: translateX(0);   opacity: 1;   }
+        @keyframes slideInFromRight {
+          0%   { transform: translateX(15px); opacity: 0; }
+          100% { transform: translateX(0);    opacity: 1; }
         }
-        .cylinder-rotate-left  { animation: slideLeft  0.35s ease-in-out; }
-        .cylinder-rotate-right { animation: slideRight 0.35s ease-in-out; }
+        @keyframes fadeIn {
+          0%   { opacity: 0; }
+          100% { opacity: 1; }
+        }
+        .date-slide-left  { animation: slideInFromLeft  0.2s ease-out; }
+        .date-slide-right { animation: slideInFromRight 0.2s ease-out; }
+        .date-fade-in     { animation: fadeIn 0.15s ease-out; }
       `}</style>
 
       {/* 객실 자동 배정 확인 모달 */}

@@ -275,6 +275,8 @@ class NaverBizItem(Base):
     biz_item_type = Column(String(50), nullable=True)  # STANDARD etc.
     is_exposed = Column(Boolean, default=True)  # 네이버 노출 상태
     is_active = Column(Boolean, default=True)
+    is_dormitory = Column(Boolean, default=False)  # 도미토리 상품 여부
+    dormitory_beds = Column(Integer, nullable=True)  # 도미토리 인실 수 (4, 8 등)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -70,11 +70,18 @@ class NaverBizItemResponse(BaseModel):
     biz_item_type: Optional[str] = None
     is_exposed: bool = True
     is_active: bool
+    is_dormitory: bool = False
+    dormitory_beds: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class NaverBizItemUpdate(BaseModel):
+    is_dormitory: Optional[bool] = None
+    dormitory_beds: Optional[int] = None
 
 
 @router.get("", response_model=List[RoomResponse])
@@ -108,7 +115,10 @@ async def sync_naver_biz_items(db: Session = Depends(get_db)):
 
     added = 0
     updated = 0
+    synced_biz_ids = set()
+
     for item_data in items:
+        synced_biz_ids.add(item_data['biz_item_id'])
         existing = db.query(NaverBizItem).filter(
             NaverBizItem.biz_item_id == item_data['biz_item_id']
         ).first()
@@ -117,6 +127,7 @@ async def sync_naver_biz_items(db: Session = Depends(get_db)):
             existing.name = item_data['name']
             existing.biz_item_type = item_data.get('biz_item_type')
             existing.is_exposed = item_data.get('is_exposed', True)
+            existing.is_active = True
             existing.updated_at = datetime.utcnow()
             updated += 1
         else:
@@ -129,8 +140,39 @@ async def sync_naver_biz_items(db: Session = Depends(get_db)):
             db.add(new_item)
             added += 1
 
+    # 동기화에 없는 기존 상품은 비활성화
+    deactivated = (
+        db.query(NaverBizItem)
+        .filter(NaverBizItem.biz_item_id.notin_(synced_biz_ids), NaverBizItem.is_active == True)
+        .update({"is_active": False}, synchronize_session="fetch")
+    )
+
     db.commit()
-    return {"status": "success", "added": added, "updated": updated}
+    return {"status": "success", "added": added, "updated": updated, "deactivated": deactivated}
+
+
+@router.put("/naver/biz-items/{biz_item_id}", response_model=NaverBizItemResponse)
+async def update_biz_item(
+    biz_item_id: str,
+    request: NaverBizItemUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update Naver biz item settings (dormitory, beds)"""
+    item = db.query(NaverBizItem).filter(NaverBizItem.biz_item_id == biz_item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Biz item not found")
+
+    if request.is_dormitory is not None:
+        item.is_dormitory = request.is_dormitory
+        if not request.is_dormitory:
+            item.dormitory_beds = None
+    if request.dormitory_beds is not None:
+        item.dormitory_beds = request.dormitory_beds
+
+    db.commit()
+    db.refresh(item)
+    return item
 
 
 @router.get("/{room_id}", response_model=RoomResponse)

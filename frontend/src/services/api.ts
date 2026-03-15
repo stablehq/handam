@@ -62,6 +62,8 @@ export const roomsAPI = {
   delete: (id: number) => api.delete(`/api/rooms/${id}`),
   getBizItems: () => api.get('/api/rooms/naver/biz-items'),
   syncBizItems: () => api.post('/api/rooms/naver/biz-items/sync'),
+  updateBizItem: (bizItemId: string, data: { is_dormitory?: boolean; dormitory_beds?: number | null }) =>
+    api.put(`/api/rooms/naver/biz-items/${bizItemId}`, data),
   autoAssign: (date?: string) => api.post('/api/rooms/auto-assign', null, { params: date ? { date } : undefined }),
 };
 

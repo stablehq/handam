@@ -664,11 +664,11 @@ const Templates: React.FC = () => {
   const renderSchedulesTab = () => (
     <div className="space-y-4">
       {/* Info banner + actions */}
-      <div className="flex items-center gap-4">
-        <div className="flex-1 rounded-2xl border border-[#E8F3FF] bg-[#E8F3FF] px-4 py-3 text-label text-[#3182F6] dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
+      <div className="flex items-center justify-between rounded-2xl border border-[#E8F3FF] bg-[#E8F3FF] px-4 py-3 dark:border-blue-800 dark:bg-blue-900/20">
+        <span className="text-label text-[#3182F6] dark:text-blue-300">
           템플릿을 자동으로 발송할 시간을 설정합니다. 매일, 매주, 매시간, 또는 N분마다 발송할 수 있습니다.
-        </div>
-        <div className="flex items-center gap-2">
+        </span>
+        <div className="flex items-center gap-2 ml-4 shrink-0">
           <Button size="sm" color="light" onClick={handleSyncSchedules}>
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
             동기화
