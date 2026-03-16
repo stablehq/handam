@@ -26,7 +26,7 @@ interface MessageItem {
   direction: string
   from_: string
   to: string
-  message: string
+  content: string
   status: string
   created_at: string
   auto_response: string | null
@@ -53,7 +53,7 @@ function MessageBubble({ msg }: { msg: MessageItem }) {
   return (
     <div className={`flex flex-col gap-1 ${isOutbound ? 'items-end' : 'items-start'}`}>
       <div className={isOutbound ? 'outbound-bubble' : 'inbound-bubble'}>
-        {msg.message}
+        {msg.content}
       </div>
 
       <div className={`flex items-center gap-1.5 ${isOutbound ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -191,7 +191,7 @@ const Messages = () => {
       await messagesAPI.simulateReceive({
         from_: selectedContact.phone,
         to: '010-9999-0000',
-        message: text,
+        content: text,
       })
       setInputText('')
       setTimeout(() => {

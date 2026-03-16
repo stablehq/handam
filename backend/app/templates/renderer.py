@@ -8,7 +8,7 @@ import random
 import re
 import logging
 
-from ..db.models import MessageTemplate
+from app.db.models import MessageTemplate
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +135,7 @@ class TemplateRenderer:
 
         # Build message (from line 178-188)
         message = f"""
-금일 객실은 스테이블 {building}동 {room_num}호 - {reservation.room_info or ''}룸입니다.(비밀번호: {room_password}*)
+금일 객실은 스테이블 {building}동 {room_num}호 - {reservation.naver_room_type or ''}룸입니다.(비밀번호: {room_password}*)
 
 무인 체크인이라서 바로 입실하시면 됩니다.
 객실내에서(발코니포함) 음주, 흡연, 취식, 혼숙 절대 금지입니다.(적발시 벌금 10만원 또는 퇴실)

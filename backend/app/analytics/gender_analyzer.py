@@ -4,11 +4,11 @@ Ported from stable-clasp-main/function_extractGenderCount.js
 """
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from datetime import datetime
-import re
 import logging
 
-from ..db.models import GenderStat
+from app.db.models import GenderStat, Reservation, ReservationStatus
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,55 @@ class GenderAnalyzer:
         date_str = date.strftime("%Y-%m-%d")
         return self.db.query(GenderStat).filter_by(date=date_str).first()
 
+    def extract_gender_stats(self, target_date: datetime) -> Optional[GenderStat]:
+        """
+        DB Reservation 테이블에서 성비를 집계하여 GenderStat에 upsert.
+        (레거시 Google Sheets 연동을 대체)
+        """
+        date_str = target_date.strftime("%Y-%m-%d")
+
+        # Reservation에서 해당 날짜의 성비 집계
+        reservations = (
+            self.db.query(Reservation)
+            .filter(
+                Reservation.check_in_date == date_str,
+                Reservation.status != ReservationStatus.CANCELLED,
+            )
+            .all()
+        )
+
+        male_total = 0
+        female_total = 0
+        for r in reservations:
+            if r.male_count is not None and r.female_count is not None:
+                male_total += r.male_count
+                female_total += r.female_count
+            elif r.gender == "남":
+                male_total += 1
+            elif r.gender == "여":
+                female_total += 1
+
+        total = male_total + female_total
+
+        # GenderStat에 upsert
+        stat = self.db.query(GenderStat).filter(GenderStat.date == date_str).first()
+        if stat:
+            stat.male_count = male_total
+            stat.female_count = female_total
+            stat.participant_count = total
+            stat.updated_at = datetime.now()
+        else:
+            stat = GenderStat(
+                date=date_str,
+                male_count=male_total,
+                female_count=female_total,
+                participant_count=total,
+            )
+            self.db.add(stat)
+
+        self.db.flush()
+        return stat
+
     def generate_invite_message(self, stat: GenderStat) -> str:
         """
         Generate dynamic invite message based on gender ratio
@@ -40,7 +89,7 @@ class GenderAnalyzer:
         """
         male = stat.male_count
         female = stat.female_count
-        total = stat.total_participants
+        total = stat.participant_count
 
         # Calculate ratio
         if total == 0:
@@ -75,7 +124,7 @@ class GenderAnalyzer:
         """
         male = stat.male_count
         female = stat.female_count
-        total = stat.total_participants
+        total = stat.participant_count
 
         if total == 0:
             return {

@@ -25,7 +25,7 @@ interface User {
   username: string
   name: string
   role: 'superadmin' | 'admin' | 'staff'
-  is_active: boolean
+  active: boolean
   created_at?: string
 }
 
@@ -216,8 +216,8 @@ export default function UserManagement() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <span className="text-label font-medium" style={{ color: user.is_active ? STATUS_COLORS.active : STATUS_COLORS.inactive }}>
-                      {user.is_active ? '활성' : '비활성'}
+                    <span className="text-label font-medium" style={{ color: user.active ? STATUS_COLORS.active : STATUS_COLORS.inactive }}>
+                      {user.active ? '활성' : '비활성'}
                     </span>
                   </TableCell>
                   <TableCell className="text-caption text-[#8B95A1]">

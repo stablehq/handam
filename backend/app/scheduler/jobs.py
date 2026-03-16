@@ -7,10 +7,9 @@ from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime
 import logging
 
-from ..db.database import SessionLocal
-from ..factory import get_reservation_provider, get_sms_provider
-from ..notifications.service import NotificationService
-from ..scheduler.room_reassign import daily_assign_rooms
+from app.db.database import SessionLocal
+from app.factory import get_reservation_provider, get_sms_provider
+from app.scheduler.room_auto_assign import daily_assign_rooms
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ async def sync_naver_reservations_job():
 
     db = SessionLocal()
     try:
-        from ..api.reservations_sync import sync_naver_to_db
+        from app.api.reservations_sync import sync_naver_to_db
 
         reservation_provider = get_reservation_provider()
         result = await sync_naver_to_db(reservation_provider, db)

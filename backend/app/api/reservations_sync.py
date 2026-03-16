@@ -10,9 +10,19 @@ import logging
 
 from app.db.models import Reservation, ReservationStatus
 from app.services import room_assignment
-from app.scheduler.room_reassign import auto_assign_rooms
+from app.scheduler.room_auto_assign import auto_assign_rooms
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    """Parse ISO datetime string to datetime, returning None on failure."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except (ValueError, AttributeError):
+        return None
 
 
 async def sync_naver_to_db(reservation_provider, db: Session, target_date=None) -> Dict[str, Any]:
@@ -86,7 +96,7 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None) 
     logger.info(f"Naver sync completed: {added_count} added, {updated_count} updated")
 
     return {
-        "status": "success",
+        "success": True,
         "synced": len(reservations),
         "added": added_count,
         "updated": updated_count,
@@ -123,22 +133,22 @@ def _create_reservation(res_data: Dict[str, Any]) -> Reservation:
         phone=res_data.get("phone", ""),
         visitor_name=res_data.get("visitor_name"),
         visitor_phone=res_data.get("visitor_phone"),
-        date=res_data.get("date", ""),
-        time=res_data.get("time", ""),
+        check_in_date=res_data.get("date", ""),
+        check_in_time=res_data.get("time", ""),
         status=status_enum,
-        source="naver",
-        room_info=res_data.get("room_type", ""),
-        party_participants=res_data.get("people_count", 1),
+        booking_source="naver",
+        naver_room_type=res_data.get("room_type", ""),
+        party_size=res_data.get("people_count", 1),
         male_count=male_count,
         female_count=female_count,
-        end_date=res_data.get("end_date"),
+        check_out_date=res_data.get("end_date"),
         biz_item_name=res_data.get("biz_item_name"),
         booking_count=res_data.get("booking_count", 1),
         booking_options=res_data.get("booking_options"),
-        custom_form_input=res_data.get("custom_form_input"),
+        special_requests=res_data.get("custom_form_input"),
         total_price=res_data.get("total_price"),
-        confirmed_datetime=res_data.get("confirmed_datetime"),
-        cancelled_datetime=res_data.get("cancelled_datetime"),
+        confirmed_at=_parse_datetime(res_data.get("confirmed_at")),
+        cancelled_at=_parse_datetime(res_data.get("cancelled_at")),
         gender=res_data.get("gender"),
     )
 
@@ -151,20 +161,20 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
     existing.visitor_name = res_data.get("visitor_name")
     existing.visitor_phone = res_data.get("visitor_phone")
     existing.naver_biz_item_id = res_data.get("naver_biz_item_id", existing.naver_biz_item_id)
-    existing.room_info = res_data.get("room_type", existing.room_info)
-    existing.party_participants = res_data.get("people_count", existing.party_participants)
-    old_date = existing.date
-    old_end_date = existing.end_date
-    existing.date = res_data.get("date", existing.date)
-    existing.time = res_data.get("time", existing.time)
-    existing.end_date = res_data.get("end_date", existing.end_date)
+    existing.naver_room_type = res_data.get("room_type", existing.naver_room_type)
+    existing.party_size = res_data.get("people_count", existing.party_size)
+    old_date = existing.check_in_date
+    old_end_date = existing.check_out_date
+    existing.check_in_date = res_data.get("date", existing.check_in_date)
+    existing.check_in_time = res_data.get("time", existing.check_in_time)
+    existing.check_out_date = res_data.get("end_date", existing.check_out_date)
     existing.biz_item_name = res_data.get("biz_item_name", existing.biz_item_name)
     existing.booking_count = res_data.get("booking_count", existing.booking_count)
     existing.booking_options = res_data.get("booking_options", existing.booking_options)
-    existing.custom_form_input = res_data.get("custom_form_input", existing.custom_form_input)
+    existing.special_requests = res_data.get("custom_form_input", existing.special_requests)
     existing.total_price = res_data.get("total_price", existing.total_price)
-    existing.confirmed_datetime = res_data.get("confirmed_datetime", existing.confirmed_datetime)
-    existing.cancelled_datetime = res_data.get("cancelled_datetime", existing.cancelled_datetime)
+    existing.confirmed_at = _parse_datetime(res_data.get("confirmed_at")) if res_data.get("confirmed_at") is not None else existing.confirmed_at
+    existing.cancelled_at = _parse_datetime(res_data.get("cancelled_at")) if res_data.get("cancelled_at") is not None else existing.cancelled_at
     if res_data.get("gender"):
         existing.gender = res_data["gender"]
     # Only set male_count/female_count if not already manually edited
@@ -183,9 +193,9 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
         room_assignment.clear_all_for_reservation(db, existing.id)
 
     # Reconcile room assignments if dates changed
-    if existing.date != old_date or existing.end_date != old_end_date:
+    if existing.check_in_date != old_date or existing.check_out_date != old_end_date:
         room_assignment.reconcile_dates(db, existing)
 
-    existing.updated_at = datetime.utcnow()
+    existing.updated_at = datetime.now()
 
 

@@ -1,17 +1,19 @@
 """
 Reservations API endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from pydantic import BaseModel, field_validator
 from typing import List, Optional, Union
 from app.db.database import get_db
-from app.db.models import Reservation, ReservationStatus, User, ReservationSmsAssignment
+from app.db.models import Reservation, ReservationStatus, User, ReservationSmsAssignment, RoomAssignment
 from app.factory import get_reservation_provider, get_sms_provider
 from app.auth.dependencies import get_current_user
-from app.templates.renderer import TemplateRenderer
+from app.rate_limit import limiter
 from app.services import room_assignment
+from app.services.activity_logger import log_activity
+from app.api.shared_schemas import ActionResponse
 from datetime import datetime
 import logging
 
@@ -22,18 +24,18 @@ logger = logging.getLogger(__name__)
 class ReservationCreate(BaseModel):
     customer_name: str
     phone: str
-    date: str  # YYYY-MM-DD
-    time: str  # HH:MM
+    check_in_date: str  # YYYY-MM-DD
+    check_in_time: str  # HH:MM
     status: str = "pending"
     notes: Optional[str] = None
     gender: Optional[str] = None
     tags: Optional[Union[str, List[str]]] = None  # Accepts both string and array
     male_count: Optional[int] = None
     female_count: Optional[int] = None
-    party_participants: Optional[int] = 1
+    party_size: Optional[int] = 1
     party_type: Optional[str] = None
-    source: str = "manual"
-    room_info: Optional[str] = None  # Original reservation room type
+    booking_source: str = "manual"
+    naver_room_type: Optional[str] = None  # Original reservation room type
 
     @field_validator('tags')
     @classmethod
@@ -49,18 +51,17 @@ class ReservationCreate(BaseModel):
 class ReservationUpdate(BaseModel):
     customer_name: Optional[str] = None
     phone: Optional[str] = None
-    date: Optional[str] = None
-    time: Optional[str] = None
+    check_in_date: Optional[str] = None
+    check_in_time: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None
     gender: Optional[str] = None
     tags: Optional[Union[str, List[str]]] = None
     male_count: Optional[int] = None
     female_count: Optional[int] = None
-    party_participants: Optional[int] = None
+    party_size: Optional[int] = None
     party_type: Optional[str] = None
-    room_info: Optional[str] = None  # Original reservation room type
-    sent_sms_types: Optional[str] = None  # "객후,파티안내,객실안내"
+    naver_room_type: Optional[str] = None  # Original reservation room type
 
     @field_validator('tags')
     @classmethod
@@ -101,31 +102,29 @@ class ReservationResponse(BaseModel):
     phone: str
     visitor_name: Optional[str] = None
     visitor_phone: Optional[str] = None
-    date: str
-    time: str
+    check_in_date: str
+    check_in_time: str
     status: str
     notes: Optional[str] = None
-    source: str
+    booking_source: str
     room_number: Optional[str] = None
     room_password: Optional[str] = None
-    room_info: Optional[str] = None
+    room_assigned_by: Optional[str] = None
+    naver_room_type: Optional[str] = None
     gender: Optional[str] = None
     male_count: Optional[int] = None
     female_count: Optional[int] = None
     tags: Optional[str] = None
-    party_participants: Optional[int] = None
+    party_size: Optional[int] = None
     party_type: Optional[str] = None
-    room_sms_sent: bool = False
-    party_sms_sent: bool = False
-    sent_sms_types: Optional[str] = None  # "객후,파티안내,객실안내"
-    end_date: Optional[str] = None
+    check_out_date: Optional[str] = None
     biz_item_name: Optional[str] = None
     booking_count: Optional[int] = 1
     booking_options: Optional[str] = None
-    custom_form_input: Optional[str] = None
+    special_requests: Optional[str] = None
     total_price: Optional[int] = None
-    confirmed_datetime: Optional[str] = None
-    cancelled_datetime: Optional[str] = None
+    confirmed_at: Optional[str] = None
+    cancelled_at: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     sms_assignments: List[SmsAssignmentResponse] = []
@@ -134,7 +133,7 @@ class ReservationResponse(BaseModel):
         from_attributes = True
 
 
-def _to_response(res: Reservation, override_room: Optional[str] = None, override_password: Optional[str] = None, db: Session = None) -> ReservationResponse:
+def _to_response(res: Reservation, override_room: Optional[str] = None, override_password: Optional[str] = None, override_assigned_by: Optional[str] = None, db: Session = None) -> ReservationResponse:
     assignments = []
     if db is not None and hasattr(res, 'sms_assignments'):
         assignments = [
@@ -153,31 +152,29 @@ def _to_response(res: Reservation, override_room: Optional[str] = None, override
         phone=res.phone,
         visitor_name=res.visitor_name,
         visitor_phone=res.visitor_phone,
-        date=res.date,
-        time=res.time,
+        check_in_date=res.check_in_date,
+        check_in_time=res.check_in_time,
         status=res.status.value,
         notes=res.notes,
-        source=res.source,
+        booking_source=res.booking_source,
         room_number=override_room if override_room is not None else res.room_number,
         room_password=override_password if override_password is not None else res.room_password,
-        room_info=res.room_info,
+        room_assigned_by=override_assigned_by,
+        naver_room_type=res.naver_room_type,
         gender=res.gender,
         male_count=res.male_count,
         female_count=res.female_count,
         tags=res.tags,
-        party_participants=res.party_participants,
+        party_size=res.party_size,
         party_type=res.party_type,
-        room_sms_sent=res.room_sms_sent or False,
-        party_sms_sent=res.party_sms_sent or False,
-        sent_sms_types=res.sent_sms_types,
-        end_date=res.end_date,
+        check_out_date=res.check_out_date,
         biz_item_name=res.biz_item_name,
         booking_count=res.booking_count,
         booking_options=res.booking_options,
-        custom_form_input=res.custom_form_input,
+        special_requests=res.special_requests,
         total_price=res.total_price,
-        confirmed_datetime=res.confirmed_datetime,
-        cancelled_datetime=res.cancelled_datetime,
+        confirmed_at=res.confirmed_at,
+        cancelled_at=res.cancelled_at,
         created_at=res.created_at,
         updated_at=res.updated_at,
         sms_assignments=assignments,
@@ -190,6 +187,8 @@ async def get_reservations(
     limit: int = 50,
     status: Optional[str] = None,
     date: Optional[str] = None,
+    search: Optional[str] = None,
+    source: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -199,18 +198,29 @@ async def get_reservations(
     if status:
         query = query.filter(Reservation.status == status)
 
+    if search:
+        query = query.filter(
+            or_(
+                Reservation.customer_name.contains(search),
+                Reservation.phone.contains(search),
+            )
+        )
+
+    if source:
+        query = query.filter(Reservation.booking_source == source)
+
     if date:
-        # check-in <= date < check-out (end_date)
-        # If end_date is null, fall back to exact date match
+        # check-in <= date < check-out (check_out_date)
+        # If check_out_date is null, fall back to exact date match
         query = query.filter(
             or_(
                 and_(
-                    Reservation.date <= date,
-                    Reservation.end_date > date,
+                    Reservation.check_in_date <= date,
+                    Reservation.check_out_date > date,
                 ),
                 and_(
-                    Reservation.date == date,
-                    Reservation.end_date.is_(None),
+                    Reservation.check_in_date == date,
+                    Reservation.check_out_date.is_(None),
                 ),
             )
         )
@@ -220,15 +230,44 @@ async def get_reservations(
     reservations = query.options(
         selectinload(Reservation.sms_assignments)
     ).order_by(
-        Reservation.confirmed_datetime.desc().nullslast(),
+        Reservation.confirmed_at.desc().nullslast(),
     ).offset(skip).limit(limit).all()
 
-    # 항상 RoomAssignment에서 객실 정보 조회 (소스 오브 트루스)
+    # 항상 RoomAssignment에서 객실 정보 조회 (소스 오브 트루스) — 배치 조회로 N+1 제거
+    res_ids = [r.id for r in reservations]
+    if res_ids:
+        # date 파라미터가 있으면 해당 날짜로 일괄 조회, 없으면 각 예약의 date를 키로 사용
+        if date:
+            room_assignments = (
+                db.query(RoomAssignment)
+                .filter(
+                    RoomAssignment.reservation_id.in_(res_ids),
+                    RoomAssignment.date == date,
+                )
+                .all()
+            )
+            room_map = {ra.reservation_id: (ra.room_number, ra.room_password, ra.assigned_by) for ra in room_assignments}
+        else:
+            # date 없음: 각 예약의 check-in date 기준으로 조회
+            # (reservation_id, date) 쌍을 한 번에 가져온 뒤 매핑
+            res_date_map = {r.id: r.check_in_date for r in reservations}
+            room_assignments = (
+                db.query(RoomAssignment)
+                .filter(RoomAssignment.reservation_id.in_(res_ids))
+                .all()
+            )
+            room_map = {}
+            for ra in room_assignments:
+                lookup = res_date_map.get(ra.reservation_id)
+                if ra.date == lookup:
+                    room_map[ra.reservation_id] = (ra.room_number, ra.room_password, ra.assigned_by)
+    else:
+        room_map = {}
+
     results = []
     for res in reservations:
-        lookup_date = date or res.date
-        override_room, override_password = room_assignment.get_room_for_date(db, res.id, lookup_date)
-        results.append(_to_response(res, override_room=override_room, override_password=override_password, db=db))
+        override_room, override_password, override_assigned_by = room_map.get(res.id, (None, None, None))
+        results.append(_to_response(res, override_room=override_room, override_password=override_password, override_assigned_by=override_assigned_by, db=db))
     return results
 
 
@@ -239,23 +278,23 @@ async def create_reservation(reservation: ReservationCreate, db: Session = Depen
     try:
         status_enum = ReservationStatus(reservation.status)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid status")
+        raise HTTPException(status_code=400, detail="유효하지 않은 상태입니다")
 
     db_reservation = Reservation(
         customer_name=reservation.customer_name,
         phone=reservation.phone,
-        date=reservation.date,
-        time=reservation.time,
+        check_in_date=reservation.check_in_date,
+        check_in_time=reservation.check_in_time,
         status=status_enum,
         notes=reservation.notes,
-        source=reservation.source,
+        booking_source=reservation.booking_source,
         gender=reservation.gender,
         male_count=reservation.male_count,
         female_count=reservation.female_count,
         tags=reservation.tags,  # Already converted by validator
-        party_participants=reservation.party_participants,
+        party_size=reservation.party_size,
         party_type=reservation.party_type,
-        room_info=reservation.room_info,  # Original reservation room type
+        naver_room_type=reservation.naver_room_type,  # Original reservation room type
     )
     db.add(db_reservation)
     db.commit()
@@ -271,7 +310,7 @@ async def update_reservation(
     """Update a reservation"""
     db_reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not db_reservation:
-        raise HTTPException(status_code=404, detail="Reservation not found")
+        raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다")
 
     update_data = reservation.dict(exclude_unset=True)
 
@@ -280,7 +319,7 @@ async def update_reservation(
         try:
             update_data["status"] = ReservationStatus(update_data["status"])
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid status")
+            raise HTTPException(status_code=400, detail="유효하지 않은 상태입니다")
 
     for field, value in update_data.items():
         setattr(db_reservation, field, value)
@@ -291,16 +330,16 @@ async def update_reservation(
     return _to_response(db_reservation, db=db)
 
 
-@router.delete("/{reservation_id}")
+@router.delete("/{reservation_id}", response_model=ActionResponse)
 async def delete_reservation(reservation_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Delete a reservation"""
     db_reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not db_reservation:
-        raise HTTPException(status_code=404, detail="Reservation not found")
+        raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다")
 
     db.delete(db_reservation)
     db.commit()
-    return {"status": "success", "message": "Reservation deleted"}
+    return {"success": True, "message": "예약이 삭제되었습니다"}
 
 
 @router.put("/{reservation_id}/room", response_model=ReservationResponse)
@@ -310,7 +349,7 @@ async def assign_room(
     """Assign or unassign a room to a reservation"""
     db_reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not db_reservation:
-        raise HTTPException(status_code=404, detail="Reservation not found")
+        raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다")
 
     room_number = request.room_number
     req_date = request.date
@@ -318,7 +357,7 @@ async def assign_room(
 
     if room_number is None:
         # Unassign room
-        end_date = db_reservation.end_date if (req_date and apply_subsequent) else None
+        end_date = db_reservation.check_out_date if (req_date and apply_subsequent) else None
         room_assignment.unassign_room(
             db,
             reservation_id,
@@ -327,8 +366,8 @@ async def assign_room(
         )
     else:
         # Manual assignment from UI
-        from_date = req_date or db_reservation.date
-        end_date = db_reservation.end_date if apply_subsequent else None
+        from_date = req_date or db_reservation.check_in_date
+        end_date = db_reservation.check_out_date if apply_subsequent else None
         room_assignment.assign_room(
             db,
             reservation_id,
@@ -345,12 +384,25 @@ async def assign_room(
 
 
 @router.post("/sync/naver")
-async def sync_from_naver(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+@limiter.limit("5/minute")
+async def sync_from_naver(request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Sync reservations from Naver Smart Place API"""
     from app.api.reservations_sync import sync_naver_to_db
 
     reservation_provider = get_reservation_provider()
     result = await sync_naver_to_db(reservation_provider, db)
+
+    log_activity(
+        db,
+        type="naver_sync",
+        title="네이버 예약 동기화",
+        detail=result,
+        target_count=result.get("total", 0),
+        success_count=result.get("synced", 0),
+        created_by=current_user.username,
+    )
+    db.commit()
+
     return result
 
 
@@ -365,7 +417,7 @@ async def assign_sms_template(
     """Assign an SMS template to a reservation"""
     res = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not res:
-        raise HTTPException(status_code=404, detail="Reservation not found")
+        raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다")
 
     # Check if already assigned
     existing = db.query(ReservationSmsAssignment).filter(
@@ -373,7 +425,7 @@ async def assign_sms_template(
         ReservationSmsAssignment.template_key == request.template_key,
     ).first()
     if existing:
-        raise HTTPException(status_code=409, detail="Template already assigned")
+        raise HTTPException(status_code=409, detail="이미 배정된 템플릿입니다")
 
     assignment = ReservationSmsAssignment(
         reservation_id=reservation_id,
@@ -398,7 +450,7 @@ async def unassign_sms_template(
         ReservationSmsAssignment.template_key == template_key,
     ).first()
     if not assignment:
-        raise HTTPException(status_code=404, detail="Assignment not found")
+        raise HTTPException(status_code=404, detail="배정을 찾을 수 없습니다")
 
     db.delete(assignment)
     db.commit()
@@ -418,12 +470,12 @@ async def toggle_sms_sent(
         ReservationSmsAssignment.template_key == template_key,
     ).first()
     if not assignment:
-        raise HTTPException(status_code=404, detail="Assignment not found")
+        raise HTTPException(status_code=404, detail="배정을 찾을 수 없습니다")
 
     if assignment.sent_at:
         assignment.sent_at = None  # Mark as unsent
     else:
-        assignment.sent_at = datetime.utcnow()  # Mark as sent
+        assignment.sent_at = datetime.now()  # Mark as sent
 
     db.commit()
     return {"success": True, "sent_at": assignment.sent_at}
@@ -435,90 +487,39 @@ class SmsSendByTagRequest(BaseModel):
 
 
 @router.post("/sms-send-by-tag")
+@limiter.limit("10/minute")
 async def send_sms_by_tag(
-    request: SmsSendByTagRequest,
+    request: Request,
+    sms_data: SmsSendByTagRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Send SMS to all reservations with unsent assignment for a given template_key and date"""
-    from app.db.models import MessageTemplate, CampaignLog
-    from sqlalchemy.orm import selectinload
-
-    template = db.query(MessageTemplate).filter(
-        MessageTemplate.key == request.template_key,
-        MessageTemplate.active == True,
-    ).first()
-    if not template:
-        raise HTTPException(status_code=404, detail="Template not found")
-
-    # Find all reservations for the date with unsent assignments for this template
-    assignments = db.query(ReservationSmsAssignment).join(
-        Reservation, ReservationSmsAssignment.reservation_id == Reservation.id
-    ).filter(
-        ReservationSmsAssignment.template_key == request.template_key,
-        ReservationSmsAssignment.sent_at.is_(None),
-        Reservation.date == request.date,
-        Reservation.status == 'confirmed',
-    ).all()
-
-    if not assignments:
-        return {"success": True, "sent_count": 0, "message": "No unsent targets found"}
+    from app.services.sms_sender import SmsSender
 
     sms_provider = get_sms_provider()
-    renderer = TemplateRenderer(db)
-    sent_count = 0
-    failed_count = 0
+    manager = SmsSender(db, sms_provider)
+    try:
+        result = await manager.send_by_assignment(
+            template_key=sms_data.template_key,
+            date=sms_data.date,
+            sms_provider=sms_provider,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
-    # Campaign log
-    campaign_log = CampaignLog(
-        campaign_type=f"tag_send_{request.template_key}",
-        target_count=len(assignments),
-        sent_count=0,
-        failed_count=0,
+    if result["target_count"] == 0:
+        return {"success": True, "sent_count": 0, "message": "No unsent targets found"}
+
+    log_activity(
+        db,
+        type="sms_manual",
+        title=f"수동 SMS 발송 ({sms_data.template_key})",
+        target_count=result["target_count"],
+        success_count=result.get("sent_count", 0),
+        failed_count=result.get("failed_count", 0),
+        created_by=current_user.username,
     )
-    db.add(campaign_log)
     db.commit()
 
-    for assignment in assignments:
-        reservation = db.query(Reservation).filter(Reservation.id == assignment.reservation_id).first()
-        if not reservation:
-            failed_count += 1
-            continue
-        try:
-            context = {
-                "customer_name": reservation.customer_name,
-                "phone": reservation.phone,
-                "date": reservation.date,
-                "time": reservation.time or "",
-                "room_number": reservation.room_number or "",
-                "room_password": reservation.room_password or "",
-                "room_info": reservation.room_info or "",
-                "party_type": reservation.party_type or "",
-                "notes": reservation.notes or "",
-            }
-            message_content = renderer.render(request.template_key, context)
-            result = await sms_provider.send_sms(
-                to=reservation.phone,
-                message=message_content,
-            )
-            if result.get("success"):
-                sent_count += 1
-                assignment.sent_at = datetime.utcnow()
-                db.commit()
-            else:
-                failed_count += 1
-        except Exception as e:
-            failed_count += 1
-            logger.error(f"Failed to send SMS to reservation #{reservation.id}: {e}")
-
-    campaign_log.sent_count = sent_count
-    campaign_log.failed_count = failed_count
-    campaign_log.completed_at = datetime.utcnow()
-    db.commit()
-
-    return {
-        "success": True,
-        "sent_count": sent_count,
-        "failed_count": failed_count,
-        "target_count": len(assignments),
-    }
+    return {"success": True, **result}

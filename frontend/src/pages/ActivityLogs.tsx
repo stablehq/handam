@@ -1,0 +1,441 @@
+import { useEffect, useState, useCallback } from 'react'
+import {
+  Badge,
+  Select,
+  Spinner,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeadCell,
+  TableRow,
+  Button,
+  TextInput,
+} from 'flowbite-react'
+import {
+  History,
+  BedDouble,
+  MessageSquareText,
+  RefreshCw,
+  Megaphone,
+  ChevronLeft,
+  ChevronRight,
+  User,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+} from 'lucide-react'
+import { activityLogsAPI } from '@/services/api'
+
+// ── Type helpers ──────────────────────────────────────────────
+
+type ActivityType =
+  | 'room_assign'
+  | 'sms_template'
+  | 'sms_manual'
+  | 'naver_sync'
+
+type ActivityStatus = 'success' | 'failed' | 'partial'
+
+interface ActivityLog {
+  id: number
+  type: ActivityType
+  title: string
+  target?: string | null
+  success_count?: number | null
+  fail_count?: number | null
+  status: ActivityStatus
+  actor?: string | null
+  created_at: string
+}
+
+interface ActivityStats {
+  total_today: number
+  room_assign_today: number
+  sms_sent_today: number
+  naver_sync_today: number
+}
+
+// ── Label / color maps ────────────────────────────────────────
+
+const TYPE_LABELS: Record<ActivityType, string> = {
+  room_assign: '객실 배정',
+  sms_template: 'SMS 템플릿',
+  sms_manual: '수동 SMS',
+  naver_sync: '네이버 동기화',
+}
+
+const TYPE_BADGE_COLOR: Record<ActivityType, string> = {
+  room_assign: 'blue',
+  sms_template: 'purple',
+  sms_manual: 'green',
+  naver_sync: 'indigo',
+}
+
+const STATUS_LABELS: Record<ActivityStatus, string> = {
+  success: '성공',
+  failed: '실패',
+  partial: '부분',
+}
+
+function statusBadgeColor(s: ActivityStatus): 'success' | 'failure' | 'warning' {
+  if (s === 'success') return 'success'
+  if (s === 'failed') return 'failure'
+  return 'warning'
+}
+
+// ── Stat card ─────────────────────────────────────────────────
+
+interface StatCardProps {
+  title: string
+  value: number
+  icon: React.ReactNode
+  iconBg: string
+}
+
+function StatCard({ title, value, icon, iconBg }: StatCardProps) {
+  return (
+    <div className="stat-card">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="stat-label">{title}</p>
+          <p className="stat-value mt-1 tabular-nums">{value.toLocaleString()}</p>
+        </div>
+        <div className={`stat-icon ${iconBg}`}>{icon}</div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────
+
+const PAGE_SIZE = 20
+
+const ActivityLogs = () => {
+  const [logs, setLogs] = useState<ActivityLog[]>([])
+  const [stats, setStats] = useState<ActivityStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [statsLoading, setStatsLoading] = useState(true)
+
+  // Filters
+  const [filterType, setFilterType] = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
+  const [filterDate, setFilterDate] = useState('')
+
+  // Pagination
+  const [page, setPage] = useState(0)
+  const [hasMore, setHasMore] = useState(true)
+
+  // ── Data fetching ──────────────────────────────────────────
+
+  const loadStats = useCallback(async () => {
+    setStatsLoading(true)
+    try {
+      const res = await activityLogsAPI.getStats()
+      setStats(res.data)
+    } catch {
+      // API not yet wired — show zeros gracefully
+      setStats({ total_today: 0, room_assign_today: 0, sms_sent_today: 0, naver_sync_today: 0 })
+    } finally {
+      setStatsLoading(false)
+    }
+  }, [])
+
+  const loadLogs = useCallback(
+    async (pageNum: number) => {
+      setLoading(true)
+      try {
+        const params: Record<string, any> = {
+          skip: pageNum * PAGE_SIZE,
+          limit: PAGE_SIZE + 1,
+        }
+        if (filterType) params.type = filterType
+        if (filterStatus) params.status = filterStatus
+        if (filterDate) params.date = filterDate
+
+        const res = await activityLogsAPI.getAll(params)
+        const data: ActivityLog[] = res.data ?? []
+        setHasMore(data.length > PAGE_SIZE)
+        setLogs(data.slice(0, PAGE_SIZE))
+      } catch {
+        setLogs([])
+        setHasMore(false)
+      } finally {
+        setLoading(false)
+      }
+    },
+    [filterType, filterStatus, filterDate],
+  )
+
+  useEffect(() => {
+    loadStats()
+  }, [loadStats])
+
+  useEffect(() => {
+    setPage(0)
+    loadLogs(0)
+  }, [filterType, filterStatus, filterDate, loadLogs])
+
+  const handlePageChange = (next: number) => {
+    setPage(next)
+    loadLogs(next)
+  }
+
+  // ── Helpers ────────────────────────────────────────────────
+
+  const fmtTime = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleString('ko-KR', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })
+    } catch {
+      return iso
+    }
+  }
+
+  // ── Render ─────────────────────────────────────────────────
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="page-title">활동 로그</h1>
+          <p className="page-subtitle">시스템 작업 이력을 타입·상태·날짜로 조회합니다.</p>
+        </div>
+        <Button
+          color="light"
+          size="sm"
+          onClick={() => {
+            loadStats()
+            loadLogs(page)
+          }}
+        >
+          <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+          새로고침
+        </Button>
+      </div>
+
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {statsLoading ? (
+          <div className="col-span-4 flex items-center justify-center py-10">
+            <Spinner size="md" />
+          </div>
+        ) : (
+          <>
+            <StatCard
+              title="오늘 총 활동"
+              value={stats?.total_today ?? 0}
+              icon={<History size={18} />}
+              iconBg="bg-[#E8F3FF] text-[#3182F6] dark:bg-[#3182F6]/15 dark:text-[#3182F6]"
+            />
+            <StatCard
+              title="객실 배정"
+              value={stats?.room_assign_today ?? 0}
+              icon={<BedDouble size={18} />}
+              iconBg="bg-[#F3EEFF] text-[#7B61FF] dark:bg-[#7B61FF]/15 dark:text-[#7B61FF]"
+            />
+            <StatCard
+              title="SMS 발송"
+              value={stats?.sms_sent_today ?? 0}
+              icon={<MessageSquareText size={18} />}
+              iconBg="bg-[#E8FAF5] text-[#00C9A7] dark:bg-[#00C9A7]/15 dark:text-[#00C9A7]"
+            />
+            <StatCard
+              title="네이버 동기화"
+              value={stats?.naver_sync_today ?? 0}
+              icon={<Megaphone size={18} />}
+              iconBg="bg-[#FFF5E6] text-[#FF9F00] dark:bg-[#FF9F00]/15 dark:text-[#FF9F00]"
+            />
+          </>
+        )}
+      </div>
+
+      {/* Main section */}
+      <div className="section-card">
+        {/* Filter bar */}
+        <div className="filter-bar border-b border-[#E5E8EB] dark:border-gray-800">
+          <Select
+            sizing="sm"
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="w-40"
+          >
+            <option value="">전체 타입</option>
+            <option value="room_assign">객실 배정</option>
+            <option value="sms_template">SMS 템플릿</option>
+            <option value="sms_manual">수동 SMS</option>
+            <option value="naver_sync">네이버 동기화</option>
+          </Select>
+
+          <Select
+            sizing="sm"
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="w-32"
+          >
+            <option value="">전체 상태</option>
+            <option value="success">성공</option>
+            <option value="failed">실패</option>
+            <option value="partial">부분</option>
+          </Select>
+
+          <TextInput
+            sizing="sm"
+            type="date"
+            value={filterDate}
+            onChange={(e) => setFilterDate(e.target.value)}
+            className="w-40"
+          />
+        </div>
+
+        {/* Table */}
+        <div className="overflow-x-auto">
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <Spinner size="lg" />
+            </div>
+          ) : logs.length === 0 ? (
+            <div className="empty-state">
+              <History size={40} className="mb-3 text-[#B0B8C1] dark:text-gray-600" />
+              <p className="text-body font-medium text-[#4E5968] dark:text-gray-300">
+                활동 기록이 없습니다
+              </p>
+              <p className="mt-1 text-label text-[#8B95A1] dark:text-gray-500">
+                조건을 변경하거나 새로고침을 눌러보세요.
+              </p>
+            </div>
+          ) : (
+            <Table hoverable striped>
+              <TableHead>
+                <TableRow>
+                  <TableHeadCell className="w-36 whitespace-nowrap">시간</TableHeadCell>
+                  <TableHeadCell className="w-28">타입</TableHeadCell>
+                  <TableHeadCell>제목</TableHeadCell>
+                  <TableHeadCell className="w-28 text-right">대상/성공/실패</TableHeadCell>
+                  <TableHeadCell className="w-20">상태</TableHeadCell>
+                  <TableHeadCell className="w-24">실행자</TableHeadCell>
+                </TableRow>
+              </TableHead>
+              <TableBody className="divide-y">
+                {logs.map((log) => (
+                  <TableRow key={log.id}>
+                    {/* Time */}
+                    <TableCell>
+                      <span className="whitespace-nowrap text-caption tabular-nums text-[#8B95A1] dark:text-gray-500">
+                        {fmtTime(log.created_at)}
+                      </span>
+                    </TableCell>
+
+                    {/* Type badge */}
+                    <TableCell>
+                      <Badge
+                        color={TYPE_BADGE_COLOR[log.type] as any}
+                        size="sm"
+                        className="whitespace-nowrap"
+                      >
+                        {TYPE_LABELS[log.type] ?? log.type}
+                      </Badge>
+                    </TableCell>
+
+                    {/* Title */}
+                    <TableCell>
+                      <span className="line-clamp-1 text-body text-[#191F28] dark:text-white">
+                        {log.title}
+                      </span>
+                      {log.target && (
+                        <span className="mt-0.5 block text-caption text-[#8B95A1] dark:text-gray-500">
+                          {log.target}
+                        </span>
+                      )}
+                    </TableCell>
+
+                    {/* Counts */}
+                    <TableCell>
+                      <div className="flex items-center justify-end gap-1.5 text-caption tabular-nums">
+                        {log.success_count != null && (
+                          <span className="flex items-center gap-0.5 text-[#00C9A7]">
+                            <CheckCircle2 className="h-3 w-3" />
+                            {log.success_count}
+                          </span>
+                        )}
+                        {log.fail_count != null && log.fail_count > 0 && (
+                          <span className="flex items-center gap-0.5 text-[#F04452]">
+                            <XCircle className="h-3 w-3" />
+                            {log.fail_count}
+                          </span>
+                        )}
+                        {log.success_count == null && log.fail_count == null && (
+                          <span className="text-[#B0B8C1]">—</span>
+                        )}
+                      </div>
+                    </TableCell>
+
+                    {/* Status badge */}
+                    <TableCell>
+                      <Badge color={statusBadgeColor(log.status)} size="sm">
+                        {STATUS_LABELS[log.status] ?? log.status}
+                      </Badge>
+                    </TableCell>
+
+                    {/* Actor */}
+                    <TableCell>
+                      {log.actor ? (
+                        <span className="flex items-center gap-1 text-label text-[#4E5968] dark:text-gray-300">
+                          <User className="h-3 w-3 shrink-0 text-[#B0B8C1]" />
+                          {log.actor}
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-label text-[#B0B8C1]">
+                          <AlertCircle className="h-3 w-3" />
+                          시스템
+                        </span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+
+        {/* Pagination */}
+        {logs.length > 0 && (
+          <div className="flex items-center justify-between border-t border-[#E5E8EB] px-5 py-3 dark:border-gray-800">
+            <span className="text-caption text-[#8B95A1] dark:text-gray-500">
+              {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + logs.length}번 기록
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                color="light"
+                size="xs"
+                disabled={page === 0}
+                onClick={() => handlePageChange(page - 1)}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <span className="min-w-[2rem] text-center text-caption tabular-nums text-[#4E5968] dark:text-gray-300">
+                {page + 1}
+              </span>
+              <Button
+                color="light"
+                size="xs"
+                disabled={!hasMore}
+                onClick={() => handlePageChange(page + 1)}
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default ActivityLogs

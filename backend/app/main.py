@@ -1,11 +1,15 @@
 """
 FastAPI application entry point
 """
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from app.api import messages, webhooks, auto_response, rules, documents, reservations, dashboard, campaigns, scheduler, rooms, templates, template_schedules, auth, settings
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.errors import RateLimitExceeded
+from app.rate_limit import limiter
+from app.api import messages, webhooks, auto_response, rules, documents, reservations, dashboard, scheduler, rooms, templates, template_schedules, auth, settings, activity_logs, buildings
 from app.config import settings as app_settings
 from app.db.database import init_db, get_db
 from app.scheduler.jobs import start_scheduler, stop_scheduler
@@ -40,13 +44,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Rate Limiting 미들웨어 + 에러 핸들러
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "로그인 시도 횟수를 초과했습니다. 잠시 후 다시 시도해주세요."},
+    )
+
 
 # Initialize database and scheduler on startup
 @app.on_event("startup")
 async def startup_event():
-    # Task 1.1: JWT 시크릿 프로덕션 검증
-    if not app_settings.DEMO_MODE and app_settings.JWT_SECRET_KEY == "dev-secret-key-change-in-production":
-        raise RuntimeError("Production mode requires a secure JWT_SECRET_KEY. Set JWT_SECRET_KEY in .env")
+    # 보안 경고 (자동 생성된 값 알림)
+    from app.config import _auto_generated
+    if _auto_generated["jwt_key"]:
+        logging.warning(
+            "DEMO MODE: JWT Secret Key가 자동 생성되었습니다. "
+            "서버 재시작 시 기존 토큰이 무효화됩니다. "
+            ".env에 JWT_SECRET_KEY를 설정하면 이를 방지할 수 있습니다."
+        )
+    if _auto_generated["admin_pw"]:
+        logging.warning(f"DEMO MODE: Admin 비밀번호: {app_settings.ADMIN_DEFAULT_PASSWORD}")
+    if _auto_generated["staff_pw"]:
+        logging.warning(f"DEMO MODE: Staff 비밀번호: {app_settings.STAFF_DEFAULT_PASSWORD}")
 
     init_db()
     logging.info("Database initialized")
@@ -73,11 +97,13 @@ app.include_router(documents.router)
 app.include_router(reservations.router)
 app.include_router(rooms.router)
 app.include_router(dashboard.router)
-app.include_router(campaigns.router)
 app.include_router(scheduler.router)
 app.include_router(templates.router)
+app.include_router(templates.router_misc)
 app.include_router(template_schedules.router)
 app.include_router(settings.router)
+app.include_router(activity_logs.router)
+app.include_router(buildings.router)
 
 
 @app.get("/")

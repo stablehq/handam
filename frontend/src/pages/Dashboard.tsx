@@ -421,7 +421,7 @@ const Dashboard = () => {
                         <span className="tabular-nums text-gray-500">{r.phone ?? '—'}</span>
                       </TableCell>
                       <TableCell>
-                        <span className="text-gray-500">{r.date ?? ''} {r.time ?? ''}</span>
+                        <span className="text-gray-500">{r.check_in_date ?? ''} {r.check_in_time ?? ''}</span>
                       </TableCell>
                       <TableCell>
                         <Badge color={statusBadgeColor(r.status)} size="sm">

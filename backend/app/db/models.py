@@ -1,7 +1,7 @@
 """
 SQLAlchemy database models
 """
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Float, Enum, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Float, Enum, ForeignKey, UniqueConstraint, Index, exists
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
@@ -42,18 +42,18 @@ class Message(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     message_id = Column(String(100), unique=True, index=True)
-    direction = Column(Enum(MessageDirection, name="message_direction", native_enum=False), nullable=False)
-    from_ = Column("from_phone", String(20), nullable=False)
-    to = Column(String(20), nullable=False)
-    message = Column(Text, nullable=False)
+    direction = Column(Enum(MessageDirection, name="message_direction", native_enum=False), nullable=False, index=True)
+    from_ = Column("from_phone", String(20), nullable=False, index=True)
+    to = Column(String(20), nullable=False, index=True)
+    content = Column("message", Text, nullable=False)
     status = Column(Enum(MessageStatus, name="message_status", native_enum=False), default=MessageStatus.PENDING)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
 
     # Auto-response metadata
     auto_response = Column(Text, nullable=True)
     auto_response_confidence = Column(Float, nullable=True)
-    needs_review = Column(Boolean, default=False)
-    response_source = Column(String(20), nullable=True)  # 'rule', 'llm', 'manual'
+    needs_review = Column("is_needs_review", Boolean, default=False, index=True)
+    response_source = Column(String(20), nullable=True, index=True)  # 'rule', 'llm', 'manual'
 
 
 class Reservation(Base):
@@ -65,14 +65,14 @@ class Reservation(Base):
     id = Column(Integer, primary_key=True, index=True)
     external_id = Column(String(100), unique=True, nullable=True, index=True)
     customer_name = Column(String(100), nullable=False)
-    phone = Column(String(20), nullable=False)
-    date = Column(String(20), nullable=False)  # YYYY-MM-DD
-    time = Column(String(10), nullable=False)  # HH:MM
-    status = Column(Enum(ReservationStatus, name="reservation_status", native_enum=False), default=ReservationStatus.PENDING)
+    phone = Column(String(20), nullable=False, index=True)
+    check_in_date = Column("date", String(20), nullable=False, index=True)  # YYYY-MM-DD  # TODO: PostgreSQL 전환 시 Date 타입으로 변경
+    check_in_time = Column("time", String(10), nullable=False)  # HH:MM  # TODO: PostgreSQL 전환 시 Time 타입으로 변경
+    status = Column(Enum(ReservationStatus, name="reservation_status", native_enum=False), default=ReservationStatus.PENDING, index=True)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    source = Column(String(20), default="manual")  # 'naver', 'manual', 'phone'
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    booking_source = Column("source", String(20), default="manual")  # 'naver', 'manual', 'phone'
 
     # Naver Booking integration fields
     naver_booking_id = Column(String(50), nullable=True, index=True)
@@ -83,7 +83,7 @@ class Reservation(Base):
     # Room assignment fields
     room_number = Column(String(20), nullable=True)  # e.g., A101, B205
     room_password = Column(String(20), nullable=True)  # Auto-generated password
-    room_info = Column(String(200), nullable=True)  # Room type description
+    naver_room_type = Column("room_info", String(200), nullable=True)  # Room type description
 
     # User demographics (from Naver user info)
     gender = Column(String(10), nullable=True)  # '남', '여'
@@ -95,32 +95,24 @@ class Reservation(Base):
     female_count = Column(Integer, nullable=True) # 여성 투숙 인원
 
     # Party/dormitory fields
-    party_participants = Column(Integer, default=0)
-    party_gender = Column(String(10), nullable=True)  # For dormitory assignments
+    party_size = Column("party_participants", Integer, default=0)
     party_type = Column(String(10), nullable=True)  # '1'=1차만, '2'=1+2차, '2차만'=2차만
 
     # Tag system (comma-separated tags)
     tags = Column(Text, nullable=True)  # JSON or comma-separated: "객후,1초,2차만"
 
-    # SMS sending tracking
-    room_sms_sent = Column(Boolean, default=False)
-    party_sms_sent = Column(Boolean, default=False)
-    room_sms_sent_at = Column(DateTime, nullable=True)
-    party_sms_sent_at = Column(DateTime, nullable=True)
-    sent_sms_types = Column(Text, nullable=True)  # Comma-separated list: "객후,파티안내,객실안내"
-
     # Multi-booking flag
     is_multi_booking = Column(Boolean, default=False)
 
     # Extended Naver booking data
-    end_date = Column(String(20), nullable=True)  # checkout date YYYY-MM-DD
+    check_out_date = Column("end_date", String(20), nullable=True)  # checkout date YYYY-MM-DD  # TODO: PostgreSQL 전환 시 Date 타입으로 변경
     biz_item_name = Column(String(200), nullable=True)  # product/room name from Naver
     booking_count = Column(Integer, default=1)  # quantity
     booking_options = Column(Text, nullable=True)  # JSON string from bookingOptionJson
-    custom_form_input = Column(Text, nullable=True)  # JSON string from customFormInputJson (요청사항)
+    special_requests = Column("custom_form_input", Text, nullable=True)  # JSON string from customFormInputJson (요청사항)
     total_price = Column(Integer, nullable=True)  # total payment amount
-    confirmed_datetime = Column(String(50), nullable=True)  # confirmation datetime ISO string
-    cancelled_datetime = Column(String(50), nullable=True)  # cancellation datetime ISO string
+    confirmed_at = Column(String(50), nullable=True)  # ISO string — TODO: Alembic 마이그레이션 후 DateTime 전환
+    cancelled_at = Column(String(50), nullable=True)  # ISO string — TODO: Alembic 마이그레이션 후 DateTime 전환
 
     # Per-date room assignments relationship
     room_assignments = relationship("RoomAssignment", back_populates="reservation", cascade="all, delete-orphan")
@@ -136,9 +128,9 @@ class Rule(Base):
     pattern = Column(String(500), nullable=False)  # Regex pattern
     response = Column(Text, nullable=False)
     priority = Column(Integer, default=0)  # Higher = higher priority
-    active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 class Document(Base):
@@ -150,8 +142,8 @@ class Document(Base):
     filename = Column(String(200), nullable=False)
     content = Column(Text, nullable=True)
     file_path = Column(String(500), nullable=True)
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
-    indexed = Column(Boolean, default=False)  # ChromaDB indexing status
+    uploaded_at = Column(DateTime, default=datetime.now)
+    is_indexed = Column(Boolean, default=False)  # ChromaDB indexing status
 
 
 class MessageTemplate(Base):
@@ -160,15 +152,15 @@ class MessageTemplate(Base):
     __tablename__ = "message_templates"
 
     id = Column(Integer, primary_key=True, index=True)
-    key = Column(String(100), unique=True, nullable=False, index=True)
+    template_key = Column("key", String(100), unique=True, nullable=False, index=True)
     name = Column(String(200), nullable=False)
     short_label = Column(String(10), nullable=True)  # 2-4 char abbreviation for chip display
     content = Column(Text, nullable=False)
     variables = Column(Text, nullable=True)  # JSON list of variable names
     category = Column(String(50), nullable=True)  # 'room_guide', 'party_guide', etc.
-    active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 class ReservationSmsAssignment(Base):
@@ -179,7 +171,7 @@ class ReservationSmsAssignment(Base):
     id = Column(Integer, primary_key=True, index=True)
     reservation_id = Column(Integer, ForeignKey("reservations.id", ondelete="CASCADE"), nullable=False, index=True)
     template_key = Column(String(100), nullable=False, index=True)
-    assigned_at = Column(DateTime, default=datetime.utcnow)
+    assigned_at = Column(DateTime, default=datetime.now)
     sent_at = Column(DateTime, nullable=True)  # null=pending, value=sent
     assigned_by = Column(String(20), default="auto")  # 'auto', 'manual', 'schedule'
 
@@ -191,7 +183,10 @@ class ReservationSmsAssignment(Base):
 
 
 class CampaignLog(Base):
-    """SMS campaign execution logs"""
+    """SMS campaign execution logs
+    DEPRECATED: ActivityLog로 완전 대체됨. 신규 코드에서 생성 금지.
+    기존 데이터 유지를 위해 모델은 보존하되, 조회 전용으로만 사용.
+    """
 
     __tablename__ = "campaign_logs"
 
@@ -201,7 +196,7 @@ class CampaignLog(Base):
     target_count = Column(Integer, default=0)
     sent_count = Column(Integer, default=0)
     failed_count = Column(Integer, default=0)
-    sent_at = Column(DateTime, default=datetime.utcnow)
+    sent_at = Column(DateTime, default=datetime.now)
     completed_at = Column(DateTime, nullable=True)
     error_message = Column(Text, nullable=True)
     extra_data = Column("metadata", Text, nullable=True)  # JSON for additional info
@@ -216,9 +211,44 @@ class GenderStat(Base):
     date = Column(String(20), nullable=False, index=True)  # YYYY-MM-DD
     male_count = Column(Integer, default=0)
     female_count = Column(Integer, default=0)
-    total_participants = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    participant_count = Column("total_participants", Integer, default=0)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class RoomBizItemLink(Base):
+    """N:M association table: Room <-> NaverBizItem"""
+
+    __tablename__ = "room_biz_item_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    room_id = Column(Integer, ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
+    biz_item_id = Column(String(100), ForeignKey("naver_biz_items.biz_item_id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint("room_id", "biz_item_id", name="uq_room_biz_item"),
+    )
+
+    # Relationships
+    room = relationship("Room", back_populates="biz_item_links")
+    biz_item = relationship("NaverBizItem", lazy="joined")
+
+
+class Building(Base):
+    """건물 관리 (본관, 별관, 로하스 등)"""
+
+    __tablename__ = "buildings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), nullable=False, unique=True)  # "본관", "별관", "로하스"
+    description = Column(String(200), nullable=True)  # 건물 설명/주소
+    is_active = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.now)
+
+    # Relationships
+    rooms = relationship("Room", back_populates="building")
 
 
 class Room(Base):
@@ -233,12 +263,17 @@ class Room(Base):
     max_capacity = Column(Integer, default=4)  # 최대 인원
     is_active = Column(Boolean, default=True)  # Active/inactive flag
     sort_order = Column(Integer, default=0)  # Display order
-    naver_biz_item_id = Column(String(50), nullable=True)  # Linked Naver product ID
+    naver_biz_item_id = Column(String(50), nullable=True)  # Deprecated: use biz_item_links instead
+    building_id = Column(Integer, ForeignKey("buildings.id"), nullable=True)
     is_dormitory = Column(Boolean, default=False)
-    dormitory_beds = Column(Integer, default=1)
-    default_password = Column(String(20), nullable=True)  # 객실 고정 비밀번호
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    bed_capacity = Column("dormitory_beds", Integer, default=1)
+    door_password = Column("default_password", String(20), nullable=True)  # 객실 고정 비밀번호
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # N:M relationship to NaverBizItem via RoomBizItemLink
+    biz_item_links = relationship("RoomBizItemLink", back_populates="room", cascade="all, delete-orphan")
+    building = relationship("Building", back_populates="rooms")
 
 
 class RoomAssignment(Base):
@@ -256,10 +291,8 @@ class RoomAssignment(Base):
     room_number = Column(String(20), nullable=False)
     room_password = Column(String(20), nullable=True)
     assigned_by = Column(String(10), default="auto")  # 'auto' or 'manual'
-    sms_sent = Column(Boolean, default=False)
-    sms_sent_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     reservation = relationship("Reservation", back_populates="room_assignments")
 
@@ -275,10 +308,8 @@ class NaverBizItem(Base):
     biz_item_type = Column(String(50), nullable=True)  # STANDARD etc.
     is_exposed = Column(Boolean, default=True)  # 네이버 노출 상태
     is_active = Column(Boolean, default=True)
-    is_dormitory = Column(Boolean, default=False)  # 도미토리 상품 여부
-    dormitory_beds = Column(Integer, nullable=True)  # 도미토리 인실 수 (4, 8 등)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 class TemplateSchedule(Base):
@@ -300,24 +331,42 @@ class TemplateSchedule(Base):
     timezone = Column(String(50), default="Asia/Seoul")
 
     # Target filters
-    target_type = Column(String(50), nullable=False)  # 'all', 'tag', 'room_assigned', 'party_only'
-    target_value = Column(String(200), nullable=True)  # Tag name if target_type='tag'
+    target_type = Column(String(50), nullable=False)  # DEPRECATED: use filters instead. 'all', 'tag', 'room_assigned', 'party_only'
+    target_value = Column(String(200), nullable=True)  # DEPRECATED: use filters instead. Tag name if target_type='tag'
+    filters = Column(Text, nullable=True)  # JSON array: [{"type": "tag", "value": "객후"}, {"type": "building", "value": "1"}]
     date_filter = Column(String(20), nullable=True)  # 'today', 'tomorrow', 'YYYY-MM-DD', null
 
     # SMS tracking
-    exclude_sent = Column(Boolean, default=True)  # Prevent duplicate sending
+    exclude_sent = Column("is_exclude_sent", Boolean, default=True)  # Prevent duplicate sending
 
     # Activation
-    active = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True)
 
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    last_run = Column(DateTime, nullable=True)
-    next_run = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    last_run_at = Column(DateTime, nullable=True)
+    next_run_at = Column(DateTime, nullable=True)
 
     # Relationship
     template = relationship("MessageTemplate", backref="schedules")
+
+
+class ActivityLog(Base):
+    """시스템 활동 로그 — 주요 변경사항 기록"""
+
+    __tablename__ = "activity_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    activity_type = Column("type", String(50), nullable=False, index=True)  # room_assign, sms_template, sms_manual, sms_campaign, naver_sync, schedule_execute
+    title = Column(String(200), nullable=False)  # 사람이 읽을 수 있는 제목
+    detail = Column(Text, nullable=True)  # JSON 상세 정보
+    status = Column(String(20), default="success", index=True)  # success, failed, partial
+    target_count = Column(Integer, default=0)
+    success_count = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    created_by = Column(String(50), nullable=True)  # username 또는 "system"
 
 
 class User(Base):
@@ -331,5 +380,5 @@ class User(Base):
     name = Column(String(100), nullable=False)
     role = Column(Enum(UserRole, name="user_role", native_enum=False), nullable=False, default=UserRole.STAFF)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)

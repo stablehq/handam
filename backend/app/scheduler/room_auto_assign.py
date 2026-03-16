@@ -3,19 +3,21 @@ Room auto-assignment scheduler job.
 Runs daily to assign rooms for today and tomorrow.
 Manual assignments (assigned_by='manual') are never overwritten.
 
-Dormitory logic:
-- Dormitory rooms are NOT 1:1 matched to reservations.
+Dormitory logic (N:M based on Room.biz_item_links):
+- Dormitory candidates identified via Room.is_dormitory + Room.biz_item_links.
 - Guests are split by gender (no mixed rooms).
 - Rooms are allocated to the gender with more people first.
-- Each room is filled up to dormitory_beds capacity.
+- Each room is filled up to its bed_capacity capacity.
 """
 from datetime import datetime, timedelta
 from math import ceil
-from typing import List, Dict, Optional
+from typing import List, Dict
 from sqlalchemy.orm import Session
 import logging
 
-from app.db.models import Reservation, Room, RoomAssignment, ReservationStatus, NaverBizItem
+from sqlalchemy import exists
+from sqlalchemy.orm import selectinload
+from app.db.models import Reservation, Room, RoomAssignment, ReservationStatus, TemplateSchedule, RoomBizItemLink
 from app.services import room_assignment
 
 logger = logging.getLogger(__name__)
@@ -33,28 +35,20 @@ def auto_assign_rooms(db: Session, target_date: str = None):
 
     logger.info(f"Starting room auto-assignment for {target_date}")
 
-    # Get rooms with biz_item_id linked
+    # Get rooms with at least one biz_item linked (N:M via RoomBizItemLink)
     rooms_with_biz = (
         db.query(Room)
-        .filter(Room.naver_biz_item_id.isnot(None), Room.is_active == True)
+        .filter(
+            Room.is_active == True,
+            exists().where(RoomBizItemLink.room_id == Room.id),
+        )
+        .options(selectinload(Room.biz_item_links))
         .order_by(Room.sort_order)
         .all()
     )
     if not rooms_with_biz:
         logger.info("No rooms with biz_item_id found, skipping auto-assign")
         return {"target_date": target_date, "assigned": 0, "unassigned": 0}
-
-    # Get dormitory biz_item_ids from NaverBizItem table (상품 기준)
-    dormitory_biz_items = (
-        db.query(NaverBizItem)
-        .filter(NaverBizItem.is_dormitory == True, NaverBizItem.is_active == True)
-        .all()
-    )
-    dormitory_biz_ids = {item.biz_item_id for item in dormitory_biz_items}
-    # 상품 biz_item_id → dormitory_beds 매핑
-    biz_to_beds: Dict[str, int] = {
-        item.biz_item_id: (item.dormitory_beds or 4) for item in dormitory_biz_items
-    }
 
     # Split rooms into regular and dormitory
     regular_rooms: List[Room] = []
@@ -65,10 +59,17 @@ def auto_assign_rooms(db: Session, target_date: str = None):
         else:
             regular_rooms.append(room)
 
-    # Build biz_item_id -> rooms mapping (regular only)
+    # Build dormitory biz_item_ids from Room.biz_item_links (객실 기준)
+    dormitory_biz_ids: set = set()
+    for room in dormitory_rooms:
+        for link in room.biz_item_links:
+            dormitory_biz_ids.add(link.biz_item_id)
+
+    # Build biz_item_id -> rooms mapping (regular only, N:M)
     biz_to_regular = {}
     for room in regular_rooms:
-        biz_to_regular.setdefault(room.naver_biz_item_id, []).append(room)
+        for link in room.biz_item_links:
+            biz_to_regular.setdefault(link.biz_item_id, []).append(room)
 
     # Get all unassigned confirmed reservations for target_date
     unassigned = _get_unassigned_reservations(db, target_date)
@@ -92,9 +93,9 @@ def auto_assign_rooms(db: Session, target_date: str = None):
     )
     assigned_reservation_ids.extend(regular_ids)
 
-    # === Step 2: Dormitory room assignment (인실 수 그룹별) ===
+    # === Step 2: Dormitory room assignment (성별 분리, 방별 순차 배정) ===
     dorm_ids = _assign_dormitory_rooms(
-        db, dormitory_candidates, dormitory_rooms, target_date, biz_to_beds
+        db, dormitory_candidates, dormitory_rooms, target_date
     )
     assigned_reservation_ids.extend(dorm_ids)
 
@@ -102,8 +103,9 @@ def auto_assign_rooms(db: Session, target_date: str = None):
 
     # 전부 배정 후 한 번에 flush → SMS 태그 동기화
     db.flush()
+    schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
     for res_id in assigned_reservation_ids:
-        room_assignment.sync_sms_tags(db, res_id)
+        room_assignment.sync_sms_tags(db, res_id, schedules=schedules)
 
     db.commit()
 
@@ -123,7 +125,7 @@ def _get_unassigned_reservations(db: Session, target_date: str) -> List[Reservat
         .filter(
             Reservation.naver_biz_item_id.isnot(None),
             Reservation.status == ReservationStatus.CONFIRMED,
-            Reservation.date <= target_date,
+            Reservation.check_in_date <= target_date,
         )
         .filter(
             ~Reservation.id.in_(
@@ -137,7 +139,7 @@ def _get_unassigned_reservations(db: Session, target_date: str) -> List[Reservat
     # Filter to only those actually active on target_date
     return [
         r for r in unassigned
-        if r.end_date is None or r.end_date > target_date or r.date == target_date
+        if r.check_out_date is None or r.check_out_date > target_date or r.check_in_date == target_date
     ]
 
 
@@ -160,11 +162,11 @@ def _assign_regular_rooms(
 
         for room in candidate_rooms:
             if room_assignment.check_capacity_all_dates(
-                db, room.room_number, target_date, res.end_date,
+                db, room.room_number, target_date, res.check_out_date,
                 people_count=1, exclude_reservation_id=res.id
             ):
                 room_assignment.assign_room(
-                    db, res.id, room.room_number, target_date, res.end_date,
+                    db, res.id, room.room_number, target_date, res.check_out_date,
                     assigned_by="auto", skip_sms_sync=True,
                 )
                 db.flush()  # flush 해야 다음 반복에서 이 배정이 보임
@@ -179,19 +181,15 @@ def _assign_dormitory_rooms(
     candidates: List[Reservation],
     dormitory_rooms: List[Room],
     target_date: str,
-    biz_to_beds: Dict[str, int] = None,
-) -> int:
+) -> List[int]:
     """
-    Assign dormitory rooms by bed-count group and gender.
-    1. Group candidates by dormitory_beds (from their biz_item's setting)
-    2. Group rooms by dormitory_beds
-    3. For each bed-count group, split by gender and fill rooms
+    Assign dormitory rooms by gender (no bed-count grouping).
+    All dormitory candidates are pooled together, split by gender,
+    then filled into available dormitory rooms sequentially.
+    Each room's bed_capacity is the capacity limit.
     """
     if not candidates or not dormitory_rooms:
-        return 0
-
-    if biz_to_beds is None:
-        biz_to_beds = {}
+        return []
 
     # Get manually assigned rooms for this date (exclude from pool)
     manually_assigned_rooms = set()
@@ -211,75 +209,41 @@ def _assign_dormitory_rooms(
     available_rooms = [r for r in dormitory_rooms if r.room_number not in manually_assigned_rooms]
     if not available_rooms:
         logger.info("No available dormitory rooms (all manually assigned)")
-        return 0
+        return []
 
-    # Group rooms by dormitory_beds
-    rooms_by_beds: Dict[int, List[Room]] = {}
-    for room in available_rooms:
-        beds = room.dormitory_beds or 4
-        rooms_by_beds.setdefault(beds, []).append(room)
-    for beds in rooms_by_beds:
-        rooms_by_beds[beds].sort(key=lambda r: r.sort_order)
-
-    # Group candidates by dormitory_beds (from their biz_item)
-    candidates_by_beds: Dict[int, List[Reservation]] = {}
-    for res in candidates:
-        beds = biz_to_beds.get(res.naver_biz_item_id, 4)
-        candidates_by_beds.setdefault(beds, []).append(res)
-
-    assigned_ids: List[int] = []
-
-    # Process each bed-count group independently
-    for beds, group_candidates in candidates_by_beds.items():
-        group_rooms = rooms_by_beds.get(beds, [])
-        if not group_rooms:
-            logger.warning(f"No {beds}인실 dormitory rooms available, skipping {len(group_candidates)} reservations")
-            continue
-
-        assigned_ids.extend(_assign_dormitory_group(
-            db, group_candidates, group_rooms, target_date, beds
-        ))
-
-    return assigned_ids
-
-
-def _assign_dormitory_group(
-    db: Session,
-    candidates: List[Reservation],
-    rooms: List[Room],
-    target_date: str,
-    beds: int,
-) -> List[int]:
-    """
-    Assign a single bed-count group of dormitory candidates.
-    Split by gender, allocate rooms, fill sequentially.
-    """
-    # Split by gender
+    # Split candidates by gender
     male_reservations = []
     female_reservations = []
+    unknown_reservations = []
     for res in candidates:
-        gender = (res.gender or "").strip()
-        if gender == "남":
+        effective_gender = (res.gender or "").strip()
+        if effective_gender == "남":
             male_reservations.append(res)
-        elif gender == "여":
+        elif effective_gender == "여":
             female_reservations.append(res)
         else:
-            logger.warning(f"Reservation {res.id} ({res.customer_name}) has no gender, skipping dormitory assignment")
+            unknown_reservations.append(res)
+            logger.warning(f"Reservation {res.id} ({res.customer_name}) has no gender, will assign to remaining rooms")
 
     def count_people(reservations):
-        return sum(r.party_participants or r.booking_count or 1 for r in reservations)
+        return sum(r.party_size or r.booking_count or 1 for r in reservations)
 
     male_total = count_people(male_reservations)
     female_total = count_people(female_reservations)
+    unknown_total = count_people(unknown_reservations)
 
-    logger.info(f"Dormitory {beds}인실: 남 {male_total}명 ({len(male_reservations)}건), 여 {female_total}명 ({len(female_reservations)}건)")
+    logger.info(f"Dormitory: 남 {male_total}명 ({len(male_reservations)}건), 여 {female_total}명 ({len(female_reservations)}건), 미상 {unknown_total}명 ({len(unknown_reservations)}건)")
 
-    # Calculate rooms needed per gender
-    female_rooms_needed = ceil(female_total / beds) if female_total > 0 else 0
-    male_rooms_needed = ceil(male_total / beds) if male_total > 0 else 0
+    # Calculate total bed capacity
+    total_beds = sum(r.bed_capacity or 1 for r in available_rooms)
+
+    # Calculate rooms needed per gender using average beds per room
+    avg_beds = total_beds / len(available_rooms) if available_rooms else 4
+    female_rooms_needed = ceil(female_total / avg_beds) if female_total > 0 else 0
+    male_rooms_needed = ceil(male_total / avg_beds) if male_total > 0 else 0
 
     total_rooms_needed = female_rooms_needed + male_rooms_needed
-    total_available = len(rooms)
+    total_available = len(available_rooms)
 
     if total_rooms_needed > total_available:
         if female_total + male_total > 0:
@@ -288,17 +252,21 @@ def _assign_dormitory_group(
 
     # Allocate rooms: more people gender gets first pick
     if female_total >= male_total:
-        female_room_list = rooms[:female_rooms_needed]
-        male_room_list = rooms[female_rooms_needed:female_rooms_needed + male_rooms_needed]
+        female_room_list = available_rooms[:female_rooms_needed]
+        male_room_list = available_rooms[female_rooms_needed:female_rooms_needed + male_rooms_needed]
+        remaining_rooms = available_rooms[female_rooms_needed + male_rooms_needed:]
     else:
-        male_room_list = rooms[:male_rooms_needed]
-        female_room_list = rooms[male_rooms_needed:male_rooms_needed + female_rooms_needed]
+        male_room_list = available_rooms[:male_rooms_needed]
+        female_room_list = available_rooms[male_rooms_needed:male_rooms_needed + female_rooms_needed]
+        remaining_rooms = available_rooms[male_rooms_needed + female_rooms_needed:]
 
-    logger.info(f"Dormitory {beds}인실 allocation: 여 {len(female_room_list)}방, 남 {len(male_room_list)}방")
+    logger.info(f"Dormitory allocation: 여 {len(female_room_list)}방, 남 {len(male_room_list)}방, 잔여 {len(remaining_rooms)}방")
 
     assigned_ids: List[int] = []
     assigned_ids.extend(_fill_dormitory_rooms(db, female_reservations, female_room_list, target_date))
     assigned_ids.extend(_fill_dormitory_rooms(db, male_reservations, male_room_list, target_date))
+    if unknown_reservations and remaining_rooms:
+        assigned_ids.extend(_fill_dormitory_rooms(db, unknown_reservations, remaining_rooms, target_date))
 
     return assigned_ids
 
@@ -327,10 +295,10 @@ def _fill_dormitory_rooms(
             break
 
         current_room = rooms[room_idx]
-        people = res.party_participants or res.booking_count or 1
+        people = res.party_size or res.booking_count or 1
 
         # Check if this reservation fits in current room
-        if room_occupancy + people > current_room.dormitory_beds:
+        if room_occupancy + people > current_room.bed_capacity:
             # Move to next room
             room_idx += 1
             room_occupancy = 0
@@ -341,14 +309,14 @@ def _fill_dormitory_rooms(
 
         # Assign (skip SMS sync, will be done in bulk later)
         room_assignment.assign_room(
-            db, res.id, current_room.room_number, target_date, res.end_date,
+            db, res.id, current_room.room_number, target_date, res.check_out_date,
             assigned_by="auto", skip_sms_sync=True,
         )
         room_occupancy += people
         assigned_ids.append(res.id)
 
         # If room is full, move to next
-        if room_occupancy >= current_room.dormitory_beds:
+        if room_occupancy >= current_room.bed_capacity:
             room_idx += 1
             room_occupancy = 0
 

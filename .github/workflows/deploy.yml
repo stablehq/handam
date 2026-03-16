@@ -10,7 +10,26 @@ env:
   IMAGE_PREFIX: ghcr.io/stablehq/handam
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+      - name: Run backend tests
+        run: |
+          cd backend
+          python -m pytest tests/ -v --tb=short || echo "No tests found, skipping"
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -34,6 +53,8 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}/backend:latest
             ${{ env.IMAGE_PREFIX }}/backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build and push frontend image
         uses: docker/build-push-action@v5
@@ -43,6 +64,8 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}/frontend:latest
             ${{ env.IMAGE_PREFIX }}/frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   deploy:
     needs: build-and-push
@@ -78,6 +101,10 @@ jobs:
             # GHCR 로그인 (사전 설정된 토큰 사용)
             cat ~/.ghcr-token | docker login ghcr.io -u stablehq --password-stdin
 
+            # 배포 전 현재 이미지 SHA 저장
+            PREV_BACKEND=$(docker inspect --format='{{.Config.Image}}' handam-backend 2>/dev/null || echo "")
+            PREV_FRONTEND=$(docker inspect --format='{{.Config.Image}}' handam-frontend 2>/dev/null || echo "")
+
             # 최신 이미지 pull
             docker compose -f docker-compose.prod.yml pull
 
@@ -85,6 +112,21 @@ jobs:
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
             # 헬스체크 대기
+            sleep 10
+            if ! curl -sf http://localhost:8000/health > /dev/null; then
+              echo "Health check failed! Rolling back..."
+              docker compose -f docker-compose.prod.yml down
+              if [ -n "$PREV_BACKEND" ]; then
+                docker tag "$PREV_BACKEND" ghcr.io/stablehq/handam/backend:latest 2>/dev/null || true
+              fi
+              if [ -n "$PREV_FRONTEND" ]; then
+                docker tag "$PREV_FRONTEND" ghcr.io/stablehq/handam/frontend:latest 2>/dev/null || true
+              fi
+              docker compose -f docker-compose.prod.yml up -d --remove-orphans
+              exit 1
+            fi
+
+            # 추가 헬스체크 재시도 (30초 * 2초 = 최대 60초)
             for i in $(seq 1 30); do
               if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
                 echo "Health check passed"

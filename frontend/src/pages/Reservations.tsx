@@ -45,22 +45,22 @@ interface Reservation {
   phone: string;
   visitor_name?: string | null;
   visitor_phone?: string | null;
-  date: string;
-  end_date?: string | null;
-  time?: string | null;
+  check_in_date: string;
+  check_out_date?: string | null;
+  check_in_time?: string | null;
   status: string;
-  source?: string | null;
-  party_participants?: number | null;
+  booking_source?: string | null;
+  party_size?: number | null;
   gender?: string | null;
-  room_info?: string | null;
+  naver_room_type?: string | null;
   room_number?: string | null;
   biz_item_name?: string | null;
   booking_count?: number | null;
   booking_options?: string | null;
-  custom_form_input?: string | null;
+  special_requests?: string | null;
   total_price?: number | null;
-  confirmed_datetime?: string | null;
-  cancelled_datetime?: string | null;
+  confirmed_at?: string | null;
+  cancelled_at?: string | null;
   tags?: string | null;
   notes?: string | null;
   created_at?: string | null;
@@ -147,6 +147,7 @@ function SourceBadge({ source }: { source?: string | null }) {
 
 export default function Reservations() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [statsReservations, setStatsReservations] = useState<Reservation[]>([]);
   const [loading, setLoading]           = useState(false);
   const [syncing, setSyncing]           = useState(false);
 
@@ -177,11 +178,24 @@ export default function Reservations() {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 100;
 
+  // Fetch unfiltered data for stat-cards (today's counts)
+  async function fetchStats() {
+    try {
+      const res = await reservationsAPI.getAll({ limit: 200 });
+      setStatsReservations(res.data ?? []);
+    } catch {
+      // Stats fetch failure is non-critical; silently ignore
+    }
+  }
+
   async function fetchReservations() {
     setLoading(true);
     try {
-      const params: { limit?: number; date?: string } = { limit: 1000 };
+      const params: { limit?: number; date?: string; status?: string; source?: string; search?: string } = { limit: 50 };
       if (filterDate) params.date = filterDate;
+      if (filterStatus.length === 1) params.status = filterStatus[0];
+      if (filterSource.length === 1) params.source = filterSource[0];
+      if (searchQuery.trim()) params.search = searchQuery.trim();
       const res = await reservationsAPI.getAll(params);
       setReservations(res.data ?? []);
     } catch {
@@ -192,31 +206,32 @@ export default function Reservations() {
   }
 
   useEffect(() => {
+    fetchStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     fetchReservations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterDate]);
+  }, [filterDate, filterStatus, filterSource, searchQuery]);
 
   const filtered = useMemo(() => {
+    // Server already filters by status, source, search when a single value is active.
+    // Multi-value status/source selections fall back to client-side filtering.
     const list = reservations.filter((r) => {
-      if (filterStatus.length > 0 && !filterStatus.includes(r.status)) return false;
-      const src = r.source ?? 'manual';
-      if (filterSource.length > 0 && !filterSource.includes(src)) return false;
-      if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase();
-        const nameMatch = r.customer_name?.toLowerCase().includes(q);
-        const phoneMatch = r.phone?.replace(/-/g, '').includes(q.replace(/-/g, ''));
-        if (!nameMatch && !phoneMatch) return false;
-      }
+      if (filterStatus.length > 1 && !filterStatus.includes(r.status)) return false;
+      const src = r.booking_source ?? 'manual';
+      if (filterSource.length > 1 && !filterSource.includes(src)) return false;
       return true;
     });
     // Sort by most recent confirmed or cancelled datetime
     list.sort((a, b) => {
-      const aDate = a.cancelled_datetime || a.confirmed_datetime || a.created_at || '';
-      const bDate = b.cancelled_datetime || b.confirmed_datetime || b.created_at || '';
+      const aDate = a.cancelled_at || a.confirmed_at || a.created_at || '';
+      const bDate = b.cancelled_at || b.confirmed_at || b.created_at || '';
       return bDate.localeCompare(aDate);
     });
     return list;
-  }, [reservations, filterStatus, filterSource, searchQuery]);
+  }, [reservations, filterStatus, filterSource]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -231,7 +246,7 @@ export default function Reservations() {
 
   const stats = useMemo(() => {
     const today = dayjs().format('YYYY-MM-DD');
-    const todayList = reservations.filter((r) => r.created_at && dayjs(r.created_at).format('YYYY-MM-DD') === today);
+    const todayList = statsReservations.filter((r) => r.created_at && dayjs(r.created_at).format('YYYY-MM-DD') === today);
     return {
       total:     todayList.length,
       confirmed: todayList.filter((r) => r.status === 'confirmed').length,
@@ -239,7 +254,7 @@ export default function Reservations() {
       cancelled: todayList.filter((r) => r.status === 'cancelled').length,
       naver:     todayList.filter((r) => !!r.external_id).length,
     };
-  }, [reservations]);
+  }, [statsReservations]);
 
   async function handleSync() {
     setSyncing(true);
@@ -248,6 +263,7 @@ export default function Reservations() {
       const added = res.data?.added ?? 0;
       toast.success(`네이버 동기화 완료 — ${added}건 추가`);
       fetchReservations();
+      fetchStats();
     } catch {
       toast.error('네이버 동기화에 실패했습니다.');
     } finally {
@@ -273,15 +289,15 @@ export default function Reservations() {
       if (femaleMatch) femaleCount = Number(femaleMatch[1]);
       // Simple gender like "남" or "여"
       if (!maleMatch && !femaleMatch) {
-        if (r.gender === '남') maleCount = r.party_participants ?? 1;
-        if (r.gender === '여') femaleCount = r.party_participants ?? 1;
+        if (r.gender === '남') maleCount = r.party_size ?? 1;
+        if (r.gender === '여') femaleCount = r.party_size ?? 1;
       }
     }
     setForm({
       guest_type: 'manual',
       customer_name:    r.customer_name ?? '',
       phone:            r.phone ?? '',
-      reservation_date: r.date ? dayjs(r.date).format('YYYY-MM-DD') : '',
+      reservation_date: r.check_in_date ? dayjs(r.check_in_date).format('YYYY-MM-DD') : '',
       status:           r.status ?? 'confirmed',
       male_count:       maleCount,
       female_count:     femaleCount,
@@ -306,7 +322,7 @@ export default function Reservations() {
 
     setSaving(true);
     try {
-      // Map male_count/female_count to gender + party_participants
+      // Map male_count/female_count to gender + party_size
       const maleCount = form.male_count ? Number(form.male_count) : 0;
       const femaleCount = form.female_count ? Number(form.female_count) : 0;
       const genderParts: string[] = [];
@@ -333,13 +349,13 @@ export default function Reservations() {
         date:               form.reservation_date,
         time:               '00:00',
         status:             form.status,
-        party_participants: (maleCount + femaleCount) || null,
+        party_size: (maleCount + femaleCount) || null,
         gender:             genderParts.join('') || null,
         male_count:         maleCount || null,
         female_count:       femaleCount || null,
         tags:               tags,
         notes:              form.notes.trim() || null,
-        source:             'manual',
+        booking_source:     'manual',
       };
 
       if (editingId != null) {
@@ -351,6 +367,7 @@ export default function Reservations() {
       }
       setModalOpen(false);
       fetchReservations();
+      fetchStats();
     } catch {
       toast.error('저장에 실패했습니다.');
     } finally {
@@ -627,13 +644,13 @@ export default function Reservations() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="text-body tabular-nums">{fmtPeriod(r.date, r.end_date)}</span>
+                        <span className="text-body tabular-nums">{fmtPeriod(r.check_in_date, r.check_out_date)}</span>
                       </TableCell>
                       <TableCell className="text-center">
                         <StatusBadge status={r.status} />
                       </TableCell>
                       <TableCell className="text-center">
-                        <span className="text-body">{r.biz_item_name || r.room_info || '-'}</span>
+                        <span className="text-body">{r.biz_item_name || r.naver_room_type || '-'}</span>
                       </TableCell>
                       <TableCell className="text-center">
                         {r.room_number ? (
@@ -646,15 +663,15 @@ export default function Reservations() {
                         <span className="tabular-nums text-body text-gray-500">{fmtPrice(r.total_price)}</span>
                       </TableCell>
                       <TableCell>
-                        <p className="line-clamp-1 max-w-[160px] text-body text-gray-500" title={r.custom_form_input ?? ''}>
-                          {r.custom_form_input ?? '-'}
+                        <p className="line-clamp-1 max-w-[160px] text-body text-gray-500" title={r.special_requests ?? ''}>
+                          {r.special_requests ?? '-'}
                         </p>
                       </TableCell>
                       <TableCell className="text-center">
-                        <span className="tabular-nums text-body text-gray-500">{fmtDatetime(r.confirmed_datetime)}</span>
+                        <span className="tabular-nums text-body text-gray-500">{fmtDatetime(r.confirmed_at)}</span>
                       </TableCell>
                       <TableCell className="text-center">
-                        <span className="tabular-nums text-body text-gray-500">{fmtDatetime(r.cancelled_datetime)}</span>
+                        <span className="tabular-nums text-body text-gray-500">{fmtDatetime(r.cancelled_at)}</span>
                       </TableCell>
                       <TableCell>
                         {isNaver ? (

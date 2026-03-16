@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.db.database import get_db
-from app.db.models import Message, MessageDirection, MessageStatus
+from app.db.models import Message, MessageDirection, MessageStatus, User
+from app.auth.dependencies import get_current_user
 from app.factory import get_sms_provider
 from app.router.message_router import message_router
 from datetime import datetime
@@ -22,7 +23,7 @@ class SMSReceiveRequest(BaseModel):
 
 
 @router.post("/sms/receive")
-async def receive_sms(request: SMSReceiveRequest, db: Session = Depends(get_db)):
+async def receive_sms(request: SMSReceiveRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Webhook for receiving SMS (simulated in demo mode).
     Saves inbound message, runs auto-response pipeline, and auto-sends if confident.
@@ -40,7 +41,7 @@ async def receive_sms(request: SMSReceiveRequest, db: Session = Depends(get_db))
         direction=MessageDirection.INBOUND,
         from_=request.from_,
         to=request.to,
-        message=request.message,
+        content=request.message,
         status=MessageStatus.RECEIVED,
     )
     db.add(msg)
@@ -60,7 +61,7 @@ async def receive_sms(request: SMSReceiveRequest, db: Session = Depends(get_db))
     db.commit()
 
     response = {
-        "status": "success",
+        "success": True,
         "message_id": msg.id,
         "result": result,
         "auto_response": {
@@ -77,11 +78,11 @@ async def receive_sms(request: SMSReceiveRequest, db: Session = Depends(get_db))
         await sms_provider.send_sms(to=request.from_, message=auto_result["response"])
 
         outbound_msg = Message(
-            message_id=f"auto_{msg.id}_{int(datetime.utcnow().timestamp())}",
+            message_id=f"auto_{msg.id}_{int(datetime.now().timestamp())}",
             direction=MessageDirection.OUTBOUND,
             from_=request.to,
             to=request.from_,
-            message=auto_result["response"],
+            content=auto_result["response"],
             status=MessageStatus.SENT,
             response_source=auto_result["source"],
             auto_response_confidence=auto_result["confidence"],
@@ -93,7 +94,7 @@ async def receive_sms(request: SMSReceiveRequest, db: Session = Depends(get_db))
         response["auto_response"]["sent"] = True
         response["outbound_message"] = {
             "id": outbound_msg.id,
-            "message": outbound_msg.message,
+            "message": outbound_msg.content,
         }
         logger.info(f"Auto-response sent: {outbound_msg.id} (source={auto_result['source']})")
     else:

@@ -18,6 +18,18 @@ class RuleEngine:
         self.rules = []
         self.load_rules()
 
+    def _validate_regex(self, pattern: str) -> bool:
+        """M17: Regex 패턴 유효성 검증 (ReDoS 방어)"""
+        if len(pattern) > 500:
+            logger.warning(f"Regex pattern too long (>{len(pattern)} chars), rejecting: {pattern[:50]}...")
+            return False
+        try:
+            re.compile(pattern)
+            return True
+        except re.error as e:
+            logger.warning(f"Invalid regex pattern: {e}")
+            return False
+
     def load_rules(self):
         """Load rules from YAML file"""
         if not self.rules_file.exists():
@@ -27,7 +39,12 @@ class RuleEngine:
         try:
             with open(self.rules_file, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
-                self.rules = data.get("rules", []) if data else []
+                raw_rules = data.get("rules", []) if data else []
+                # M17: 로딩 시 regex 사전 검증
+                self.rules = [r for r in raw_rules if self._validate_regex(r.get("pattern", ""))]
+                skipped = len(raw_rules) - len(self.rules)
+                if skipped:
+                    logger.warning(f"Skipped {skipped} rules with invalid/unsafe regex patterns")
                 # Sort by priority (descending)
                 self.rules.sort(key=lambda x: x.get("priority", 0), reverse=True)
                 logger.info(f"Loaded {len(self.rules)} rules from {self.rules_file}")
@@ -55,6 +72,10 @@ class RuleEngine:
                 continue
 
             pattern = rule.get("pattern", "")
+            # M17: 매칭 시 안전 검증 (길이 초과 패턴 스킵)
+            if len(pattern) > 500:
+                logger.warning(f"Regex pattern too long, skipping: {pattern[:50]}...")
+                continue
             try:
                 if re.search(pattern, message, re.IGNORECASE):
                     logger.info(

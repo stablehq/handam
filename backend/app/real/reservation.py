@@ -168,7 +168,7 @@ class RealReservationProvider:
                 for item in cancelled_filtered:
                     reservation = self._parse_reservation(item, multi_booking_ids)
                     reservation['status'] = 'cancelled'
-                    reservation['cancelled_datetime'] = item.get('cancelledDateTime', '')
+                    reservation['cancelled_at'] = item.get('cancelledDateTime', '')
                     _enrich(reservation, item)
                     reservations.append(reservation)
 
@@ -279,8 +279,7 @@ class RealReservationProvider:
             'custom_form_input': self._extract_custom_form(item),
             'total_price': item.get('totalPrice'),
             'confirmed_at': item.get('confirmedDateTime', ''),
-            'confirmed_datetime': item.get('confirmedDateTime', ''),
-            'cancelled_datetime': item.get('cancelledDateTime', ''),
+            'cancelled_at': item.get('cancelledDateTime', ''),
             'is_multi_booking': item.get('bookingId') in multi_booking_ids,
             'is_dormitory': str(biz_item_id) in DORMITORY_IDS,
             'raw_data': item,

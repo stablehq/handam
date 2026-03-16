@@ -1,18 +1,21 @@
 """
 Rooms API endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from typing import List, Optional
 from app.db.database import get_db
-from app.db.models import Room, NaverBizItem, User, RoomAssignment
+from app.db.models import Room, NaverBizItem, User, RoomAssignment, RoomBizItemLink, Building
 from app.factory import get_reservation_provider
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_admin_or_above
+from app.rate_limit import limiter
 from datetime import datetime
 import logging
 
-from app.scheduler.room_reassign import auto_assign_rooms
+from app.scheduler.room_auto_assign import auto_assign_rooms
+from app.services.activity_logger import log_activity
+from app.api.shared_schemas import ActionResponse
 
 router = APIRouter(prefix="/api/rooms", tags=["rooms"])
 logger = logging.getLogger(__name__)
@@ -23,12 +26,14 @@ class RoomCreate(BaseModel):
     room_type: str
     base_capacity: int = 2
     max_capacity: int = 4
-    is_active: bool = True
+    active: bool = True
     sort_order: int = 0
-    naver_biz_item_id: Optional[str] = None
-    is_dormitory: bool = False
-    dormitory_beds: int = 1
-    default_password: Optional[str] = None
+    naver_biz_item_id: Optional[str] = None  # Deprecated: use biz_item_ids
+    biz_item_ids: Optional[List[str]] = None
+    building_id: Optional[int] = None
+    dormitory: bool = False
+    bed_capacity: int = 1
+    door_password: Optional[str] = None
 
 
 class RoomUpdate(BaseModel):
@@ -36,12 +41,14 @@ class RoomUpdate(BaseModel):
     room_type: Optional[str] = None
     base_capacity: Optional[int] = None
     max_capacity: Optional[int] = None
-    is_active: Optional[bool] = None
+    active: Optional[bool] = None
     sort_order: Optional[int] = None
-    naver_biz_item_id: Optional[str] = None
-    is_dormitory: Optional[bool] = None
-    dormitory_beds: Optional[int] = None
-    default_password: Optional[str] = None
+    naver_biz_item_id: Optional[str] = None  # Deprecated: use biz_item_ids
+    biz_item_ids: Optional[List[str]] = None
+    building_id: Optional[int] = None
+    dormitory: Optional[bool] = None
+    bed_capacity: Optional[int] = None
+    door_password: Optional[str] = None
 
 
 class RoomResponse(BaseModel):
@@ -50,12 +57,15 @@ class RoomResponse(BaseModel):
     room_type: str
     base_capacity: int
     max_capacity: int
-    is_active: bool
+    active: bool
     sort_order: int
-    naver_biz_item_id: Optional[str] = None
-    is_dormitory: bool = False
-    dormitory_beds: int = 1
-    default_password: Optional[str] = None
+    naver_biz_item_id: Optional[str] = None  # Deprecated: computed from first biz_item_link
+    biz_item_ids: List[str] = []
+    building_id: Optional[int] = None
+    building_name: Optional[str] = None
+    dormitory: bool = False
+    bed_capacity: int = 1
+    door_password: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -68,10 +78,8 @@ class NaverBizItemResponse(BaseModel):
     biz_item_id: str
     name: str
     biz_item_type: Optional[str] = None
-    is_exposed: bool = True
-    is_active: bool
-    is_dormitory: bool = False
-    dormitory_beds: Optional[int] = None
+    exposed: bool = True
+    active: bool
     created_at: datetime
     updated_at: datetime
 
@@ -79,9 +87,38 @@ class NaverBizItemResponse(BaseModel):
         from_attributes = True
 
 
-class NaverBizItemUpdate(BaseModel):
-    is_dormitory: Optional[bool] = None
-    dormitory_beds: Optional[int] = None
+def _room_to_response(room: Room) -> dict:
+    """Convert Room ORM object to RoomResponse-compatible dict with biz_item_ids."""
+    biz_item_ids = [link.biz_item_id for link in room.biz_item_links] if room.biz_item_links else []
+    return RoomResponse(
+        id=room.id,
+        room_number=room.room_number,
+        room_type=room.room_type,
+        base_capacity=room.base_capacity,
+        max_capacity=room.max_capacity,
+        active=room.is_active,
+        sort_order=room.sort_order,
+        naver_biz_item_id=biz_item_ids[0] if biz_item_ids else room.naver_biz_item_id,
+        biz_item_ids=biz_item_ids,
+        building_id=room.building_id,
+        building_name=room.building.name if room.building else None,
+        dormitory=room.is_dormitory,
+        bed_capacity=room.bed_capacity,
+        door_password=room.door_password,
+        created_at=room.created_at,
+        updated_at=room.updated_at,
+    )
+
+
+def _sync_biz_item_links(db: Session, room: Room, biz_item_ids: List[str]):
+    """Replace all biz_item_links for a room with the given biz_item_ids."""
+    # Delete existing links
+    db.query(RoomBizItemLink).filter(RoomBizItemLink.room_id == room.id).delete(synchronize_session="fetch")
+    # Create new links
+    for biz_id in biz_item_ids:
+        db.add(RoomBizItemLink(room_id=room.id, biz_item_id=biz_id))
+    # Update deprecated naver_biz_item_id for backward compat
+    room.naver_biz_item_id = biz_item_ids[0] if biz_item_ids else None
 
 
 @router.get("", response_model=List[RoomResponse])
@@ -91,24 +128,42 @@ async def get_rooms(
     current_user: User = Depends(get_current_user),
 ):
     """Get all rooms"""
-    query = db.query(Room)
+    query = db.query(Room).options(
+        selectinload(Room.biz_item_links),
+        selectinload(Room.building),
+    )
 
     if not include_inactive:
         query = query.filter(Room.is_active == True)
 
     rooms = query.order_by(Room.sort_order).all()
-    return rooms
+    return [_room_to_response(r) for r in rooms]
+
+
+def _biz_item_to_response(item: NaverBizItem) -> NaverBizItemResponse:
+    """Convert NaverBizItem ORM object to NaverBizItemResponse."""
+    return NaverBizItemResponse(
+        id=item.id,
+        biz_item_id=item.biz_item_id,
+        name=item.name,
+        biz_item_type=item.biz_item_type,
+        exposed=item.is_exposed,
+        active=item.is_active,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
 
 
 @router.get("/naver/biz-items", response_model=List[NaverBizItemResponse])
-async def get_naver_biz_items(db: Session = Depends(get_db)):
+async def get_naver_biz_items(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get stored Naver biz items"""
     items = db.query(NaverBizItem).filter(NaverBizItem.is_active == True).order_by(NaverBizItem.name).all()
-    return items
+    return [_biz_item_to_response(i) for i in items]
 
 
 @router.post("/naver/biz-items/sync")
-async def sync_naver_biz_items(db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+async def sync_naver_biz_items(request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
     """Sync biz items from Naver Smart Place API"""
     provider = get_reservation_provider()
     items = await provider.fetch_biz_items()
@@ -128,7 +183,7 @@ async def sync_naver_biz_items(db: Session = Depends(get_db)):
             existing.biz_item_type = item_data.get('biz_item_type')
             existing.is_exposed = item_data.get('is_exposed', True)
             existing.is_active = True
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = datetime.now()
             updated += 1
         else:
             new_item = NaverBizItem(
@@ -148,63 +203,51 @@ async def sync_naver_biz_items(db: Session = Depends(get_db)):
     )
 
     db.commit()
-    return {"status": "success", "added": added, "updated": updated, "deactivated": deactivated}
-
-
-@router.put("/naver/biz-items/{biz_item_id}", response_model=NaverBizItemResponse)
-async def update_biz_item(
-    biz_item_id: str,
-    request: NaverBizItemUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Update Naver biz item settings (dormitory, beds)"""
-    item = db.query(NaverBizItem).filter(NaverBizItem.biz_item_id == biz_item_id).first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Biz item not found")
-
-    if request.is_dormitory is not None:
-        item.is_dormitory = request.is_dormitory
-        if not request.is_dormitory:
-            item.dormitory_beds = None
-    if request.dormitory_beds is not None:
-        item.dormitory_beds = request.dormitory_beds
-
-    db.commit()
-    db.refresh(item)
-    return item
+    return {"success": True, "added": added, "updated": updated, "deactivated": deactivated}
 
 
 @router.get("/{room_id}", response_model=RoomResponse)
 async def get_room(room_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get a single room by ID"""
-    room = db.query(Room).filter(Room.id == room_id).first()
+    room = db.query(Room).options(selectinload(Room.biz_item_links), selectinload(Room.building)).filter(Room.id == room_id).first()
     if not room:
-        raise HTTPException(status_code=404, detail="Room not found")
-    return room
+        raise HTTPException(status_code=404, detail="객실을 찾을 수 없습니다")
+    return _room_to_response(room)
 
 
 @router.post("", response_model=RoomResponse)
 async def create_room(room: RoomCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Create a new room (duplicates allowed)"""
+    # Resolve biz_item_ids: prefer biz_item_ids, fall back to legacy naver_biz_item_id
+    biz_item_ids = room.biz_item_ids if room.biz_item_ids is not None else (
+        [room.naver_biz_item_id] if room.naver_biz_item_id else []
+    )
+
     db_room = Room(
         room_number=room.room_number,
         room_type=room.room_type,
         base_capacity=room.base_capacity,
         max_capacity=room.max_capacity,
-        is_active=room.is_active,
+        is_active=room.active,
         sort_order=room.sort_order,
-        naver_biz_item_id=room.naver_biz_item_id,
-        is_dormitory=room.is_dormitory,
-        dormitory_beds=room.dormitory_beds,
-        default_password=room.default_password,
+        naver_biz_item_id=biz_item_ids[0] if biz_item_ids else None,
+        building_id=room.building_id,
+        is_dormitory=room.dormitory,
+        bed_capacity=room.bed_capacity,
+        door_password=room.door_password,
     )
     db.add(db_room)
+    db.flush()  # Get room.id before creating links
+
+    # Create N:M links
+    for biz_id in biz_item_ids:
+        db.add(RoomBizItemLink(room_id=db_room.id, biz_item_id=biz_id))
+
     db.commit()
     db.refresh(db_room)
 
-    logger.info(f"Created room: {room.room_number} - {room.room_type}")
-    return db_room
+    logger.info(f"Created room: {room.room_number} - {room.room_type} (biz_items: {biz_item_ids})")
+    return _room_to_response(db_room)
 
 
 @router.put("/{room_id}", response_model=RoomResponse)
@@ -215,28 +258,47 @@ async def update_room(
     current_user: User = Depends(get_current_user),
 ):
     """Update a room"""
-    db_room = db.query(Room).filter(Room.id == room_id).first()
+    db_room = db.query(Room).options(selectinload(Room.biz_item_links), selectinload(Room.building)).filter(Room.id == room_id).first()
     if not db_room:
-        raise HTTPException(status_code=404, detail="Room not found")
+        raise HTTPException(status_code=404, detail="객실을 찾을 수 없습니다")
 
     update_data = room.dict(exclude_unset=True)
 
+    # Handle biz_item_ids separately
+    biz_item_ids = update_data.pop("biz_item_ids", None)
+
+    # Handle legacy naver_biz_item_id: if biz_item_ids not provided but naver_biz_item_id is,
+    # treat it as a single-item list for backward compat
+    legacy_biz_id = update_data.pop("naver_biz_item_id", None)
+    if biz_item_ids is None and legacy_biz_id is not None:
+        biz_item_ids = [legacy_biz_id] if legacy_biz_id else []
+
+    # Remap JSON keys to ORM column names
+    if "active" in update_data:
+        update_data["is_active"] = update_data.pop("active")
+    if "dormitory" in update_data:
+        update_data["is_dormitory"] = update_data.pop("dormitory")
+
     for field, value in update_data.items():
         setattr(db_room, field, value)
+
+    # Sync N:M links if biz_item_ids was provided
+    if biz_item_ids is not None:
+        _sync_biz_item_links(db, db_room, biz_item_ids)
 
     db.commit()
     db.refresh(db_room)
 
     logger.info(f"Updated room {room_id}: {db_room.room_number} - {db_room.room_type}")
-    return db_room
+    return _room_to_response(db_room)
 
 
-@router.delete("/{room_id}")
+@router.delete("/{room_id}", response_model=ActionResponse)
 async def delete_room(room_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Delete a room"""
     db_room = db.query(Room).filter(Room.id == room_id).first()
     if not db_room:
-        raise HTTPException(status_code=404, detail="Room not found")
+        raise HTTPException(status_code=404, detail="객실을 찾을 수 없습니다")
 
     # Check if room is currently assigned to any reservations
     assigned_count = db.query(RoomAssignment).filter(
@@ -254,7 +316,7 @@ async def delete_room(room_id: int, db: Session = Depends(get_db), current_user:
     db.commit()
 
     logger.info(f"Deleted room: {room_number}")
-    return {"status": "success", "message": f"객실 '{room_number}'이(가) 삭제되었습니다."}
+    return {"success": True, "message": f"객실 '{room_number}'이(가) 삭제되었습니다."}
 
 
 @router.post("/auto-assign")
@@ -288,8 +350,20 @@ async def trigger_auto_assign(
     result_today = auto_assign_rooms(db, today)
     result_tomorrow = auto_assign_rooms(db, tomorrow)
 
+    total_assigned = result_today.get("assigned", 0) + result_tomorrow.get("assigned", 0)
+    log_activity(
+        db,
+        type="room_assign",
+        title=f"객실 자동 배정 ({today})",
+        detail={"today": result_today, "tomorrow": result_tomorrow},
+        target_count=total_assigned,
+        success_count=total_assigned,
+        created_by=current_user.username,
+    )
+    db.commit()
+
     return {
-        "status": "success",
+        "success": True,
         "today": result_today,
         "tomorrow": result_tomorrow,
     }

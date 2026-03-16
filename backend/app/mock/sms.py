@@ -28,7 +28,7 @@ class MockSMSProvider:
         )
 
         return {
-            "status": "sent",
+            "success": True,
             "message_id": message_id,
             "to": to,
             "message": message,
@@ -75,7 +75,7 @@ class MockSMSProvider:
         )
 
         return {
-            "status": "received",
+            "success": True,
             "message_id": message_id,
             "from_": from_,
             "to": to,

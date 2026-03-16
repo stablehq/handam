@@ -32,7 +32,7 @@ class ScheduleManager:
 
         # Get all active schedules
         schedules = db.query(TemplateSchedule).filter(
-            TemplateSchedule.active == True
+            TemplateSchedule.is_active == True
         ).all()
 
         # Remove existing template schedule jobs
@@ -90,7 +90,7 @@ class ScheduleManager:
 
         # Update next_run in database
         if job.next_run_time:
-            schedule.next_run = job.next_run_time
+            schedule.next_run_at = job.next_run_time
             db.commit()
 
         logger.info(f"Added job {job_id}, next run: {job.next_run_time}")
@@ -121,7 +121,7 @@ class ScheduleManager:
         # Remove old job and add new one
         self.remove_schedule_job(schedule.id)
 
-        if schedule.active:
+        if schedule.is_active:
             self.add_schedule_job(schedule, db)
         else:
             logger.info(f"Schedule #{schedule.id} is inactive, not adding to scheduler")

@@ -5,7 +5,7 @@ export interface AuthUser {
   username: string
   name: string
   role: 'superadmin' | 'admin' | 'staff'
-  is_active: boolean
+  active: boolean
 }
 
 interface AuthState {

@@ -1,7 +1,4 @@
 """
-Notification service module for automated SMS sending
+Notification service module (legacy)
+NotificationService has been removed — SMS sending is handled by SmsSender and TemplateScheduleExecutor.
 """
-
-from .service import NotificationService
-
-__all__ = ["NotificationService"]

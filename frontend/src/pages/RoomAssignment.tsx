@@ -41,31 +41,29 @@ interface Reservation {
   id: number;
   customer_name: string;
   phone: string;
-  date: string;
-  time: string;
+  check_in_date: string;
+  check_in_time: string;
   status: string;
   room_number: string | null;
   room_password: string | null;
-  room_info: string | null;
+  room_assigned_by: string | null;
+  naver_room_type: string | null;
   gender: string | null;
   male_count: number | null;
   female_count: number | null;
-  party_participants: number | null;
+  party_size: number | null;
   party_type: string | null;  // '1'=1차만, '2'=1+2차, '2차만'
   tags: string | null;
   notes: string | null;
-  room_sms_sent: boolean;
-  party_sms_sent: boolean;
-  sent_sms_types: string | null; // "객후,파티안내,객실안내"
-  end_date: string | null;
-  source?: string;
+  check_out_date: string | null;
+  booking_source?: string;
   sms_assignments: SmsAssignment[];
 }
 
 function isMultiNight(res: Reservation): boolean {
-  if (!res.end_date || !res.date) return false;
-  const start = dayjs(res.date);
-  const end = dayjs(res.end_date);
+  if (!res.check_out_date || !res.check_in_date) return false;
+  const start = dayjs(res.check_in_date);
+  const end = dayjs(res.check_out_date);
   return end.diff(start, 'day') > 1;
 }
 
@@ -91,7 +89,7 @@ function formatGenderPeople(res: Reservation): string {
     }
     // 단순 "남" or "여"
     if (res.gender === '남' || res.gender === '여') {
-      return `${res.gender}${res.party_participants || 1}`;
+      return `${res.gender}${res.party_size || 1}`;
     }
   }
   return '';
@@ -99,7 +97,7 @@ function formatGenderPeople(res: Reservation): string {
 
 interface SmsCellProps {
   reservation: Reservation;
-  templateLabels: {key: string; name: string; short_label: string | null}[];
+  templateLabels: {template_key: string; name: string; short_label: string | null}[];
   onToggle: (resId: number, templateKey: string) => void;
   onAssign: (resId: number, templateKey: string) => void;
   onRemove: (resId: number, templateKey: string) => void;
@@ -114,8 +112,8 @@ const SmsCell: React.FC<SmsCellProps> = ({ reservation, templateLabels, onToggle
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const assignments = [...(reservation.sms_assignments || [])].sort((a, b) => {
-    const ai = templateLabels.findIndex(t => t.key === a.template_key);
-    const bi = templateLabels.findIndex(t => t.key === b.template_key);
+    const ai = templateLabels.findIndex(t => t.template_key === a.template_key);
+    const bi = templateLabels.findIndex(t => t.template_key === b.template_key);
     return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
   });
 
@@ -155,12 +153,12 @@ const SmsCell: React.FC<SmsCellProps> = ({ reservation, templateLabels, onToggle
   };
 
   const getLabel = (key: string) => {
-    const tpl = templateLabels.find(t => t.key === key);
+    const tpl = templateLabels.find(t => t.template_key === key);
     return tpl?.short_label || tpl?.name || key;
   };
 
   const getFullName = (key: string) => {
-    const tpl = templateLabels.find(t => t.key === key);
+    const tpl = templateLabels.find(t => t.template_key === key);
     return tpl?.name || key;
   };
 
@@ -193,12 +191,11 @@ const SmsCell: React.FC<SmsCellProps> = ({ reservation, templateLabels, onToggle
                 title={getFullName(a.template_key)}
                 className={`inline-flex items-center px-1.5 py-1 rounded text-[11px] leading-tight font-medium whitespace-nowrap cursor-pointer transition-all
                   ${isSent
-                    ? 'bg-[#00C9A7]/10 text-[#00C9A7] dark:bg-[#00C9A7]/15 dark:text-[#00C9A7]'
+                    ? 'bg-[#E8F3FF] text-[#3182F6] dark:bg-[#3182F6]/20 dark:text-[#3182F6]'
                     : 'bg-[#F2F4F6] text-[#8B95A1] border border-[#E5E8EB] dark:bg-[#2C2C34] dark:text-[#8B95A1] dark:border-[#2C2C34]'
                   }`}
                 onClick={(e) => { e.stopPropagation(); onToggle(reservation.id, a.template_key); }}
               >
-                {isSent && <span className="mr-0.5">✓</span>}
                 {getLabel(a.template_key)}
               </span>
             );
@@ -220,32 +217,33 @@ const SmsCell: React.FC<SmsCellProps> = ({ reservation, templateLabels, onToggle
         {dropdownOpen && templateLabels.length > 0 && (
           <div className="absolute top-full right-0 mt-1 z-50 min-w-[160px] rounded-lg border border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24] shadow-lg py-1">
             {templateLabels.map(t => {
-              const assigned = isAssigned(t.key);
-              const sent = assignments.find(a => a.template_key === t.key)?.sent_at;
+              const assigned = isAssigned(t.template_key);
+              const sent = assignments.find(a => a.template_key === t.template_key)?.sent_at;
               return (
                 <button
-                  key={t.key}
+                  key={t.template_key}
                   className={`w-full flex items-center gap-2 px-3 py-1.5 text-caption transition-colors ${
                     sent ? 'opacity-60 cursor-not-allowed' : 'hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34] cursor-pointer'
                   }`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDropdownToggle(t.key);
+                    handleDropdownToggle(t.template_key);
                   }}
                 >
                   <span className={`flex items-center justify-center w-3.5 h-3.5 rounded border transition-colors ${
                     assigned
-                      ? sent ? 'bg-[#00C9A7] border-[#00C9A7] text-white' : 'bg-[#3182F6] border-[#3182F6] text-white'
+                      ? 'bg-[#3182F6] border-[#3182F6] text-white'
                       : 'border-[#E5E8EB] dark:border-[#4E5968]'
                   }`}>
                     {assigned && <span className="text-[9px] font-bold">✓</span>}
                   </span>
-                  <span className={`${assigned ? 'text-[#191F28] dark:text-white' : 'text-[#8B95A1] dark:text-[#4E5968]'}`}>
-                    {t.short_label ? (
-                      <><span className="font-medium">{t.short_label}</span> <span className="text-[#8B95A1] dark:text-[#4E5968]">({t.name})</span></>
-                    ) : (
-                      <span className="font-medium">{t.name}</span>
-                    )}
+                  <span className={`flex items-center gap-1.5 ${assigned ? 'text-[#191F28] dark:text-white' : 'text-[#8B95A1] dark:text-[#4E5968]'}`}>
+                    <span className={`font-medium ${sent ? 'line-through text-[#8B95A1] dark:text-[#4E5968]' : ''}`}>
+                      {t.short_label ? (
+                        <>{t.short_label} <span className="text-[#8B95A1] dark:text-[#4E5968] font-normal">({t.name})</span></>
+                      ) : t.name}
+                    </span>
+                    {sent && <span className="text-[9px] text-[#3182F6] font-medium">발송완료</span>}
                   </span>
                 </button>
               );
@@ -312,12 +310,12 @@ const RoomAssignment = () => {
     date: '',
     time: '18:00',
     gender: '',
-    party_participants: 1,
-    room_info: '',
+    party_size: 1,
+    naver_room_type: '',
     tags: '',
     notes: '',
     status: 'confirmed',
-    source: 'manual',
+    booking_source: 'manual',
   });
 
   const [confirmState, setConfirmState] = useState<ConfirmState>({
@@ -340,7 +338,7 @@ const RoomAssignment = () => {
   } | null>(null);
 
   const [partyValues, setPartyValues] = useState<Record<number, string>>({});
-  const [templateLabels, setTemplateLabels] = useState<{key: string; name: string; short_label: string | null}[]>([]);
+  const [templateLabels, setTemplateLabels] = useState<{template_key: string; name: string; short_label: string | null}[]>([]);
 
   const handleFieldSave = async (resId: number, field: string, value: string) => {
     if (field === 'party_type') {
@@ -359,10 +357,10 @@ const RoomAssignment = () => {
         const femaleMatch = (value || '').match(/여(\d+)/);
         const male_count = maleMatch ? Number(maleMatch[1]) : 0;
         const female_count = femaleMatch ? Number(femaleMatch[1]) : 0;
-        // Also update party_participants as total
+        // Also update party_size as total
         const total = male_count + female_count;
         const gender = male_count > 0 && female_count > 0 ? '혼성' : male_count > 0 ? '남' : female_count > 0 ? '여' : null;
-        await reservationsAPI.update(resId, { male_count, female_count, gender, party_participants: total || null });
+        await reservationsAPI.update(resId, { male_count, female_count, gender, party_size: total || null });
       } else if (field === 'party_type') {
         await reservationsAPI.update(resId, { party_type: value || null });
       } else {
@@ -393,10 +391,10 @@ const RoomAssignment = () => {
   }, [rooms]);
 
   const activeRoomEntries = useMemo(() => {
-    return rooms.filter((room) => room.is_active).map((room) => ({
+    return rooms.filter((room) => room.active).map((room) => ({
       room_number: room.room_number,
-      isDormitory: room.is_dormitory || false,
-      dormitory_beds: room.dormitory_beds || 1,
+      isDormitory: room.dormitory || false,
+      bed_capacity: room.bed_capacity || 1,
     }));
   }, [rooms]);
 
@@ -430,10 +428,7 @@ const RoomAssignment = () => {
   const campaignDropdownRef = useRef<HTMLDivElement>(null);
   const [targets, setTargets] = useState<Reservation[]>([]);
   const [sending, setSending] = useState(false);
-  const [guideSending, setGuideSending] = useState<number | null>(null);
-  const [sendConfirm, setSendConfirm] = useState<{ type: 'campaign' | 'schedule' | 'toggle'; scheduleId?: number; scheduleName?: string; resId?: number; templateKey?: string; customerName?: string } | null>(null);
-  const [activeSchedules, setActiveSchedules] = useState<{id: number; schedule_name: string; template_name: string; template_key: string}[]>([]);
-  const [selectedScheduleId, setSelectedScheduleId] = useState<number | null>(null);
+  const [sendConfirm, setSendConfirm] = useState<{ type: 'campaign' | 'toggle'; resId?: number; templateKey?: string; customerName?: string; templateName?: string } | null>(null);
   const [autoAssignConfirm, setAutoAssignConfirm] = useState(false);
   const [autoAssigning, setAutoAssigning] = useState(false);
 
@@ -489,7 +484,9 @@ const RoomAssignment = () => {
     setLoading(true);
     try {
       const dateStr = date.format('YYYY-MM-DD');
-      await templateSchedulesAPI.autoAssign(dateStr).catch(() => {});
+
+      // autoAssign은 백그라운드로 분리 (UI 블로킹 안 함)
+      templateSchedulesAPI.autoAssign(dateStr).catch(() => {});
 
       // 당일 먼저 로딩
       const current = await reservationsAPI.getAll({ date: dateStr, limit: 200 });
@@ -518,10 +515,6 @@ const RoomAssignment = () => {
 
   useEffect(() => {
     templatesAPI.getLabels().then(res => setTemplateLabels(res.data)).catch(() => {});
-    templateSchedulesAPI.getAll({ active: true }).then(res => {
-      setActiveSchedules(res.data);
-      if (res.data.length > 0) setSelectedScheduleId(res.data[0].id);
-    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -592,7 +585,7 @@ const RoomAssignment = () => {
 
   const handleSendCampaign = async () => {
     if (!selectedTemplateKey || targets.length === 0) return;
-    const tpl = templateLabels.find(t => t.key === selectedTemplateKey);
+    const tpl = templateLabels.find(t => t.template_key === selectedTemplateKey);
     setSendConfirm(null);
     setSending(true);
     try {
@@ -615,28 +608,6 @@ const RoomAssignment = () => {
     }
   };
 
-  const requestRunSchedule = (scheduleId: number, scheduleName: string) => {
-    setSendConfirm({ type: 'schedule', scheduleId, scheduleName });
-  };
-
-  const handleRunSchedule = async (scheduleId: number, scheduleName: string) => {
-    setSendConfirm(null);
-    setGuideSending(scheduleId);
-    try {
-      const response = await templateSchedulesAPI.run(scheduleId);
-      const data = response.data;
-      if (data.success) {
-        toast.success(`${scheduleName} 발송 완료: ${data.sent_count}건 (대상 ${data.target_count}명)`);
-        fetchReservations(selectedDate);
-      } else {
-        toast.error(`${scheduleName} 발송 실패: ${data.error || '알 수 없는 오류'}`);
-      }
-    } catch {
-      toast.error(`${scheduleName} 발송 실패`);
-    } finally {
-      setGuideSending(null);
-    }
-  };
 
   const { assignedRooms, unassigned, partyOnly } = useMemo(() => {
     const assigned = new Map<string, Reservation[]>();
@@ -653,7 +624,7 @@ const RoomAssignment = () => {
         partyOnlyList.push(res);
       } else if (sectionOverrides[res.id] === 'unassigned') {
         unassignedList.push(res);
-      } else if (res.tags?.includes('파티만') || res.room_info?.includes('파티만')) {
+      } else if (res.tags?.includes('파티만') || res.naver_room_type?.includes('파티만')) {
         // 태그 또는 상품명에 '파티만' 포함 시 파티만 섹션
         partyOnlyList.push(res);
       } else {
@@ -775,7 +746,7 @@ const RoomAssignment = () => {
 
     // Already in unassigned section → nothing to do
     if (!res.room_number && sectionOverrides[resId] === 'unassigned') return;
-    if (!res.room_number && !sectionOverrides[resId] && !res.tags?.includes('파티만') && !res.room_info?.includes('파티만')) return;
+    if (!res.room_number && !sectionOverrides[resId] && !res.tags?.includes('파티만') && !res.naver_room_type?.includes('파티만')) return;
 
     if (res.room_number) {
       // Optimistic update: clear room + remove unsent room_info tag
@@ -826,7 +797,7 @@ const RoomAssignment = () => {
 
     // Already in party section → nothing to do
     if (!guest.room_number && sectionOverrides[resId] === 'party') return;
-    if (!guest.room_number && !sectionOverrides[resId] && (guest.tags?.includes('파티만') || guest.room_info?.includes('파티만'))) return;
+    if (!guest.room_number && !sectionOverrides[resId] && (guest.tags?.includes('파티만') || guest.naver_room_type?.includes('파티만'))) return;
 
     if (guest.room_number) {
       // Optimistic update: clear room + remove unsent room_info tag
@@ -862,12 +833,12 @@ const RoomAssignment = () => {
       date: selectedDate.format('YYYY-MM-DD'),
       time: '18:00',
       gender: '',
-      party_participants: 1,
-      room_info: '',
+      party_size: 1,
+      naver_room_type: '',
       tags: '',
       notes: '',
       status: 'confirmed',
-      source: 'manual',
+      booking_source: 'manual',
     });
     setModalVisible(true);
   };
@@ -904,14 +875,14 @@ const RoomAssignment = () => {
     if (!values.phone) { toast.error('전화번호를 입력하세요'); return; }
     if (!values.date) { toast.error('날짜를 입력하세요'); return; }
 
-    // Map male_count/female_count to gender + party_participants
+    // Map male_count/female_count to gender + party_size
     const maleCount = values.male_count ? Number(values.male_count) : 0;
     const femaleCount = values.female_count ? Number(values.female_count) : 0;
     const genderParts = [];
     if (maleCount > 0) genderParts.push(`남${maleCount}`);
     if (femaleCount > 0) genderParts.push(`여${femaleCount}`);
     values.gender = genderParts.join('') || null;
-    values.party_participants = (maleCount + femaleCount) || null;
+    values.party_size = (maleCount + femaleCount) || null;
     delete values.male_count;
     delete values.female_count;
 
@@ -957,13 +928,13 @@ const RoomAssignment = () => {
     const assignment = res?.sms_assignments?.find(a => a.template_key === templateKey);
     const wasSent = !!assignment?.sent_at;
 
-    const tpl = templateLabels.find(t => t.key === templateKey);
+    const tpl = templateLabels.find(t => t.template_key === templateKey);
     setSendConfirm({
       type: 'toggle',
       resId,
       templateKey,
       customerName: res?.customer_name || '',
-      scheduleName: tpl?.name || templateKey,
+      templateName: tpl?.name || templateKey,
     });
   };
 
@@ -1037,12 +1008,12 @@ const RoomAssignment = () => {
     const multiNight = isMultiNight(res);
 
     return (
-      <div key={res.id} className={`group/guest flex items-center h-10 ${showGrip ? '' : 'pl-7'} transition-colors duration-150 ${multiNight ? 'bg-[#FF9500]/50 dark:bg-[#FF9500]/50 hover:bg-[#FF9500]/50 dark:hover:bg-[#FF9500]/50' : 'hover:bg-[#E8F3FF] dark:hover:bg-[#3182F6]/8'} ${guestAreaCursor()}`}>
+      <div key={res.id} className={`group/guest flex items-center h-10 ${showGrip ? '' : 'pl-7'} transition-colors duration-150 ${multiNight ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15 hover:bg-[#FFE4CC] dark:hover:bg-[#FF9500]/20' : 'hover:bg-[#E8F3FF] dark:hover:bg-[#3182F6]/8'} ${guestAreaCursor()}`}>
         {showGrip && (
           <div
             draggable
             onDragStart={(e) => onDragStart(e, res.id)}
-            className={`flex items-center justify-center w-7 px-0.5 flex-shrink-0 cursor-grab active:cursor-grabbing text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${multiNight ? 'group-hover/guest:text-[#FF9500] dark:group-hover/guest:text-[#FF9500]' : 'group-hover/guest:text-[#3182F6] dark:group-hover/guest:text-[#3182F6]'}`}
+            className={`flex items-center justify-center w-7 px-0.5 flex-shrink-0 cursor-grab active:cursor-grabbing text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${multiNight ? 'group-hover/guest:text-[#FFB366] dark:group-hover/guest:text-[#FFB366]' : 'group-hover/guest:text-[#3182F6] dark:group-hover/guest:text-[#3182F6]'}`}
           >
             <GripVertical size={14} />
           </div>
@@ -1064,7 +1035,7 @@ const RoomAssignment = () => {
           <div className="overflow-hidden text-center">
             <InlineInput value={res.party_type || ''} field="party_type" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-white font-medium text-center" placeholder="-" />
           </div>
-          <div className="overflow-hidden truncate text-body text-[#8B95A1] dark:text-[#8B95A1]">{res.room_info || <span className="text-[#B0B8C1] dark:text-[#4E5968]">-</span>}</div>
+          <div className="overflow-hidden truncate text-body text-[#8B95A1] dark:text-[#8B95A1] text-center">{res.naver_room_type || <span className="text-[#B0B8C1] dark:text-[#4E5968]">-</span>}</div>
           <div className="flex items-center gap-2 min-w-0">
             <div className="min-w-[60px] flex-1 overflow-hidden">
               <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-[#8B95A1]" placeholder="" />
@@ -1078,8 +1049,8 @@ const RoomAssignment = () => {
     );
   };
 
-  const renderRoomRow = (entry: { room_number: string; isDormitory: boolean; dormitory_beds: number }, rowIndex: number) => {
-    const { room_number, isDormitory, dormitory_beds } = entry;
+  const renderRoomRow = (entry: { room_number: string; isDormitory: boolean; bed_capacity: number }, rowIndex: number) => {
+    const { room_number, isDormitory, bed_capacity } = entry;
     const guestsRaw = assignedRooms.get(room_number) || [];
     const isDragOver = dragOverRoom === room_number;
     const prevGuestsRaw = prevDayRoomMap.get(room_number) || [];
@@ -1143,7 +1114,7 @@ const RoomAssignment = () => {
 
     const maxOccupancy = Math.max(guests.length, prevGuests.length, nextGuests.length, 1);
     const visibleRows = isDormitory
-      ? Math.min(dormitory_beds, maxOccupancy)
+      ? Math.min(bed_capacity, maxOccupancy)
       : Math.max(1, guests.length);
     const totalRows = visibleRows;
     const stripeBg = rowIndex % 2 === 0 ? 'bg-white dark:bg-[#1E1E24]' : 'bg-[#F8F9FA] dark:bg-[#17171C]';
@@ -1152,6 +1123,11 @@ const RoomAssignment = () => {
       <div
         key={room_number}
         className={`group flex select-none transition-colors
+          ${autoAssignConfirm
+            ? (guestsRaw.length > 0 && guestsRaw.every(g => g.room_assigned_by === 'manual')
+              ? 'opacity-40'
+              : '')
+            : ''}
           ${isDragOver
             ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/8 ring-1 ring-inset ring-[#3182F6]/30 dark:ring-[#3182F6]/30'
             : stripeBg
@@ -1168,7 +1144,7 @@ const RoomAssignment = () => {
               const prevGuest = prevGuests[i];
               const gp = prevGuest ? formatGenderPeople(prevGuest) : '';
               return (
-                <div key={`prev-${i}`} className={`flex items-center justify-center h-10 px-1 ${prevGuest && isMultiNight(prevGuest) ? 'bg-[#FF9500]/50 dark:bg-[#FF9500]/50' : ''}`}>
+                <div key={`prev-${i}`} className={`flex items-center justify-center h-10 px-1 ${prevGuest && isMultiNight(prevGuest) ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15' : ''}`}>
                   {prevGuest ? (
                     <div className="flex items-center gap-1.5 truncate">
                       <span className="truncate text-caption text-[#4E5968] dark:text-[#8B95A1]">{prevGuest.customer_name}</span>
@@ -1234,7 +1210,7 @@ const RoomAssignment = () => {
               const nextGuest = nextGuests[i];
               const gp = nextGuest ? formatGenderPeople(nextGuest) : '';
               return (
-                <div key={`next-${i}`} className={`flex items-center justify-center h-10 px-1 ${nextGuest && isMultiNight(nextGuest) ? 'bg-[#FF9500]/50 dark:bg-[#FF9500]/50' : ''}`}>
+                <div key={`next-${i}`} className={`flex items-center justify-center h-10 px-1 ${nextGuest && isMultiNight(nextGuest) ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15' : ''}`}>
                   {nextGuest ? (
                     <div className="flex items-center gap-1.5 truncate">
                       <span className="truncate text-caption text-[#4E5968] dark:text-[#8B95A1]">{nextGuest.customer_name}</span>
@@ -1391,9 +1367,6 @@ const RoomAssignment = () => {
           <h1 className="page-title">객실 배정</h1>
           <p className="page-subtitle">날짜별 객실을 배정하고 SMS를 발송하세요</p>
         </div>
-        <Button color="blue" size="sm" onClick={() => setAutoAssignConfirm(true)} disabled={autoAssigning}>
-          {autoAssigning ? <><Spinner size="sm" className="mr-1.5" />배정 중...</> : <><UserPlus className="h-3.5 w-3.5 mr-1.5" />객실 자동 배정</>}
-        </Button>
       </div>
 
       {/* Summary stats */}
@@ -1463,7 +1436,7 @@ const RoomAssignment = () => {
                 className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24] text-[#191F28] dark:text-white hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34] transition-colors cursor-pointer min-w-[160px]"
               >
                 {selectedTemplateKey
-                  ? templateLabels.find(t => t.key === selectedTemplateKey)?.name || '템플릿 선택'
+                  ? templateLabels.find(t => t.template_key === selectedTemplateKey)?.name || '템플릿 선택'
                   : '템플릿 선택'}
                 <ChevronDown size={14} className={`text-[#8B95A1] transition-transform ${campaignDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
@@ -1471,11 +1444,11 @@ const RoomAssignment = () => {
                 <div className="absolute top-full left-0 mt-1 z-30 min-w-[160px] rounded-xl border border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24] shadow-lg shadow-black/8 py-1 animate-in fade-in slide-in-from-top-1 duration-150">
                   {templateLabels.map(t => (
                     <button
-                      key={t.key}
+                      key={t.template_key}
                       type="button"
-                      onClick={() => { setSelectedTemplateKey(t.key); setCampaignDropdownOpen(false); setTargets([]); }}
+                      onClick={() => { setSelectedTemplateKey(t.template_key); setCampaignDropdownOpen(false); setTargets([]); }}
                       className={`w-full text-left px-3 py-2 text-sm transition-colors cursor-pointer
-                        ${selectedTemplateKey === t.key ? 'bg-[#F2F4F6] dark:bg-[#2C2C34] text-[#3182F6] font-medium' : 'text-[#4E5968] dark:text-white hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34]'}`}
+                        ${selectedTemplateKey === t.template_key ? 'bg-[#F2F4F6] dark:bg-[#2C2C34] text-[#3182F6] font-medium' : 'text-[#4E5968] dark:text-white hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34]'}`}
                     >
                       {t.name}
                     </button>
@@ -1507,7 +1480,11 @@ const RoomAssignment = () => {
               발송 ({targets.length}건)
             </Button>
 
+
             <div className="flex items-center gap-2 ml-auto">
+              <Button color="blue" size="sm" onClick={() => setAutoAssignConfirm(true)} disabled={autoAssigning}>
+                {autoAssigning ? <><Spinner size="sm" className="mr-1.5" />배정 중...</> : <><UserPlus className="h-3.5 w-3.5 mr-1.5" />객실 자동 배정</>}
+              </Button>
               <Button
                 color="light"
                 size="sm"
@@ -1543,8 +1520,13 @@ const RoomAssignment = () => {
         </div>
       </div>
 
+      {/* 자동배정 오버레이 */}
+      {autoAssignConfirm && (
+        <div className="fixed inset-0 z-40 bg-black/20" onClick={() => setAutoAssignConfirm(false)} />
+      )}
+
       {/* Main grid card */}
-      <div className="section-card !overflow-visible">
+      <div className={`section-card !overflow-visible ${autoAssignConfirm ? 'relative z-[41]' : ''}`}>
         {/* Date navigation header */}
         <div className="section-header justify-center">
           <div className="flex items-center gap-1">
@@ -1579,7 +1561,7 @@ const RoomAssignment = () => {
                 ? 'date-slide-left'
                 : animDirection === 'right'
                   ? 'date-slide-right'
-                  : 'date-fade-in'
+                  : ''
             }
           >
             {/* Unified Table */}
@@ -1601,7 +1583,7 @@ const RoomAssignment = () => {
                   <div className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">전화번호</div>
                   <div className="text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">성별</div>
                   <div className="text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">파티</div>
-                  <div className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">예약객실</div>
+                  <div className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1] text-center">예약객실</div>
                   <div className="flex items-center gap-2">
                     <div className="min-w-[60px] flex-1 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">메모</div>
                     <div className="min-w-[60px] flex-1 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">문자</div>
@@ -1612,23 +1594,19 @@ const RoomAssignment = () => {
                 </div>
               </div>
 
-              {/* Loading */}
-              {loading && (
-                <div className="flex items-center justify-center gap-2 py-12 text-[#B0B8C1] dark:text-[#8B95A1]">
-                  <Spinner size="sm" />
-                  <span className="text-sm">로딩 중...</span>
-                </div>
-              )}
-
-              {/* Room Rows */}
-              {!loading && activeRoomEntries.map((entry, idx) => renderRoomRow(entry, idx))}
+              {/* Room Rows (stale-while-revalidate: 이전 데이터 유지, 새 데이터 조용히 교체) */}
+              <div className={loading ? 'pointer-events-none' : ''}>
+                {activeRoomEntries.map((entry, idx) => renderRoomRow(entry, idx))}
+              </div>
 
               {/* Unassigned Pool */}
               <div
                 className={`group flex select-none transition-colors ${
                   dragOverPool
                     ? 'bg-[#FF9500]/50 dark:bg-[#FF9500]/8'
-                    : unassigned.length > 0 ? 'bg-white dark:bg-[#1E1E24]' : 'bg-[#F2F4F6]/50 dark:bg-[#17171C]/30'
+                    : autoAssignConfirm && unassigned.length > 0
+                      ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/10'
+                      : unassigned.length > 0 ? 'bg-white dark:bg-[#1E1E24]' : 'bg-[#F2F4F6]/50 dark:bg-[#17171C]/30'
                 }`}
                 style={{ minHeight: `${Math.max(1, unassigned.length) * 40}px` }}
                 onDragOver={onPoolDragOver}
@@ -1904,16 +1882,14 @@ const RoomAssignment = () => {
             </h3>
             <p className="mb-6 text-body text-[#4E5968] dark:text-gray-300">
               {sendConfirm?.type === 'campaign'
-                ? `${templateLabels.find(t => t.key === selectedTemplateKey)?.name || selectedTemplateKey} — ${targets.length}건을 발송하시겠습니까?`
-                : sendConfirm?.type === 'toggle'
-                ? (() => {
-                    const r = reservations.find(r => r.id === sendConfirm.resId);
-                    const isSent = r?.sms_assignments?.some(a => a.template_key === sendConfirm.templateKey && !!a.sent_at);
+                ? `${templateLabels.find(t => t.template_key === selectedTemplateKey)?.name || selectedTemplateKey} — ${targets.length}건을 발송하시겠습니까?`
+                : (() => {
+                    const r = reservations.find(r => r.id === sendConfirm?.resId);
+                    const isSent = r?.sms_assignments?.some(a => a.template_key === sendConfirm?.templateKey && !!a.sent_at);
                     return isSent
-                      ? `${sendConfirm.customerName}님의 ${sendConfirm.scheduleName} 발송을 취소하시겠습니까?`
-                      : `${sendConfirm.customerName}님에게 ${sendConfirm.scheduleName}을(를) 발송하시겠습니까?`;
-                  })()
-                : `${sendConfirm?.scheduleName} 스케줄을 실행하시겠습니까?`}
+                      ? `${sendConfirm?.customerName}님의 ${sendConfirm?.templateName} 발송을 취소하시겠습니까?`
+                      : `${sendConfirm?.customerName}님에게 ${sendConfirm?.templateName}을(를) 발송하시겠습니까?`;
+                  })()}
             </p>
             <div className="flex justify-center gap-3">
               <Button color="blue" onClick={() => {
@@ -1922,8 +1898,6 @@ const RoomAssignment = () => {
                 } else if (sendConfirm?.type === 'toggle' && sendConfirm.resId && sendConfirm.templateKey) {
                   setSendConfirm(null);
                   doSmsToggle(sendConfirm.resId, sendConfirm.templateKey);
-                } else if (sendConfirm?.type === 'schedule' && sendConfirm.scheduleId && sendConfirm.scheduleName) {
-                  handleRunSchedule(sendConfirm.scheduleId, sendConfirm.scheduleName);
                 }
               }}>
                 발송
@@ -1936,50 +1910,46 @@ const RoomAssignment = () => {
         </ModalBody>
       </Modal>
 
-      {/* Animations */}
+      {/* Slide animations (transform only, no opacity = no flicker) */}
       <style>{`
-        @keyframes slideInFromLeft {
-          0%   { transform: translateX(-15px); opacity: 0; }
-          100% { transform: translateX(0);     opacity: 1; }
+        @keyframes slideLeft {
+          from { transform: translateX(-8px); }
+          to   { transform: translateX(0); }
         }
-        @keyframes slideInFromRight {
-          0%   { transform: translateX(15px); opacity: 0; }
-          100% { transform: translateX(0);    opacity: 1; }
+        @keyframes slideRight {
+          from { transform: translateX(8px); }
+          to   { transform: translateX(0); }
         }
-        @keyframes fadeIn {
-          0%   { opacity: 0; }
-          100% { opacity: 1; }
-        }
-        .date-slide-left  { animation: slideInFromLeft  0.2s ease-out; }
-        .date-slide-right { animation: slideInFromRight 0.2s ease-out; }
-        .date-fade-in     { animation: fadeIn 0.15s ease-out; }
+        .date-slide-left  { animation: slideLeft  0.15s ease-out; }
+        .date-slide-right { animation: slideRight 0.15s ease-out; }
       `}</style>
 
-      {/* 객실 자동 배정 확인 모달 */}
-      <Modal show={autoAssignConfirm} size="md" popup onClose={() => setAutoAssignConfirm(false)}>
-        <ModalHeader />
-        <ModalBody>
-          <div className="text-center">
-            <UserPlus className="mx-auto mb-4 h-10 w-10 text-[#3182F6]" />
-            <h3 className="mb-2 text-heading font-semibold text-gray-900 dark:text-white">
-              객실 자동 배정
-            </h3>
-            <p className="mb-6 text-body text-gray-500 dark:text-gray-400">
-              {selectedDate.format('YYYY-MM-DD')} 기준 당일·내일 예약에 대해<br />
-              객실을 자동 배정합니다.<br />
-              <span className="text-caption text-[#8B95A1]">수동 배정된 예약은 유지됩니다.</span>
-            </p>
-            <div className="flex justify-center gap-2">
-              <Button color="blue" onClick={handleAutoAssign} disabled={autoAssigning}>
-                {autoAssigning ? <><Spinner size="sm" className="mr-2" />배정 중...</> : '배정 진행'}
+      {/* 객실 자동 배정 — 플로팅 카드 (배경 스크롤 가능) */}
+      {autoAssignConfirm && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-2xl border border-[#E5E8EB] dark:border-gray-700 bg-white/95 dark:bg-[#1E1E24]/95 backdrop-blur-sm shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+          <div className="flex items-center justify-between gap-6 px-5 py-3">
+            <div className="flex items-center gap-3">
+              <UserPlus className="h-5 w-5 text-[#3182F6]" />
+              <div>
+                <p className="text-body font-semibold text-[#191F28] dark:text-white">
+                  객실 자동 배정 — {selectedDate.format('YYYY-MM-DD')}
+                </p>
+                <p className="text-caption text-[#8B95A1]">
+                  미배정 예약자를 객실에 자동 배정합니다. 수동 배정은 유지됩니다.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button color="blue" size="sm" onClick={handleAutoAssign} disabled={autoAssigning}>
+                {autoAssigning ? <><Spinner size="sm" className="mr-1.5" />배정 중...</> : '배정 진행'}
               </Button>
-              <Button color="light" onClick={() => setAutoAssignConfirm(false)}>
+              <Button color="light" size="sm" onClick={() => setAutoAssignConfirm(false)}>
                 취소
               </Button>
             </div>
           </div>
-        </ModalBody>
-      </Modal>
+        </div>
+      )}
     </div>
   );
 };

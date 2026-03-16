@@ -4,9 +4,9 @@ Scheduler API endpoints for managing automated jobs
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Any
 
-from ..scheduler.jobs import scheduler, get_job_info
-from ..auth.dependencies import require_admin_or_above
-from ..db.models import User
+from app.scheduler.jobs import scheduler, get_job_info
+from app.auth.dependencies import require_admin_or_above
+from app.db.models import User
 
 router = APIRouter(prefix="/api/scheduler", tags=["scheduler"])
 
@@ -130,7 +130,7 @@ async def shutdown_scheduler(current_user: User = Depends(require_admin_or_above
     WARNING: This will stop all automated jobs
     """
     try:
-        from ..scheduler.jobs import stop_scheduler
+        from app.scheduler.jobs import stop_scheduler
         stop_scheduler()
         return {
             "status": "shutdown",

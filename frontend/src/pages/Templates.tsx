@@ -9,8 +9,6 @@ import {
   RefreshCw,
   CheckCircle,
   XCircle,
-  ChevronDown,
-  ChevronUp,
   FileText,
   Clock,
   BarChart3,
@@ -41,7 +39,7 @@ import {
   Spinner,
 } from 'flowbite-react';
 
-import { templatesAPI, templateSchedulesAPI, campaignsAPI } from '@/services/api';
+import { templatesAPI, templateSchedulesAPI, activityLogsAPI, buildingsAPI, reservationsAPI } from '@/services/api';
 
 // ---------------------------------------------------------------------------
 // Interfaces
@@ -49,7 +47,7 @@ import { templatesAPI, templateSchedulesAPI, campaignsAPI } from '@/services/api
 
 interface Template {
   id: number;
-  key: string;
+  template_key: string;
   name: string;
   short_label: string | null;
   content: string;
@@ -73,8 +71,7 @@ interface TemplateSchedule {
   day_of_week: string | null;
   interval_minutes: number | null;
   timezone: string;
-  target_type: string;
-  target_value: string | null;
+  filters: string | null;
   date_filter: string | null;
   exclude_sent: boolean;
   active: boolean;
@@ -82,6 +79,16 @@ interface TemplateSchedule {
   updated_at: string;
   last_run: string | null;
   next_run: string | null;
+}
+
+interface ScheduleFilter {
+  type: string;
+  value: string;
+}
+
+interface Building {
+  id: number;
+  name: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,14 +168,54 @@ function getScheduleTypeLabel(type: string): string {
   return map[type] ?? type;
 }
 
-function getTargetLabel(record: TemplateSchedule): string {
-  const map: Record<string, string> = {
-    all: '전체',
-    room_assigned: '객실배정자',
-    party_only: '파티만',
-  };
-  if (record.target_type === 'tag') return `태그: ${record.target_value}`;
-  return map[record.target_type] ?? record.target_type;
+function getFilterLabel(f: ScheduleFilter, buildingList?: Building[]): string {
+  if (f.type === 'assignment') {
+    if (f.value === 'room') return '객실 배정';
+    if (f.value === 'party') return '파티만';
+    if (f.value === 'unassigned') return '미배정';
+    return `배정: ${f.value}`;
+  }
+  if (f.type === 'building') {
+    if (buildingList) {
+      const b = buildingList.find(b => String(b.id) === f.value);
+      return b ? b.name : `건물 #${f.value}`;
+    }
+    return `건물: ${f.value}`;
+  }
+  if (f.type === 'room') return `객실: ${f.value}`;
+  if (f.type === 'tag') return `태그: ${f.value}`;
+  // legacy backward compat
+  if (f.type === 'room_assigned') return '객실배정자';
+  if (f.type === 'party_only') return '파티만';
+  return `${f.type}: ${f.value}`;
+}
+
+function getTargetLabel(record: TemplateSchedule, buildingList?: Building[]): string {
+  if (record.filters) {
+    try {
+      const filters: ScheduleFilter[] = JSON.parse(record.filters);
+      if (filters.length > 0) return filters.map(f => getFilterLabel(f, buildingList)).join(' + ');
+    } catch { /* fallthrough */ }
+  }
+  return '전체';
+}
+
+function getTargetBadges(record: TemplateSchedule, buildingList?: Building[]): React.ReactNode {
+  if (record.filters) {
+    try {
+      const filters: ScheduleFilter[] = JSON.parse(record.filters);
+      if (filters.length > 0) {
+        return (
+          <div className="flex flex-wrap gap-1">
+            {filters.map((f, i) => (
+              <Badge key={i} color="info" size="xs">{getFilterLabel(f, buildingList)}</Badge>
+            ))}
+          </div>
+        );
+      }
+    } catch { /* fallthrough */ }
+  }
+  return <Badge color="gray" size="sm">{getTargetLabel(record, buildingList)}</Badge>;
 }
 
 const CATEGORY_ICON: Record<string, string> = {
@@ -225,10 +272,10 @@ const Templates: React.FC = () => {
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
   const [availableVariables, setAvailableVariables] = useState<any>(null);
   const [detectedVars, setDetectedVars] = useState<{ valid: string[]; invalid: string[] }>({ valid: [], invalid: [] });
-  const [showVarRef, setShowVarRef] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
 
   // template form
+  const [sampleExamples, setSampleExamples] = useState<Record<string, string>>({});
   const [tKey, setTKey] = useState('');
   const [tName, setTName] = useState('');
   const [tShortLabel, setTShortLabel] = useState('');
@@ -255,11 +302,16 @@ const Templates: React.FC = () => {
   const [sMinute, setSMinute] = useState<string>('0');
   const [sDayOfWeek, setSDayOfWeek] = useState<string[]>([]);
   const [sIntervalMinutes, setSIntervalMinutes] = useState('10');
-  const [sTargetType, setSTargetType] = useState('all');
-  const [sTargetValue, setSTargetValue] = useState('');
+
+  const [sFilters, setSFilters] = useState<ScheduleFilter[]>([]);
   const [sDateFilter, setSDateFilter] = useState('today');
-  const [sExcludeSent, setSExcludeSent] = useState(true);
+  const sExcludeSent = true; // 항상 발송 완료 대상 제외
   const [sActive, setSActive] = useState(true);
+
+  // (filter picker state removed — replaced by toggle button UI)
+
+  // buildings for filter
+  const [buildings, setBuildings] = useState<Building[]>([]);
 
   // delete schedule
   const [deleteScheduleTarget, setDeleteScheduleTarget] = useState<TemplateSchedule | null>(null);
@@ -312,7 +364,7 @@ const Templates: React.FC = () => {
   const fetchCampaigns = async () => {
     setLoadingCampaigns(true);
     try {
-      const res = await campaignsAPI.getHistory();
+      const res = await activityLogsAPI.getAll({ type: 'sms_campaign' });
       setCampaigns(res.data);
     } catch {
       toast.error('발송 이력을 불러오지 못했습니다');
@@ -321,10 +373,18 @@ const Templates: React.FC = () => {
     }
   };
 
+  const fetchBuildings = async () => {
+    try {
+      const res = await buildingsAPI.getAll();
+      setBuildings(res.data);
+    } catch { /* non-critical */ }
+  };
+
   useEffect(() => {
     fetchTemplates();
     fetchSchedules();
     fetchAvailableVariables();
+    fetchBuildings();
   }, []);
 
   useEffect(() => {
@@ -335,22 +395,42 @@ const Templates: React.FC = () => {
   // Template CRUD
   // ---------------------------------------------------------------------------
 
+  const loadSampleExamples = () => {
+    reservationsAPI.getAll({ limit: 20, status: 'confirmed' }).then(res => {
+      const reservations = res.data;
+      if (!reservations || reservations.length === 0) return;
+      const pick = reservations[Math.floor(Math.random() * reservations.length)];
+      const rn = pick.room_number || '';
+      setSampleExamples({
+        customer_name: pick.customer_name || '',
+        phone: pick.phone || '',
+        building: rn.length >= 2 ? rn[0] : '',
+        room_num: rn.length >= 2 ? rn.slice(1) : rn,
+        naver_room_type: pick.naver_room_type || '',
+        room_password: pick.room_password || '',
+        participant_count: String(pick.party_size || 1),
+        male_count: String(pick.male_count || 0),
+        female_count: String(pick.female_count || 0),
+      });
+    }).catch(() => {});
+  };
+
   const openCreateTemplate = () => {
     setEditingTemplate(null);
     setTKey(''); setTName(''); setTShortLabel(''); setTContent('');
     setTVariables(''); setTActive(true); setTKeyError('');
     setDetectedVars({ valid: [], invalid: [] });
-    setShowVarRef(false);
+    loadSampleExamples();
     setTemplateDialogOpen(true);
   };
 
   const openEditTemplate = (t: Template) => {
     setEditingTemplate(t);
-    setTKey(t.key); setTName(t.name); setTShortLabel(t.short_label ?? '');
+    setTKey(t.template_key); setTName(t.name); setTShortLabel(t.short_label ?? '');
     setTContent(t.content); setTVariables(t.variables ?? '');
     setTActive(t.active); setTKeyError('');
     setDetectedVars(extractAndValidateVariables(t.content, availableVariables));
-    setShowVarRef(false);
+    loadSampleExamples();
     setTemplateDialogOpen(true);
   };
 
@@ -370,7 +450,7 @@ const Templates: React.FC = () => {
     setSavingTemplate(true);
     try {
       const data = {
-        key: tKey, name: tName, content: tContent,
+        template_key: tKey, name: tName, content: tContent,
         short_label: tShortLabel || null,
         variables: tVariables || undefined,
         active: tActive,
@@ -410,9 +490,8 @@ const Templates: React.FC = () => {
   const resetScheduleForm = () => {
     setSName(''); setSTemplateId(''); setSType('daily');
     setSHour('9'); setSMinute('0'); setSDayOfWeek([]);
-    setSIntervalMinutes('10'); setSTargetType('all');
-    setSTargetValue(''); setSDateFilter('');
-    setSExcludeSent(true); setSActive(true);
+    setSIntervalMinutes('10'); setSFilters([]); setSDateFilter('');
+    setSActive(true);
   };
 
   const openCreateSchedule = () => {
@@ -430,10 +509,13 @@ const Templates: React.FC = () => {
     setSMinute(String(s.minute ?? 0));
     setSDayOfWeek(s.day_of_week ? s.day_of_week.split(',').map(d => d.trim()) : []);
     setSIntervalMinutes(String(s.interval_minutes ?? 10));
-    setSTargetType(s.target_type);
-    setSTargetValue(s.target_value ?? '');
+    if (s.filters) {
+      try { setSFilters(JSON.parse(s.filters)); } catch { setSFilters([]); }
+    } else {
+      setSFilters([]);
+    }
     setSDateFilter(s.date_filter || 'today');
-    setSExcludeSent(s.exclude_sent);
+    // sExcludeSent는 항상 true 고정
     setSActive(s.active);
     setScheduleDialogOpen(true);
   };
@@ -447,8 +529,7 @@ const Templates: React.FC = () => {
     day_of_week: sType === 'weekly' ? sDayOfWeek.join(',') : undefined,
     interval_minutes: sType === 'interval' ? Number(sIntervalMinutes) : undefined,
     timezone: 'Asia/Seoul',
-    target_type: sTargetType,
-    target_value: sTargetType === 'tag' ? sTargetValue : undefined,
+    filters: sFilters.length > 0 ? sFilters : undefined,
     date_filter: sDateFilter || 'today',
     exclude_sent: sExcludeSent,
     active: sActive,
@@ -458,7 +539,6 @@ const Templates: React.FC = () => {
     if (!sName.trim()) { toast.error('스케줄 이름을 입력하세요'); return; }
     if (!sTemplateId) { toast.error('템플릿을 선택하세요'); return; }
     if (sType === 'weekly' && sDayOfWeek.length === 0) { toast.error('요일을 선택하세요'); return; }
-    if (sTargetType === 'tag' && !sTargetValue.trim()) { toast.error('태그 이름을 입력하세요'); return; }
 
     setSavingSchedule(true);
     try {
@@ -533,6 +613,29 @@ const Templates: React.FC = () => {
   };
 
   // ---------------------------------------------------------------------------
+  // Schedule filter toggle helpers
+  // ---------------------------------------------------------------------------
+  const toggleScheduleFilter = (type: string, value: string) => {
+    setSFilters(prev => {
+      const hasIt = prev.some(f => f.type === type && f.value === value);
+      if (hasIt) {
+        return prev.filter(f => !(f.type === type && f.value === value));
+      } else {
+        return [...prev, { type, value }];
+      }
+    });
+  };
+
+  const isFilterActive = (type: string, value: string) =>
+    sFilters.some(f => f.type === type && f.value === value);
+
+  const isFilterAllActive = (type: string) =>
+    !sFilters.some(f => f.type === type);
+
+  const clearFilterType = (type: string) =>
+    setSFilters(prev => prev.filter(f => f.type !== type));
+
+  // ---------------------------------------------------------------------------
   // Render – Tab 1: Templates
   // ---------------------------------------------------------------------------
 
@@ -586,7 +689,7 @@ const Templates: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <code className="rounded bg-[#F2F4F6] px-1.5 py-0.5 font-mono text-caption text-[#3182F6] dark:bg-gray-700 dark:text-blue-400">
-                        {t.key}
+                        {t.template_key}
                       </code>
                     </TableCell>
                     <TableCell>
@@ -736,7 +839,7 @@ const Templates: React.FC = () => {
                         <span className="text-body text-[#4E5968] dark:text-gray-300">{formatScheduleTime(s)}</span>
                       </TableCell>
                       <TableCell>
-                        <Badge color="gray" size="sm">{getTargetLabel(s)}</Badge>
+                        {getTargetBadges(s, buildings)}
                       </TableCell>
                       <TableCell>
                         <Badge color={isNextRunSoon ? 'warning' : 'gray'} size="sm">{nextRun}</Badge>
@@ -827,20 +930,20 @@ const Templates: React.FC = () => {
                       <span className="tabular-nums text-gray-400 dark:text-gray-500">{c.id}</span>
                     </TableCell>
                     <TableCell>
-                      <span className="font-medium text-gray-900 dark:text-white">{getCampaignTemplateName(c.campaign_type)}</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{getCampaignTemplateName(c.type)}</span>
                     </TableCell>
                     <TableCell>
-                      {c.target_tag ? (
-                        <span className="font-medium text-gray-900 dark:text-white">{c.target_tag}</span>
+                      {c.detail ? (
+                        <span className="font-medium text-gray-900 dark:text-white">{c.detail}</span>
                       ) : (
                         <span className="text-[#B0B8C1] dark:text-gray-500">-</span>
                       )}
                     </TableCell>
                     <TableCell className="text-center">
-                      <span className="tabular-nums font-medium text-gray-900 dark:text-white">{c.target_count}</span>
+                      <span className="tabular-nums font-medium text-gray-900 dark:text-white">{c.target_count ?? '-'}</span>
                     </TableCell>
                     <TableCell className="text-center">
-                      <span className="tabular-nums font-medium text-[#00C9A7]">{c.sent_count}</span>
+                      <span className="tabular-nums font-medium text-[#00C9A7]">{c.success_count}</span>
                     </TableCell>
                     <TableCell className="text-center">
                       {c.failed_count > 0 ? (
@@ -851,7 +954,7 @@ const Templates: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <span className="whitespace-nowrap text-body text-gray-500 dark:text-gray-400">
-                        {c.sent_at ? new Date(c.sent_at).toLocaleString('ko-KR') : '-'}
+                        {c.created_at ? new Date(c.created_at).toLocaleString('ko-KR') : '-'}
                       </span>
                     </TableCell>
                   </TableRow>
@@ -869,175 +972,205 @@ const Templates: React.FC = () => {
   // ---------------------------------------------------------------------------
 
   const renderTemplateDialog = () => (
-    <Modal show={templateDialogOpen} onClose={() => setTemplateDialogOpen(false)} size="2xl">
+    <Modal show={templateDialogOpen} onClose={() => setTemplateDialogOpen(false)} size="5xl">
       <ModalHeader className="border-b border-[#F2F4F6] dark:border-gray-800">
         {editingTemplate ? '템플릿 수정' : '새 템플릿 만들기'}
       </ModalHeader>
 
       <ModalBody>
-        <div className="space-y-5">
-          {/* Key */}
-          <div className="space-y-2">
-            <Label htmlFor="t-key">
-              템플릿 키 <span className="text-[#F04452] dark:text-red-400">*</span>
-            </Label>
-            <TextInput
-              id="t-key"
-              placeholder="예: welcome_message"
-              value={tKey}
-              onChange={e => { setTKey(e.target.value); setTKeyError(''); }}
-              disabled={!!editingTemplate}
-              color={tKeyError ? 'failure' : undefined}
-            />
-            {tKeyError ? (
-              <p className="text-caption text-[#F04452] dark:text-red-400">{tKeyError}</p>
-            ) : (
-              <p className="text-caption text-gray-400 dark:text-gray-500">시스템 고유 식별자. 영문 소문자와 _ 만 허용됩니다.</p>
-            )}
-          </div>
-
-          {/* Name */}
-          <div className="space-y-2">
-            <Label htmlFor="t-name">
-              템플릿 이름 <span className="text-[#F04452] dark:text-red-400">*</span>
-            </Label>
-            <TextInput
-              id="t-name"
-              placeholder="예: 환영 메시지"
-              value={tName}
-              onChange={e => setTName(e.target.value)}
-            />
-            <p className="text-caption text-gray-400 dark:text-gray-500">관리자가 보는 이름입니다. 한글로 작성하세요.</p>
-          </div>
-
-          {/* Short label */}
-          <div className="space-y-2">
-            <Label htmlFor="t-short-label">축약명</Label>
-            <TextInput
-              id="t-short-label"
-              placeholder="예: 객안"
-              value={tShortLabel}
-              onChange={e => setTShortLabel(e.target.value)}
-              maxLength={10}
-            />
-            <p className="text-caption text-gray-400 dark:text-gray-500">
-              객실배정 페이지에서 칩으로 표시될 짧은 이름입니다. 미입력 시 템플릿 이름이 그대로 표시됩니다.
-            </p>
-          </div>
-
-          {/* Content */}
-          <div className="space-y-2">
-            <Label htmlFor="t-content">
-              메시지 내용 <span className="text-[#F04452] dark:text-red-400">*</span>
-            </Label>
-            <Textarea
-              id="t-content"
-              rows={8}
-              placeholder={`예시:\n안녕하세요 {{name}}님!\n금일 객실은 {{building}}동 {{roomNum}}호입니다.\n비밀번호: {{password}}`}
-              value={tContent}
-              onChange={e => handleContentChange(e.target.value)}
-              className="font-mono text-body"
-            />
-            <p className="text-caption text-gray-400 dark:text-gray-500">
-              <code className="rounded bg-[#F2F4F6] px-1 py-0.5 font-mono text-[#3182F6] dark:bg-gray-700 dark:text-blue-400">{'{{변수명}}'}</code>{' '}
-              형식으로 변수를 삽입하세요
-            </p>
-          </div>
-
-          {/* Detected variables */}
-          {(detectedVars.valid.length > 0 || detectedVars.invalid.length > 0) && (
-            <div className="rounded-2xl border border-[#F2F4F6] bg-[#F2F4F6] p-4 dark:border-gray-800 dark:bg-[#1E1E24]">
-              <p className="mb-3 text-overline font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">감지된 변수</p>
-              <div className="space-y-3">
-                {detectedVars.valid.length > 0 && (
-                  <div className="space-y-1.5">
-                    <p className="flex items-center gap-1 text-caption font-medium text-[#00C9A7] dark:text-green-400">
-                      <CheckCircle className="h-3 w-3" /> 유효한 변수
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {detectedVars.valid.map(v => (
-                        <span
-                          key={v}
-                          className="inline-flex items-center gap-1 rounded-xl bg-[#E8FAF5] px-2 py-0.5 text-caption text-[#00C9A7] dark:bg-green-900/20 dark:text-green-400"
-                        >
-                          <CheckCircle className="h-3 w-3" />
-                          <code className="font-mono">{`{{${v}}}`}</code>
-                          {availableVariables?.variables?.[v] && (
-                            <span className="text-[#00C9A7] dark:text-emerald-400"> — {availableVariables.variables[v].description}</span>
-                          )}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {detectedVars.invalid.length > 0 && (
-                  <div className="space-y-1.5">
-                    <p className="flex items-center gap-1 text-caption font-medium text-[#F04452] dark:text-red-400">
-                      <XCircle className="h-3 w-3" /> 유효하지 않은 변수
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {detectedVars.invalid.map(v => (
-                        <span
-                          key={v}
-                          className="inline-flex items-center gap-1 rounded-xl bg-[#FFEBEE] px-2 py-0.5 text-caption text-[#F04452] dark:bg-red-900/20 dark:text-red-400"
-                        >
-                          <XCircle className="h-3 w-3" />
-                          <code className="font-mono">{`{{${v}}}`}</code>
-                          <span className="text-[#F04452] dark:text-red-400"> — 정의되지 않음</span>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {/* Left column: settings */}
+          <div className="space-y-5">
+            {/* Key */}
+            <div className="space-y-2">
+              <Label htmlFor="t-key">
+                템플릿 키 <span className="text-[#F04452] dark:text-red-400">*</span>
+              </Label>
+              <TextInput
+                id="t-key"
+                placeholder="예: welcome_message"
+                value={tKey}
+                onChange={e => { setTKey(e.target.value); setTKeyError(''); }}
+                disabled={!!editingTemplate}
+                color={tKeyError ? 'failure' : undefined}
+              />
+              {tKeyError ? (
+                <p className="text-caption text-[#F04452] dark:text-red-400">{tKeyError}</p>
+              ) : (
+                <p className="text-caption text-gray-400 dark:text-gray-500">시스템 고유 식별자. 영문 소문자와 _ 만 허용됩니다.</p>
+              )}
             </div>
-          )}
 
-          {/* Available variables reference (collapsible) */}
-          {availableVariables && (
-            <div className="rounded-2xl border border-[#F2F4F6] dark:border-gray-800">
-              <button
-                type="button"
-                className="flex w-full items-center justify-between px-4 py-3 text-body font-medium text-[#4E5968] hover:bg-[#F2F4F6] dark:text-gray-300 dark:hover:bg-[#2C2C34]"
-                onClick={() => setShowVarRef(v => !v)}
-              >
-                <span>사용 가능한 변수 참고</span>
-                {showVarRef ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </button>
-              {showVarRef && (
-                <div className="border-t border-[#F2F4F6] px-4 py-4 dark:border-gray-800">
-                  <div className="space-y-4">
-                    {Object.entries(availableVariables.categories ?? {}).map(([cat, vars]: [string, any]) => (
-                      <div key={cat}>
-                        <p className="mb-2 text-overline font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">
-                          {CATEGORY_ICON[cat] ?? cat}
-                        </p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {(vars as any[]).map((v: any) => (
-                            <span
-                              key={v.name}
-                              className="inline-flex items-center gap-1 rounded-xl bg-[#F2F4F6] px-2 py-0.5 text-caption text-[#4E5968] dark:bg-gray-700 dark:text-gray-300"
-                            >
-                              <code className="font-mono text-[#3182F6] dark:text-blue-400">{`{{${v.name}}}`}</code>
-                              <span className="text-[#8B95A1] dark:text-gray-400"> — {v.description}</span>
-                            </span>
-                          ))}
-                        </div>
-                      </div>
+            {/* Name */}
+            <div className="space-y-2">
+              <Label htmlFor="t-name">
+                템플릿 이름 <span className="text-[#F04452] dark:text-red-400">*</span>
+              </Label>
+              <TextInput
+                id="t-name"
+                placeholder="예: 환영 메시지"
+                value={tName}
+                onChange={e => setTName(e.target.value)}
+              />
+              <p className="text-caption text-gray-400 dark:text-gray-500">관리자가 보는 이름입니다. 한글로 작성하세요.</p>
+            </div>
+
+            {/* Short label */}
+            <div className="space-y-2">
+              <Label htmlFor="t-short-label">축약명</Label>
+              <TextInput
+                id="t-short-label"
+                placeholder="예: 객안"
+                value={tShortLabel}
+                onChange={e => setTShortLabel(e.target.value)}
+                maxLength={10}
+              />
+              <p className="text-caption text-gray-400 dark:text-gray-500">
+                객실배정 페이지에서 칩으로 표시될 짧은 이름입니다.
+              </p>
+            </div>
+
+            {/* Available variables reference (always open) */}
+            {availableVariables && (() => {
+              const CATEGORY_META: Record<string, { label: string; color: string; darkColor: string; bgColor: string; darkBgColor: string }> = {
+                reservation: { label: '예약', color: '#3182F6', darkColor: '#60a5fa', bgColor: '#E8F3FF', darkBgColor: 'rgba(49,130,246,0.15)' },
+                room:        { label: '객실', color: '#00C9A7', darkColor: '#34d399', bgColor: '#E6FAF7', darkBgColor: 'rgba(0,201,167,0.15)' },
+                party:       { label: '파티', color: '#FF9F00', darkColor: '#fbbf24', bgColor: '#FFF6E5', darkBgColor: 'rgba(255,159,0,0.15)' },
+              };
+
+              // Group variables by category, preserving insertion order
+              const grouped: Record<string, Array<[string, any]>> = {};
+              for (const [varName, v] of Object.entries(availableVariables.variables ?? {})) {
+                const cat = (v as any).category ?? 'other';
+                if (!grouped[cat]) grouped[cat] = [];
+                grouped[cat].push([varName, v]);
+              }
+
+              const handleCopy = (varName: string) => {
+                navigator.clipboard.writeText(`{{${varName}}}`).then(() => {
+                  toast.success(`{{${varName}}} 복사됨`);
+                });
+              };
+
+              return (
+                <div className="rounded-2xl border border-[#E5E8EB] dark:border-gray-800 overflow-hidden">
+                  {/* Header */}
+                  <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[#E5E8EB] dark:border-gray-800 bg-[#F8F9FA] dark:bg-[#1E1E24]">
+                    <span className="text-overline font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-500">사용 가능한 변수</span>
+                    <span className="text-tiny text-[#B0B8C1] dark:text-gray-600">· 클릭하여 복사</span>
+                  </div>
+
+                  {/* Column headers */}
+                  <div className="flex items-center gap-3 px-4 py-1.5 border-b border-[#F2F4F6] dark:border-gray-800 bg-[#F8F9FA] dark:bg-[#1E1E24]">
+                    <span className="text-tiny font-medium text-[#B0B8C1] dark:text-gray-600 w-36 shrink-0">변수명</span>
+                    <span className="text-tiny font-medium text-[#B0B8C1] dark:text-gray-600 flex-1">설명</span>
+                    <span className="text-tiny font-medium text-[#B0B8C1] dark:text-gray-600 shrink-0">예시</span>
+                  </div>
+
+                  {/* Variable rows — flat list */}
+                  <div className="divide-y divide-[#F2F4F6] dark:divide-gray-800">
+                    {Object.entries(availableVariables.variables ?? {}).map(([varName, v]: [string, any]) => (
+                      <button
+                        key={varName}
+                        type="button"
+                        onClick={() => handleCopy(varName)}
+                        className="w-full flex items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34]"
+                      >
+                        <code className="font-mono text-caption text-[#3182F6] dark:text-blue-400 w-36 shrink-0">
+                          {`{{${varName}}}`}
+                        </code>
+                        <span className="text-caption text-[#4E5968] dark:text-gray-300 flex-1 min-w-0 truncate">
+                          {v.description}
+                        </span>
+                        <span className="text-tiny text-[#B0B8C1] dark:text-gray-600 shrink-0 font-mono">
+                          {sampleExamples[varName] || v.example}
+                        </span>
+                      </button>
                     ))}
                   </div>
                 </div>
-              )}
-            </div>
-          )}
+              );
+            })()}
 
-          {/* Active */}
-          <div className="flex items-center justify-between rounded-2xl border border-[#F2F4F6] px-4 py-3 dark:border-gray-800">
-            <div>
-              <p className="text-body font-medium text-gray-900 dark:text-white">활성 상태</p>
-              <p className="text-caption text-gray-400 dark:text-gray-500">비활성화하면 이 템플릿을 사용할 수 없습니다</p>
+            {/* Active */}
+            <div className="flex items-center justify-between rounded-2xl border border-[#F2F4F6] px-4 py-3 dark:border-gray-800">
+              <div>
+                <p className="text-body font-medium text-gray-900 dark:text-white">활성 상태</p>
+                <p className="text-caption text-gray-400 dark:text-gray-500">비활성화하면 이 템플릿을 사용할 수 없습니다</p>
+              </div>
+              <ToggleSwitch id="t-active" checked={tActive} onChange={setTActive} label="" />
             </div>
-            <ToggleSwitch id="t-active" checked={tActive} onChange={setTActive} label="" />
+          </div>
+
+          {/* Right column: content */}
+          <div className="flex flex-col gap-4">
+            {/* Content */}
+            <div className="flex flex-col flex-1 space-y-2">
+              <Label htmlFor="t-content">
+                메시지 내용 <span className="text-[#F04452] dark:text-red-400">*</span>
+              </Label>
+              <Textarea
+                id="t-content"
+                placeholder={`예시:\n안녕하세요 {{customer_name}}님!\n금일 객실은 {{building}}동 {{room_num}}호입니다.\n비밀번호: {{room_password}}`}
+                value={tContent}
+                onChange={e => handleContentChange(e.target.value)}
+                className="font-mono text-body flex-1 min-h-[300px]"
+              />
+              <p className="text-caption text-gray-400 dark:text-gray-500">
+                <code className="rounded bg-[#F2F4F6] px-1 py-0.5 font-mono text-[#3182F6] dark:bg-gray-700 dark:text-blue-400">{'{{변수명}}'}</code>{' '}
+                형식으로 변수를 삽입하세요
+              </p>
+            </div>
+
+            {/* Detected variables */}
+            {(detectedVars.valid.length > 0 || detectedVars.invalid.length > 0) && (
+              <div className="rounded-2xl border border-[#F2F4F6] bg-[#F2F4F6] p-4 dark:border-gray-800 dark:bg-[#1E1E24]">
+                <p className="mb-3 text-overline font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-gray-400">감지된 변수</p>
+                <div className="space-y-3">
+                  {detectedVars.valid.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="flex items-center gap-1 text-caption font-medium text-[#00C9A7] dark:text-green-400">
+                        <CheckCircle className="h-3 w-3" /> 유효한 변수
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {detectedVars.valid.map(v => (
+                          <span
+                            key={v}
+                            className="inline-flex items-center gap-1 rounded-xl bg-[#E8FAF5] px-2 py-0.5 text-caption text-[#00C9A7] dark:bg-green-900/20 dark:text-green-400"
+                          >
+                            <CheckCircle className="h-3 w-3" />
+                            <code className="font-mono">{`{{${v}}}`}</code>
+                            {availableVariables?.variables?.[v] && (
+                              <span className="text-[#00C9A7] dark:text-emerald-400"> — {availableVariables.variables[v].description}</span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {detectedVars.invalid.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="flex items-center gap-1 text-caption font-medium text-[#F04452] dark:text-red-400">
+                        <XCircle className="h-3 w-3" /> 유효하지 않은 변수
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {detectedVars.invalid.map(v => (
+                          <span
+                            key={v}
+                            className="inline-flex items-center gap-1 rounded-xl bg-[#FFEBEE] px-2 py-0.5 text-caption text-[#F04452] dark:bg-red-900/20 dark:text-red-400"
+                          >
+                            <XCircle className="h-3 w-3" />
+                            <code className="font-mono">{`{{${v}}}`}</code>
+                            <span className="text-[#F04452] dark:text-red-400"> — 정의되지 않음</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       </ModalBody>
@@ -1081,7 +1214,7 @@ const Templates: React.FC = () => {
               <option value="">템플릿 선택</option>
               {templates.map(t => (
                 <option key={t.id} value={String(t.id)}>
-                  {t.name} ({t.key})
+                  {t.name} ({t.template_key})
                 </option>
               ))}
             </Select>
@@ -1089,181 +1222,203 @@ const Templates: React.FC = () => {
 
           <div className="border-t border-[#F2F4F6] dark:border-gray-800" />
 
-          {/* Schedule type */}
+          {/* Schedule type + time in one row */}
           <div className="space-y-3">
             <Label>발송 주기 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {[
-                { value: 'daily', label: '매일' },
-                { value: 'weekly', label: '매주' },
-                { value: 'hourly', label: '매시간' },
-                { value: 'interval', label: '간격' },
-              ].map(opt => (
-                <label
-                  key={opt.value}
-                  className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-body font-medium transition-colors ${
-                    sType === opt.value
-                      ? 'border-[#3182F6] bg-[#E8F3FF] text-[#3182F6] dark:border-blue-400 dark:bg-blue-900/20 dark:text-blue-300'
-                      : 'border-[#F2F4F6] bg-white text-[#4E5968] hover:bg-[#F2F4F6] dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-[#2C2C34]'
-                  }`}
-                >
-                  <Radio
-                    name="scheduleType"
-                    value={opt.value}
-                    checked={sType === opt.value}
-                    onChange={() => setSType(opt.value)}
-                    className="hidden"
-                  />
-                  <span>{opt.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <Select value={sType} onChange={e => setSType(e.target.value)} className="w-28">
+                <option value="daily">매일</option>
+                <option value="weekly">매주</option>
+                <option value="hourly">매시간</option>
+                <option value="interval">간격</option>
+              </Select>
 
-          {/* Dynamic time fields */}
-          {sType === 'daily' && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>시 (Hour)</Label>
-                <Select value={sHour} onChange={e => setSHour(e.target.value)}>
-                  {Array.from({ length: 24 }, (_, i) => (
-                    <option key={i} value={String(i)}>{String(i).padStart(2, '0')}시</option>
-                  ))}
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>분 (Minute)</Label>
-                <Select value={sMinute} onChange={e => setSMinute(e.target.value)}>
-                  {Array.from({ length: 60 }, (_, i) => (
-                    <option key={i} value={String(i)}>{String(i).padStart(2, '0')}분</option>
-                  ))}
-                </Select>
-              </div>
-            </div>
-          )}
-
-          {sType === 'weekly' && (
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <Label>요일</Label>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(DAY_MAP).map(([k, v]) => (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => toggleDay(k)}
-                      className={`rounded-xl border px-3 py-1.5 text-body font-medium transition-colors ${
-                        sDayOfWeek.includes(k)
-                          ? 'border-[#3182F6] bg-[#3182F6] text-white'
-                          : 'border-[#F2F4F6] bg-white text-[#4E5968] hover:bg-[#F2F4F6] dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300'
-                      }`}
-                    >
-                      {v}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>시</Label>
-                  <Select value={sHour} onChange={e => setSHour(e.target.value)}>
+              {(sType === 'daily' || sType === 'weekly') && (
+                <>
+                  <Select value={sHour} onChange={e => setSHour(e.target.value)} className="w-24">
                     {Array.from({ length: 24 }, (_, i) => (
                       <option key={i} value={String(i)}>{String(i).padStart(2, '0')}시</option>
                     ))}
                   </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>분</Label>
-                  <Select value={sMinute} onChange={e => setSMinute(e.target.value)}>
+                  <Select value={sMinute} onChange={e => setSMinute(e.target.value)} className="w-24">
                     {Array.from({ length: 60 }, (_, i) => (
                       <option key={i} value={String(i)}>{String(i).padStart(2, '0')}분</option>
                     ))}
                   </Select>
+                </>
+              )}
+
+              {sType === 'hourly' && (
+                <Select value={sMinute} onChange={e => setSMinute(e.target.value)} className="w-24">
+                  {Array.from({ length: 60 }, (_, i) => (
+                    <option key={i} value={String(i)}>{String(i).padStart(2, '0')}분</option>
+                  ))}
+                </Select>
+              )}
+
+              {sType === 'interval' && (
+                <div className="flex items-center gap-2">
+                  <TextInput
+                    type="number"
+                    min={1}
+                    max={1440}
+                    placeholder="10"
+                    value={sIntervalMinutes}
+                    onChange={e => setSIntervalMinutes(e.target.value)}
+                    className="w-20"
+                  />
+                  <span className="text-body text-[#8B95A1] dark:text-gray-400">분마다</span>
                 </div>
-              </div>
+              )}
             </div>
-          )}
 
-          {sType === 'hourly' && (
-            <div className="space-y-2">
-              <Label>분 (Minute)</Label>
-              <Select value={sMinute} onChange={e => setSMinute(e.target.value)}>
-                {Array.from({ length: 60 }, (_, i) => (
-                  <option key={i} value={String(i)}>매시간 {String(i).padStart(2, '0')}분</option>
+            {sType === 'weekly' && (
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(DAY_MAP).map(([k, v]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => toggleDay(k)}
+                    className={`rounded-xl border px-3 py-1.5 text-body font-medium transition-colors ${
+                      sDayOfWeek.includes(k)
+                        ? 'border-[#3182F6] bg-[#3182F6] text-white'
+                        : 'border-[#F2F4F6] bg-white text-[#4E5968] hover:bg-[#F2F4F6] dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                    }`}
+                  >
+                    {v}
+                  </button>
                 ))}
-              </Select>
-              <p className="text-caption text-gray-400 dark:text-gray-500">매시간 이 분에 발송됩니다 (예: 10분 → 1:10, 2:10, 3:10...)</p>
-            </div>
-          )}
-
-          {sType === 'interval' && (
-            <div className="space-y-2">
-              <Label>간격 (분)</Label>
-              <div className="flex items-center gap-2">
-                <TextInput
-                  type="number"
-                  min={1}
-                  max={1440}
-                  placeholder="예: 10"
-                  value={sIntervalMinutes}
-                  onChange={e => setSIntervalMinutes(e.target.value)}
-                  className="w-32"
-                />
-                <span className="text-body text-gray-500 dark:text-gray-400">분마다</span>
               </div>
-              <p className="text-caption text-gray-400 dark:text-gray-500">N분마다 반복 발송됩니다</p>
-            </div>
-          )}
+            )}
+          </div>
 
           <div className="border-t border-[#F2F4F6] dark:border-gray-800" />
 
-          {/* Target type */}
-          <div className="space-y-2">
-            <Label>발송 대상 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
-            <Select value={sTargetType} onChange={e => setSTargetType(e.target.value)}>
-              <option value="all">전체 예약자</option>
-              <option value="tag">특정 태그가 있는 사람</option>
-              <option value="room_assigned">객실이 배정된 사람</option>
-              <option value="party_only">파티만 참석하는 사람</option>
-            </Select>
-          </div>
+          {/* Multi-filter target */}
+          <div className="space-y-3">
+            <Label>발송 대상 필터</Label>
 
-          {sTargetType === 'tag' && (
-            <div className="space-y-2">
-              <Label>태그 이름 <span className="text-[#F04452] dark:text-red-400">*</span></Label>
-              <TextInput
-                placeholder="예: 파티만"
-                value={sTargetValue}
-                onChange={e => setSTargetValue(e.target.value)}
-              />
-              <p className="text-caption text-gray-400 dark:text-gray-500">예약자에게 붙은 태그를 입력하세요 (예: 파티만, 1초, 2차만)</p>
+            {/* Row 1: Building */}
+            {buildings.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-caption font-medium text-[#8B95A1] dark:text-gray-400">건물</div>
+                <div className="inline-flex rounded-lg overflow-hidden border border-[#E5E8EB] dark:border-gray-600">
+                  {[...buildings].reverse().map(b => {
+                    const isActive = isFilterActive('building', String(b.id));
+                    return (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => toggleScheduleFilter('building', String(b.id))}
+                        className={`w-24 px-3 py-2.5 text-body font-medium transition-colors cursor-pointer border-r border-[#E5E8EB] dark:border-gray-600 last:border-r-0
+                          ${isActive
+                            ? 'bg-[#3182F6] text-white'
+                            : 'bg-white text-[#B0B8C1] hover:bg-[#F2F4F6] dark:bg-[#1E1E24] dark:text-gray-500 dark:hover:bg-[#2C2C34]'
+                          }`}
+                      >
+                        {b.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Row 2: Assignment status */}
+            <div className="space-y-1.5">
+              <div className="text-caption font-medium text-[#8B95A1] dark:text-gray-400">배정 상태</div>
+              <div className="inline-flex rounded-lg overflow-hidden border border-[#E5E8EB] dark:border-gray-600">
+                {[
+                  { value: 'room', label: '객실배정' },
+                  { value: 'party', label: '파티만' },
+                  { value: 'unassigned', label: '미배정' },
+                ].map(opt => {
+                  const isActive = isFilterActive('assignment', opt.value);
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => toggleScheduleFilter('assignment', opt.value)}
+                      className={`w-24 px-3 py-2.5 text-body font-medium transition-colors cursor-pointer border-r border-[#E5E8EB] dark:border-gray-600 last:border-r-0
+                        ${isActive
+                          ? 'bg-[#3182F6] text-white'
+                          : 'bg-white text-[#B0B8C1] hover:bg-[#F2F4F6] dark:bg-[#1E1E24] dark:text-gray-500 dark:hover:bg-[#2C2C34]'
+                        }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          )}
 
-          {/* Date filter */}
-          <div className="space-y-2">
-            <Label>날짜 필터</Label>
-            <Select value={sDateFilter} onChange={e => setSDateFilter(e.target.value)}>
-              <option value="today">오늘 예약자</option>
-              <option value="tomorrow">내일 예약자</option>
-            </Select>
-          </div>
-
-          {/* Exclude sent */}
-          <div className="flex items-start gap-3 rounded-2xl border border-[#F2F4F6] px-4 py-3 dark:border-gray-800">
-            <Checkbox
-              id="s-exclude"
-              checked={sExcludeSent}
-              onChange={e => setSExcludeSent(e.target.checked)}
-              className="mt-0.5"
-            />
-            <div>
-              <label htmlFor="s-exclude" className="cursor-pointer text-body font-medium text-gray-900 dark:text-white">
-                이미 발송된 대상은 제외
-              </label>
-              <p className="text-caption text-gray-400 dark:text-gray-500">이미 발송한 사람에게는 다시 보내지 않습니다</p>
+            {/* Row 3: Date */}
+            <div className="space-y-1.5">
+              <div className="text-caption font-medium text-[#8B95A1] dark:text-gray-400">날짜</div>
+              <div className="inline-flex rounded-lg overflow-hidden border border-[#E5E8EB] dark:border-gray-600">
+                {[
+                  { value: 'today', label: '오늘' },
+                  { value: 'tomorrow', label: '내일' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setSDateFilter(opt.value)}
+                    className={`w-24 px-3 py-2.5 text-body font-medium transition-colors cursor-pointer border-r border-[#E5E8EB] dark:border-gray-600 last:border-r-0
+                      ${sDateFilter === opt.value
+                        ? 'bg-[#3182F6] text-white'
+                        : 'bg-white text-[#B0B8C1] hover:bg-[#F2F4F6] dark:bg-[#1E1E24] dark:text-gray-500 dark:hover:bg-[#2C2C34]'
+                      }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
+
+            {/* Summary text — {{건물}}의 {{배정 상태}} 상태의 {{날짜}} 예약자에게 발송됩니다 */}
+            {(() => {
+              const dateLabel = sDateFilter === 'tomorrow' ? '내일' : '오늘';
+              const buildingFilters = sFilters.filter(f => f.type === 'building');
+              const assignmentFilters = sFilters.filter(f => f.type === 'assignment');
+
+              const buildingText = buildingFilters.length > 0
+                ? buildingFilters.map(f => {
+                    const b = buildings.find(b => String(b.id) === f.value);
+                    return b?.name || f.value;
+                  }).join(' 또는 ')
+                : '';
+
+              const assignmentText = assignmentFilters.length > 0
+                ? assignmentFilters.map(f => {
+                    if (f.value === 'room') return '객실배정';
+                    if (f.value === 'party') return '파티만';
+                    if (f.value === 'unassigned') return '미배정';
+                    return f.value;
+                  }).join(' 또는 ')
+                : '';
+
+              if (!buildingText && !assignmentText) {
+                return (
+                  <p className="text-caption text-[#B0B8C1] dark:text-gray-600">
+                    {dateLabel} 전체 예약자에게 발송됩니다
+                  </p>
+                );
+              }
+
+              const parts: string[] = [];
+              if (buildingText) parts.push(buildingText);
+              if (assignmentText) parts.push(`${assignmentText} 상태`);
+
+              return (
+                <p className="text-caption text-[#3182F6]">
+                  {parts.join('의 ')}의 {dateLabel} 예약자에게 발송됩니다
+                </p>
+              );
+            })()}
           </div>
+
+          <div className="border-t border-[#F2F4F6] dark:border-gray-800" />
 
           {/* Active */}
           <div className="flex items-center justify-between rounded-2xl border border-[#F2F4F6] px-4 py-3 dark:border-gray-800">
@@ -1312,7 +1467,6 @@ const Templates: React.FC = () => {
                       <TableHeadCell className="whitespace-nowrap">이름</TableHeadCell>
                       <TableHeadCell className="whitespace-nowrap">전화번호</TableHeadCell>
                       <TableHeadCell className="whitespace-nowrap">객실</TableHeadCell>
-                      <TableHeadCell className="whitespace-nowrap">발송 완료</TableHeadCell>
                     </TableRow>
                   </TableHead>
                   <TableBody className="divide-y">
@@ -1331,15 +1485,6 @@ const Templates: React.FC = () => {
                         </TableCell>
                         <TableCell>
                           <span className="text-body text-[#4E5968] dark:text-gray-300">{p.room_number ?? '-'}</span>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            {p.room_sms_sent && <Badge color="blue" size="sm">객실</Badge>}
-                            {p.party_sms_sent && <Badge color="purple" size="sm">파티</Badge>}
-                            {!p.room_sms_sent && !p.party_sms_sent && (
-                              <span className="text-caption text-gray-400 dark:text-gray-500">없음</span>
-                            )}
-                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

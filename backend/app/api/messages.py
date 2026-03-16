@@ -10,6 +10,7 @@ from app.db.database import get_db
 from app.db.models import Message, MessageDirection, MessageStatus, Reservation, User
 from app.auth.dependencies import get_current_user
 from app.factory import get_sms_provider
+from app.config import settings
 from datetime import datetime
 
 router = APIRouter(prefix="/api/messages", tags=["messages"])
@@ -17,13 +18,13 @@ router = APIRouter(prefix="/api/messages", tags=["messages"])
 
 class SendSMSRequest(BaseModel):
     to: str
-    message: str
+    content: str
 
 
 class SimulateReceiveRequest(BaseModel):
     from_: str
     to: str
-    message: str
+    content: str
 
 
 class MessageResponse(BaseModel):
@@ -32,7 +33,7 @@ class MessageResponse(BaseModel):
     direction: str
     from_: str
     to: str
-    message: str
+    content: str
     status: str
     created_at: datetime
     auto_response: Optional[str] = None
@@ -57,7 +58,7 @@ class ContactResponse(BaseModel):
 async def get_contacts(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get unique contact list with last message preview"""
     # Get all messages, find unique phone numbers (excluding our own number)
-    our_number = "010-9999-0000"
+    our_number = settings.SMS_SENDER_NUMBER
 
     messages = (
         db.query(Message)
@@ -80,20 +81,27 @@ async def get_contacts(db: Session = Depends(get_db), current_user: User = Depen
         if phone not in contacts_map:
             contacts_map[phone] = {
                 "phone": phone,
-                "last_message": msg.message[:100],
+                "last_message": msg.content[:100],
                 "last_message_time": msg.created_at,
                 "last_direction": msg.direction.value,
             }
 
-    # Look up customer names from reservations
+    # Look up customer names from reservations — 배치 조회로 N+1 제거
+    phones = list(contacts_map.keys())
+    reservations_for_contacts = (
+        db.query(Reservation)
+        .filter(Reservation.phone.in_(phones))
+        .order_by(Reservation.created_at.desc())
+        .all()
+    )
+    res_map: dict = {}
+    for r in reservations_for_contacts:
+        if r.phone not in res_map:
+            res_map[r.phone] = r
+
     contacts = []
     for phone, contact in contacts_map.items():
-        reservation = (
-            db.query(Reservation)
-            .filter(Reservation.phone == phone)
-            .order_by(Reservation.created_at.desc())
-            .first()
-        )
+        reservation = res_map.get(phone)
         contact["customer_name"] = reservation.customer_name if reservation else None
         contacts.append(ContactResponse(**contact))
 
@@ -133,7 +141,7 @@ async def get_messages(
             direction=msg.direction.value,
             from_=msg.from_,
             to=msg.to,
-            message=msg.message,
+            content=msg.content,
             status=msg.status.value,
             created_at=msg.created_at,
             auto_response=msg.auto_response,
@@ -149,22 +157,22 @@ async def get_messages(
 async def send_sms(request: SendSMSRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Send SMS manually"""
     sms_provider = get_sms_provider()
-    result = await sms_provider.send_sms(to=request.to, message=request.message)
+    result = await sms_provider.send_sms(to=request.to, message=request.content)
 
     # Save to DB
     msg = Message(
         message_id=result["message_id"],
         direction=MessageDirection.OUTBOUND,
-        from_="010-9999-0000",
+        from_=settings.SMS_SENDER_NUMBER,
         to=request.to,
-        message=request.message,
+        content=request.content,
         status=MessageStatus.SENT,
         response_source="manual",
     )
     db.add(msg)
     db.commit()
 
-    return {"status": "success", "result": result}
+    return {"success": True, "result": result}
 
 
 @router.get("/review-queue")
@@ -184,7 +192,7 @@ async def get_review_queue(db: Session = Depends(get_db), current_user: User = D
             direction=msg.direction.value,
             from_=msg.from_,
             to=msg.to,
-            message=msg.message,
+            content=msg.content,
             status=msg.status.value,
             created_at=msg.created_at,
             auto_response=msg.auto_response,

@@ -34,16 +34,16 @@ export const messagesAPI = {
   getAll: (params?: { skip?: number; limit?: number; direction?: string; phone?: string }) =>
     api.get('/api/messages', { params }),
   getContacts: () => api.get('/api/messages/contacts'),
-  send: (data: { to: string; message: string }) =>
+  send: (data: { to: string; content: string }) =>
     api.post('/api/messages/send', data),
   getReviewQueue: () => api.get('/api/messages/review-queue'),
-  simulateReceive: (data: { from_: string; to: string; message: string }) =>
+  simulateReceive: (data: { from_: string; to: string; content: string }) =>
     api.post('/webhooks/sms/receive', data),
 };
 
 // Reservations API
 export const reservationsAPI = {
-  getAll: (params?: { skip?: number; limit?: number; status?: string; date?: string }) =>
+  getAll: (params?: { skip?: number; limit?: number; status?: string; date?: string; search?: string; source?: string }) =>
     api.get('/api/reservations', { params }),
   create: (data: any) => api.post('/api/reservations', data),
   update: (id: number, data: any) => api.put(`/api/reservations/${id}`, data),
@@ -56,14 +56,12 @@ export const reservationsAPI = {
 // Rooms API
 export const roomsAPI = {
   getAll: (params?: { include_inactive?: boolean }) => api.get('/api/rooms', { params }),
-  create: (data: { room_number: string; room_type: string; is_active?: boolean; sort_order?: number }) =>
+  create: (data: { room_number: string; room_type: string; active?: boolean; sort_order?: number; biz_item_ids?: string[] }) =>
     api.post('/api/rooms', data),
   update: (id: number, data: any) => api.put(`/api/rooms/${id}`, data),
   delete: (id: number) => api.delete(`/api/rooms/${id}`),
   getBizItems: () => api.get('/api/rooms/naver/biz-items'),
   syncBizItems: () => api.post('/api/rooms/naver/biz-items/sync'),
-  updateBizItem: (bizItemId: string, data: { is_dormitory?: boolean; dormitory_beds?: number | null }) =>
-    api.put(`/api/rooms/naver/biz-items/${bizItemId}`, data),
   autoAssign: (date?: string) => api.post('/api/rooms/auto-assign', null, { params: date ? { date } : undefined }),
 };
 
@@ -102,19 +100,6 @@ export const dashboardAPI = {
   getStats: () => api.get('/api/dashboard/stats'),
 };
 
-// Campaigns API
-export const campaignsAPI = {
-  // New independent campaign APIs
-  getList: () => api.get('/api/campaigns/list'),
-  send: (data: { campaign_type: string; date?: string; variables?: any }) =>
-    api.post('/api/campaigns/send', data),
-  preview: (campaignType: string, date?: string) =>
-    api.get('/api/campaigns/preview', { params: { campaign_type: campaignType, date } }),
-
-  getHistory: (params?: { skip?: number; limit?: number }) =>
-    api.get('/api/campaigns/history', { params }),
-};
-
 // Scheduler API
 export const schedulerAPI = {
   getJobs: () => api.get('/api/scheduler/jobs'),
@@ -130,7 +115,7 @@ export const templatesAPI = {
     api.get('/api/templates', { params }),
   getById: (id: number) => api.get(`/api/templates/${id}`),
   create: (data: {
-    key: string;
+    template_key: string;
     name: string;
     short_label?: string | null;
     content: string;
@@ -169,8 +154,7 @@ export const templateSchedulesAPI = {
     day_of_week?: string;
     interval_minutes?: number;
     timezone?: string;
-    target_type: string;
-    target_value?: string;
+    filters?: Array<{ type: string; value: string }>;
     date_filter?: string;
     exclude_sent?: boolean;
     active?: boolean;
@@ -195,6 +179,21 @@ export const authAPI = {
   updateUser: (id: number, data: any) => api.put(`/api/auth/users/${id}`, data),
   deleteUser: (id: number) => api.delete(`/api/auth/users/${id}`),
 }
+
+// Activity Logs API
+export const activityLogsAPI = {
+  getAll: (params?: { type?: string; status?: string; date?: string; skip?: number; limit?: number }) =>
+    api.get('/api/activity-logs', { params }),
+  getStats: () => api.get('/api/activity-logs/stats'),
+};
+
+// Buildings API
+export const buildingsAPI = {
+  getAll: () => api.get('/api/buildings'),
+  create: (data: any) => api.post('/api/buildings', data),
+  update: (id: number, data: any) => api.put(`/api/buildings/${id}`, data),
+  delete: (id: number) => api.delete(`/api/buildings/${id}`),
+};
 
 // Settings API
 export const settingsAPI = {

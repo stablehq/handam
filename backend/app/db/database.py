@@ -35,16 +35,100 @@ def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
 
 def init_db():
     """Initialize database tables and ensure default admin exists"""
-    from app.db.models import Base, User, UserRole
+    from app.db.models import Base, User, UserRole, Room, RoomBizItemLink, Building, TemplateSchedule
     from app.auth.utils import hash_password
+    from sqlalchemy import inspect as sa_inspect, text
+    import json
 
     Base.metadata.create_all(bind=engine)
+
+    # Auto-migrate: add missing columns to existing tables
+    inspector = sa_inspect(engine)
+    with engine.begin() as conn:
+        # rooms.building_id
+        if "rooms" in inspector.get_table_names():
+            existing_cols = [c["name"] for c in inspector.get_columns("rooms")]
+            if "building_id" not in existing_cols:
+                conn.execute(text("ALTER TABLE rooms ADD COLUMN building_id INTEGER"))
+                print("AUTO-MIGRATE: Added building_id column to rooms table")
+
+        # template_schedules.filters
+        if "template_schedules" in inspector.get_table_names():
+            existing_cols = [c["name"] for c in inspector.get_columns("template_schedules")]
+            if "filters" not in existing_cols:
+                conn.execute(text("ALTER TABLE template_schedules ADD COLUMN filters TEXT"))
+                print("AUTO-MIGRATE: Added filters column to template_schedules table")
+
+        # rules.active → is_active
+        if "rules" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("rules")]
+            if "active" in cols and "is_active" not in cols:
+                conn.execute(text("ALTER TABLE rules RENAME COLUMN active TO is_active"))
+                print("AUTO-MIGRATE: Renamed rules.active to is_active")
+
+        # message_templates.active → is_active
+        if "message_templates" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("message_templates")]
+            if "active" in cols and "is_active" not in cols:
+                conn.execute(text("ALTER TABLE message_templates RENAME COLUMN active TO is_active"))
+                print("AUTO-MIGRATE: Renamed message_templates.active to is_active")
+
+        # template_schedules.active → is_active
+        if "template_schedules" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("template_schedules")]
+            if "active" in cols and "is_active" not in cols:
+                conn.execute(text("ALTER TABLE template_schedules RENAME COLUMN active TO is_active"))
+                print("AUTO-MIGRATE: Renamed template_schedules.active to is_active")
+
+        # messages.needs_review → is_needs_review
+        if "messages" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("messages")]
+            if "needs_review" in cols and "is_needs_review" not in cols:
+                conn.execute(text("ALTER TABLE messages RENAME COLUMN needs_review TO is_needs_review"))
+                print("AUTO-MIGRATE: Renamed messages.needs_review to is_needs_review")
+
+        # documents.indexed → is_indexed
+        if "documents" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("documents")]
+            if "indexed" in cols and "is_indexed" not in cols:
+                conn.execute(text("ALTER TABLE documents RENAME COLUMN indexed TO is_indexed"))
+                print("AUTO-MIGRATE: Renamed documents.indexed to is_indexed")
+
+        # template_schedules.exclude_sent → is_exclude_sent
+        if "template_schedules" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("template_schedules")]
+            if "exclude_sent" in cols and "is_exclude_sent" not in cols:
+                conn.execute(text("ALTER TABLE template_schedules RENAME COLUMN exclude_sent TO is_exclude_sent"))
+                print("AUTO-MIGRATE: Renamed template_schedules.exclude_sent to is_exclude_sent")
+
+        # template_schedules.last_run → last_run_at, next_run → next_run_at
+        if "template_schedules" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("template_schedules")]
+            if "last_run" in cols and "last_run_at" not in cols:
+                conn.execute(text("ALTER TABLE template_schedules RENAME COLUMN last_run TO last_run_at"))
+                print("AUTO-MIGRATE: Renamed template_schedules.last_run to last_run_at")
+            if "next_run" in cols and "next_run_at" not in cols:
+                conn.execute(text("ALTER TABLE template_schedules RENAME COLUMN next_run TO next_run_at"))
+                print("AUTO-MIGRATE: Renamed template_schedules.next_run to next_run_at")
+
+        # reservations.confirmed_datetime → confirmed_at
+        if "reservations" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("reservations")]
+            if "confirmed_datetime" in cols and "confirmed_at" not in cols:
+                conn.execute(text("ALTER TABLE reservations RENAME COLUMN confirmed_datetime TO confirmed_at"))
+                print("AUTO-MIGRATE: Renamed reservations.confirmed_datetime to confirmed_at")
+            if "cancelled_datetime" in cols and "cancelled_at" not in cols:
+                conn.execute(text("ALTER TABLE reservations RENAME COLUMN cancelled_datetime TO cancelled_at"))
+                print("AUTO-MIGRATE: Renamed reservations.cancelled_datetime to cancelled_at")
 
     # Task 1.5: admin 기본 비밀번호 환경변수화
     db = SessionLocal()
@@ -58,5 +142,43 @@ def init_db():
                 is_active=True,
             ))
             db.commit()
+
+        # Migrate legacy 1:1 naver_biz_item_id to N:M room_biz_item_links
+        rooms_with_old_biz = db.query(Room).filter(Room.naver_biz_item_id.isnot(None)).all()
+        migrated = 0
+        for room in rooms_with_old_biz:
+            existing_link = db.query(RoomBizItemLink).filter(
+                RoomBizItemLink.room_id == room.id,
+                RoomBizItemLink.biz_item_id == room.naver_biz_item_id,
+            ).first()
+            if not existing_link:
+                db.add(RoomBizItemLink(room_id=room.id, biz_item_id=room.naver_biz_item_id))
+                migrated += 1
+        if migrated:
+            db.commit()
+            import logging
+            logging.getLogger(__name__).info(f"Migrated {migrated} room biz_item links from 1:1 to N:M")
+
+        # Migrate legacy target_type/target_value to filters JSON
+        schedules_to_migrate = db.query(TemplateSchedule).filter(
+            TemplateSchedule.target_type.isnot(None),
+            (TemplateSchedule.filters.is_(None)) | (TemplateSchedule.filters == '')
+        ).all()
+        migrated_schedules = 0
+        for s in schedules_to_migrate:
+            filters = []
+            if s.target_type == 'tag' and s.target_value:
+                filters.append({"type": "tag", "value": s.target_value})
+            elif s.target_type == 'room_assigned':
+                filters.append({"type": "assignment", "value": "room"})
+            elif s.target_type == 'party_only':
+                filters.append({"type": "assignment", "value": "party"})
+            # 'all' -> empty array
+            s.filters = json.dumps(filters, ensure_ascii=False)
+            migrated_schedules += 1
+        if migrated_schedules:
+            db.commit()
+            import logging
+            logging.getLogger(__name__).info(f"Migrated {migrated_schedules} template schedules to filters JSON")
     finally:
         db.close()

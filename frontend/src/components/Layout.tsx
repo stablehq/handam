@@ -28,6 +28,7 @@ import {
   Moon,
   Users,
   LogOut,
+  History,
 } from 'lucide-react'
 
 // ── Theme Context ──
@@ -106,6 +107,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: '시스템',
     items: [
+      { path: '/activity-logs', label: '활동 로그', icon: <History size={18} /> },
       { path: '/settings', label: '설정', icon: <Settings size={18} /> },
       { path: '/users', label: '계정 관리', icon: <Users size={18} /> },
     ],
@@ -123,6 +125,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/auto-response': '자동 응답',
   '/users': '계정 관리',
   '/settings': '설정',
+  '/activity-logs': '활동 로그',
 }
 
 // ── Role Badge ──

@@ -11,13 +11,15 @@ from app.db.database import get_db
 from app.db.models import MessageTemplate, User
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.templates.renderer import TemplateRenderer
+from app.api.shared_schemas import ActionResponse
 
-router = APIRouter()
+router = APIRouter(prefix="/api/templates", tags=["templates"])
+router_misc = APIRouter()
 
 
 # Pydantic models
 class TemplateCreate(BaseModel):
-    key: str
+    template_key: str
     name: str
     content: str
     variables: Optional[str] = None
@@ -27,7 +29,7 @@ class TemplateCreate(BaseModel):
 
 
 class TemplateUpdate(BaseModel):
-    key: Optional[str] = None
+    template_key: Optional[str] = None
     name: Optional[str] = None
     content: Optional[str] = None
     variables: Optional[str] = None
@@ -38,7 +40,7 @@ class TemplateUpdate(BaseModel):
 
 class TemplateResponse(BaseModel):
     id: int
-    key: str
+    template_key: str
     name: str
     content: str
     variables: Optional[str]
@@ -62,7 +64,7 @@ class TemplatePreviewResponse(BaseModel):
     variables_used: List[str]
 
 
-@router.get("/api/templates", response_model=List[TemplateResponse])
+@router.get("", response_model=List[TemplateResponse])
 def get_templates(
     category: Optional[str] = None,
     active: Optional[bool] = None,
@@ -75,7 +77,7 @@ def get_templates(
     if category:
         query = query.filter(MessageTemplate.category == category)
     if active is not None:
-        query = query.filter(MessageTemplate.active == active)
+        query = query.filter(MessageTemplate.is_active == active)
 
     templates = query.order_by(MessageTemplate.created_at.desc()).all()
 
@@ -84,12 +86,12 @@ def get_templates(
     for template in templates:
         template_dict = {
             "id": template.id,
-            "key": template.key,
+            "template_key": template.template_key,
             "name": template.name,
             "content": template.content,
             "variables": template.variables,
             "category": template.category,
-            "active": template.active,
+            "active": template.is_active,
             "created_at": template.created_at,
             "updated_at": template.updated_at,
             "schedule_count": len(template.schedules) if hasattr(template, 'schedules') else 0,
@@ -100,16 +102,16 @@ def get_templates(
     return result
 
 
-@router.get("/api/templates/labels")
+@router.get("/labels")
 def get_template_labels(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get template labels for chip display"""
-    templates = db.query(MessageTemplate).filter(MessageTemplate.active == True).order_by(MessageTemplate.key).all()
+    templates = db.query(MessageTemplate).filter(MessageTemplate.is_active == True).order_by(MessageTemplate.template_key).all()
     return [
         {
-            "key": t.key,
+            "template_key": t.template_key,
             "name": t.name,
             "short_label": t.short_label,
         }
@@ -117,22 +119,22 @@ def get_template_labels(
     ]
 
 
-@router.get("/api/templates/{template_id}", response_model=TemplateResponse)
+@router.get("/{template_id}", response_model=TemplateResponse)
 def get_template(template_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get a specific template"""
     template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
 
     if not template:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다")
 
     return {
         "id": template.id,
-        "key": template.key,
+        "template_key": template.template_key,
         "name": template.name,
         "content": template.content,
         "variables": template.variables,
         "category": template.category,
-        "active": template.active,
+        "active": template.is_active,
         "created_at": template.created_at,
         "updated_at": template.updated_at,
         "schedule_count": len(template.schedules) if hasattr(template, 'schedules') else 0,
@@ -140,22 +142,22 @@ def get_template(template_id: int, db: Session = Depends(get_db), current_user: 
     }
 
 
-@router.post("/api/templates", response_model=TemplateResponse)
+@router.post("", response_model=TemplateResponse)
 def create_template(template: TemplateCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
     """Create a new message template"""
     # Check if key already exists
-    existing = db.query(MessageTemplate).filter(MessageTemplate.key == template.key).first()
+    existing = db.query(MessageTemplate).filter(MessageTemplate.template_key == template.template_key).first()
     if existing:
-        raise HTTPException(status_code=400, detail=f"Template with key '{template.key}' already exists")
+        raise HTTPException(status_code=400, detail=f"키 '{template.template_key}'의 템플릿이 이미 존재합니다")
 
     # Create template
     db_template = MessageTemplate(
-        key=template.key,
+        template_key=template.template_key,
         name=template.name,
         content=template.content,
         variables=template.variables,
         category=template.category,
-        active=template.active,
+        is_active=template.active,
         short_label=template.short_label,
     )
 
@@ -165,12 +167,12 @@ def create_template(template: TemplateCreate, db: Session = Depends(get_db), cur
 
     return {
         "id": db_template.id,
-        "key": db_template.key,
+        "template_key": db_template.template_key,
         "name": db_template.name,
         "content": db_template.content,
         "variables": db_template.variables,
         "category": db_template.category,
-        "active": db_template.active,
+        "active": db_template.is_active,
         "created_at": db_template.created_at,
         "updated_at": db_template.updated_at,
         "schedule_count": 0,
@@ -178,37 +180,40 @@ def create_template(template: TemplateCreate, db: Session = Depends(get_db), cur
     }
 
 
-@router.put("/api/templates/{template_id}", response_model=TemplateResponse)
+@router.put("/{template_id}", response_model=TemplateResponse)
 def update_template(template_id: int, template: TemplateUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
     """Update a message template"""
     db_template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
 
     if not db_template:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다")
 
     # Check if new key conflicts
-    if template.key and template.key != db_template.key:
-        existing = db.query(MessageTemplate).filter(MessageTemplate.key == template.key).first()
+    if template.template_key and template.template_key != db_template.template_key:
+        existing = db.query(MessageTemplate).filter(MessageTemplate.template_key == template.template_key).first()
         if existing:
-            raise HTTPException(status_code=400, detail=f"Template with key '{template.key}' already exists")
+            raise HTTPException(status_code=400, detail=f"키 '{template.template_key}'의 템플릿이 이미 존재합니다")
 
     # Update fields
     update_data = template.dict(exclude_unset=True)
+    # Remap Pydantic 'active' field to ORM 'is_active' column
+    if "active" in update_data:
+        update_data["is_active"] = update_data.pop("active")
     for field, value in update_data.items():
         setattr(db_template, field, value)
 
-    db_template.updated_at = datetime.utcnow()
+    db_template.updated_at = datetime.now()
     db.commit()
     db.refresh(db_template)
 
     return {
         "id": db_template.id,
-        "key": db_template.key,
+        "template_key": db_template.template_key,
         "name": db_template.name,
         "content": db_template.content,
         "variables": db_template.variables,
         "category": db_template.category,
-        "active": db_template.active,
+        "active": db_template.is_active,
         "created_at": db_template.created_at,
         "updated_at": db_template.updated_at,
         "schedule_count": len(db_template.schedules) if hasattr(db_template, 'schedules') else 0,
@@ -216,30 +221,30 @@ def update_template(template_id: int, template: TemplateUpdate, db: Session = De
     }
 
 
-@router.delete("/api/templates/{template_id}")
+@router.delete("/{template_id}", response_model=ActionResponse)
 def delete_template(template_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
     """Delete a message template"""
     template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
 
     if not template:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다")
 
     # Check if template has active schedules
     if hasattr(template, 'schedules') and template.schedules:
-        active_schedules = [s for s in template.schedules if s.active]
+        active_schedules = [s for s in template.schedules if s.is_active]
         if active_schedules:
             raise HTTPException(
                 status_code=400,
-                detail=f"Cannot delete template with {len(active_schedules)} active schedule(s)"
+                detail=f"활성 스케줄이 {len(active_schedules)}개 있는 템플릿은 삭제할 수 없습니다"
             )
 
     db.delete(template)
     db.commit()
 
-    return {"success": True, "message": "Template deleted"}
+    return {"success": True, "message": "템플릿이 삭제되었습니다"}
 
 
-@router.post("/api/templates/{template_id}/preview", response_model=TemplatePreviewResponse)
+@router.post("/{template_id}/preview", response_model=TemplatePreviewResponse)
 def preview_template(
     template_id: int,
     request: TemplatePreviewRequest,
@@ -250,14 +255,14 @@ def preview_template(
     template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
 
     if not template:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다")
 
     try:
         # Create renderer instance with db session
         renderer = TemplateRenderer(db)
 
         # Render template with provided variables
-        rendered = renderer.render(template.key, request.variables)
+        rendered = renderer.render(template.template_key, request.variables)
 
         # Extract variables used (simple regex)
         import re
@@ -270,10 +275,10 @@ def preview_template(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to render template: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"템플릿 렌더링 실패: {str(e)}")
 
 
-@router.get("/api/template-variables")
+@router_misc.get("/api/template-variables")
 def get_available_variables(current_user: User = Depends(get_current_user)):
     """
     Get list of all available template variables

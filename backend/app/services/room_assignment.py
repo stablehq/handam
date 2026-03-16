@@ -6,7 +6,7 @@ consistency between room_assignments table and denormalized fields.
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, List
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, func
 import logging
 
 from app.db.models import RoomAssignment, Reservation, Room, ReservationSmsAssignment, TemplateSchedule
@@ -15,12 +15,15 @@ from app.templates.renderer import TemplateRenderer
 logger = logging.getLogger(__name__)
 
 
-def sync_sms_tags(db: Session, reservation_id: int) -> None:
+def sync_sms_tags(db: Session, reservation_id: int, schedules=None) -> None:
     """
     Reconcile SMS tags for a reservation based on active TemplateSchedules.
     - Evaluates each schedule's target_type against the reservation's current state
     - Creates missing tags, removes obsolete unsent tags
     - Protects: sent tags (sent_at != null), manually assigned tags (assigned_by='manual')
+
+    schedules: pre-fetched list of active TemplateSchedule objects. If None, fetched
+               from DB automatically (backward-compatible single-call usage).
     """
     reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not reservation:
@@ -31,13 +34,14 @@ def sync_sms_tags(db: Session, reservation_id: int) -> None:
         RoomAssignment.reservation_id == reservation_id
     ).first() is not None
 
-    schedules = db.query(TemplateSchedule).filter(TemplateSchedule.active == True).all()
+    if schedules is None:
+        schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
 
     # Compute which template_keys should exist based on schedule rules
     expected_keys: set[str] = set()
     for schedule in schedules:
         if _reservation_matches_schedule(reservation, schedule, has_room):
-            expected_keys.add(schedule.template.key)
+            expected_keys.add(schedule.template.template_key)
 
     # Get current auto-assigned (non-manual) unsent tags
     existing = db.query(ReservationSmsAssignment).filter(
@@ -125,7 +129,7 @@ def assign_room(
     is_dorm = _is_dormitory_room(db, room_number)
     # 객실에 고정 비밀번호가 있으면 사용, 없으면 자동 생성
     room_obj = db.query(Room).filter(Room.room_number == room_number, Room.is_active == True).first()
-    password = (room_obj.default_password if room_obj and room_obj.default_password else
+    password = (room_obj.door_password if room_obj and room_obj.door_password else
                 TemplateRenderer.generate_room_password(room_number))
 
     # Concurrency guard for non-dormitory rooms
@@ -232,7 +236,7 @@ def get_occupancy(db: Session, date: str, room_number: str) -> int:
     """
     Get occupancy count for a room on a specific date.
     For non-dormitory rooms: count of assignments (should be 0 or 1).
-    For dormitory rooms: sum of party_participants/booking_count from reservations.
+    For dormitory rooms: sum of party_size/booking_count from reservations.
     """
     is_dorm = _is_dormitory_room(db, room_number)
 
@@ -246,20 +250,23 @@ def get_occupancy(db: Session, date: str, room_number: str) -> int:
             .count()
         )
 
-    # Dormitory: sum people from associated reservations
-    assignments = (
-        db.query(RoomAssignment)
+    # Dormitory: sum people from associated reservations via single JOIN + aggregate
+    total = (
+        db.query(
+            func.coalesce(
+                func.sum(
+                    func.coalesce(Reservation.party_size, Reservation.booking_count, 1)
+                ),
+                0,
+            )
+        )
+        .join(RoomAssignment, RoomAssignment.reservation_id == Reservation.id)
         .filter(
             RoomAssignment.date == date,
             RoomAssignment.room_number == room_number,
         )
-        .all()
-    )
-    total = 0
-    for a in assignments:
-        res = db.query(Reservation).filter(Reservation.id == a.reservation_id).first()
-        if res:
-            total += res.party_participants or res.booking_count or 1
+        .scalar()
+    ) or 0
     return total
 
 
@@ -290,7 +297,7 @@ def sync_denormalized_field(db: Session, reservation: Reservation):
         db.query(RoomAssignment)
         .filter(
             RoomAssignment.reservation_id == reservation.id,
-            RoomAssignment.date == reservation.date,
+            RoomAssignment.date == reservation.check_in_date,
         )
         .first()
     )
@@ -319,7 +326,7 @@ def reconcile_dates(db: Session, reservation: Reservation):
     Deletes assignments for dates no longer in [date, end_date) range.
     Does NOT auto-extend assignments.
     """
-    valid_dates = set(_date_range(reservation.date, reservation.end_date))
+    valid_dates = set(_date_range(reservation.check_in_date, reservation.check_out_date))
 
     orphaned = (
         db.query(RoomAssignment)
@@ -362,27 +369,42 @@ def check_capacity_all_dates(
 
     dates = _date_range(from_date, end_date)
     is_dorm = room.is_dormitory
-    capacity = room.dormitory_beds if is_dorm else 1
+    capacity = room.bed_capacity if is_dorm else 1
 
-    for d in dates:
-        query = db.query(RoomAssignment).filter(
-            RoomAssignment.date == d,
-            RoomAssignment.room_number == room_number,
+    if is_dorm:
+        # Batch: fetch occupancy for all dates in one JOIN + GROUP BY query
+        agg_query = (
+            db.query(
+                RoomAssignment.date,
+                func.coalesce(
+                    func.sum(
+                        func.coalesce(Reservation.party_size, Reservation.booking_count, 1)
+                    ),
+                    0,
+                ).label("occupancy"),
+            )
+            .join(Reservation, RoomAssignment.reservation_id == Reservation.id)
+            .filter(
+                RoomAssignment.room_number == room_number,
+                RoomAssignment.date.in_(dates),
+            )
         )
         if exclude_reservation_id:
-            query = query.filter(RoomAssignment.reservation_id != exclude_reservation_id)
+            agg_query = agg_query.filter(RoomAssignment.reservation_id != exclude_reservation_id)
+        occupancy_map = {row.date: row.occupancy for row in agg_query.group_by(RoomAssignment.date).all()}
 
-        if is_dorm:
-            # Sum people from reservations
-            assignments = query.all()
-            current = 0
-            for a in assignments:
-                res = db.query(Reservation).filter(Reservation.id == a.reservation_id).first()
-                if res:
-                    current += res.party_participants or res.booking_count or 1
+        for d in dates:
+            current = occupancy_map.get(d, 0)
             if current + people_count > capacity:
                 return False
-        else:
+    else:
+        for d in dates:
+            query = db.query(RoomAssignment).filter(
+                RoomAssignment.date == d,
+                RoomAssignment.room_number == room_number,
+            )
+            if exclude_reservation_id:
+                query = query.filter(RoomAssignment.reservation_id != exclude_reservation_id)
             if query.count() >= capacity:
                 return False
 

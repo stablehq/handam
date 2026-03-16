@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import User, UserRole
 from app.auth.utils import verify_password, hash_password, create_access_token
 from app.auth.schemas import LoginRequest, LoginResponse, UserInfo, UserCreate, UserUpdate
 from app.auth.dependencies import get_current_user, require_admin_or_above
+from app.rate_limit import limiter
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -16,9 +17,10 @@ ROLE_HIERARCHY = {
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(request: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == request.username).first()
-    if not user or not verify_password(request.password, user.hashed_password):
+@limiter.limit("5/minute")
+async def login(request: Request, login_data: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == login_data.username).first()
+    if not user or not verify_password(login_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="아이디 또는 비밀번호가 올바르지 않습니다",
@@ -37,7 +39,7 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
             username=user.username,
             name=user.name,
             role=user.role.value,
-            is_active=user.is_active,
+            active=user.is_active,
         ),
     )
 
@@ -49,7 +51,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
         username=current_user.username,
         name=current_user.name,
         role=current_user.role.value,
-        is_active=current_user.is_active,
+        active=current_user.is_active,
     )
 
 
@@ -67,7 +69,7 @@ async def list_users(
     return [
         UserInfo(
             id=u.id, username=u.username, name=u.name,
-            role=u.role.value, is_active=u.is_active,
+            role=u.role.value, active=u.is_active,
         )
         for u in users
     ]
@@ -102,7 +104,7 @@ async def create_user(
 
     return UserInfo(
         id=user.id, username=user.username, name=user.name,
-        role=user.role.value, is_active=user.is_active,
+        role=user.role.value, active=user.is_active,
     )
 
 
@@ -137,15 +139,15 @@ async def update_user(
         if new_role == UserRole.SUPERADMIN:
             raise HTTPException(status_code=403, detail="superadmin 역할을 부여할 수 없습니다")
         user.role = new_role
-    if request.is_active is not None:
-        user.is_active = request.is_active
+    if request.active is not None:
+        user.is_active = request.active
 
     db.commit()
     db.refresh(user)
 
     return UserInfo(
         id=user.id, username=user.username, name=user.name,
-        role=user.role.value, is_active=user.is_active,
+        role=user.role.value, active=user.is_active,
     )
 
 

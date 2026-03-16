@@ -7,6 +7,11 @@ Create Date: 2026-03-11
 This migration adds:
 - room_assignments table with per-date room assignment tracking
 - Backfill from existing reservation.room_number data
+
+NOTE: PostgreSQL-only migration.
+Uses SERIAL, LATERAL, generate_series(), and ::date/::text casts which are
+PostgreSQL-specific syntax. This migration will fail on SQLite (demo mode).
+Run only against a PostgreSQL database (DEMO_MODE=false).
 """
 
 from alembic import op

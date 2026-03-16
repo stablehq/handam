@@ -3,14 +3,16 @@ Real SMS Provider - Integration with existing SMS API
 Ported from stable-clasp-main/00_main.js and 01_sns.js
 """
 from typing import Dict, Any, List
+from datetime import datetime
 import httpx
 import logging
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 class RealSMSProvider:
-    """Real SMS provider using existing SMS API at http://15.164.246.59:3000/sendMass"""
+    """Real SMS provider using existing SMS API (URL configured via SMS_API_URL setting)"""
 
     def __init__(self, api_key: str = "", api_secret: str = ""):
         """
@@ -22,7 +24,7 @@ class RealSMSProvider:
         """
         self.api_key = api_key
         self.api_secret = api_secret
-        self.api_url = "http://15.164.246.59:3000/sendMass"
+        self.api_url = settings.SMS_API_URL
 
     async def send_sms(self, to: str, message: str, **kwargs) -> Dict[str, Any]:
         """
@@ -34,12 +36,12 @@ class RealSMSProvider:
             **kwargs: Additional options (msg_type, testmode_yn)
 
         Returns:
-            Response from API
-
-        Ported from: stable-clasp-main/00_main.js (roomGuideInRange SMS logic)
+            Standard SMS response dict (see providers/base.py)
         """
-        msg_type = kwargs.get('msg_type', 'LMS')  # Default to LMS for long messages
+        msg_type = kwargs.get('msg_type', 'LMS')
         testmode = kwargs.get('testmode_yn', 'N')
+        timestamp = datetime.now().isoformat()
+        message_id = f"real_{int(datetime.now().timestamp())}"
 
         payload = {
             "msg_type": msg_type,
@@ -49,7 +51,16 @@ class RealSMSProvider:
             "testmode_yn": testmode
         }
 
-        return await self._send_bulk(payload)
+        result = await self._send_bulk(payload)
+        return {
+            "success": result.get("success", False),
+            "message_id": message_id,
+            "to": to,
+            "message": message,
+            "timestamp": timestamp,
+            "provider": "real",
+            "error": result.get("error"),
+        }
 
     async def send_bulk(self, messages: List[Dict[str, str]], **kwargs) -> Dict[str, Any]:
         """
@@ -60,22 +71,21 @@ class RealSMSProvider:
             **kwargs: Additional options (msg_type, testmode_yn)
 
         Returns:
-            Response from API
-
-        Ported from: stable-clasp-main/01_sns.js:86-124 (sendSmsAndMark)
+            Standard bulk SMS response dict (see providers/base.py)
         """
+        timestamp = datetime.now().isoformat()
+        total = len(messages)
+
         if not messages:
             logger.warning("No messages to send")
-            return {"success": False, "error": "No messages provided"}
+            return {"success": False, "total": 0, "sent": 0, "failed": 0, "timestamp": timestamp, "provider": "real", "error": "No messages provided"}
 
         msg_type = kwargs.get('msg_type', 'LMS')
         testmode = kwargs.get('testmode_yn', 'N')
 
-        # Build payload for bulk sending
-        # Format from line 86-95 of 01_sns.js
         payload = {
             "msg_type": msg_type,
-            "cnt": str(len(messages)),
+            "cnt": str(total),
             "testmode_yn": testmode
         }
 
@@ -83,7 +93,11 @@ class RealSMSProvider:
             payload[f"rec_{i}"] = msg['to']
             payload[f"msg_{i}"] = msg['message']
 
-        return await self._send_bulk(payload)
+        result = await self._send_bulk(payload)
+        if result.get("success"):
+            return {"success": True, "total": total, "sent": total, "failed": 0, "timestamp": timestamp, "provider": "real"}
+        else:
+            return {"success": False, "total": total, "sent": 0, "failed": total, "timestamp": timestamp, "provider": "real", "error": result.get("error")}
 
     async def _send_bulk(self, payload: Dict[str, str]) -> Dict[str, Any]:
         """
@@ -131,7 +145,18 @@ class RealSMSProvider:
             }
 
     async def simulate_receive(self, from_: str, to: str, message: str) -> Dict[str, Any]:
-        """
-        This method not used in production (webhook handles incoming messages)
-        """
-        raise NotImplementedError("Use webhook endpoint in production")
+        """Simulate receiving SMS (테스트/데모 전용, production에서는 webhook 사용)"""
+        timestamp = datetime.now().isoformat()
+        message_id = f"real_received_{int(datetime.now().timestamp())}"
+
+        logger.info(f"📥 [SIMULATED SMS RECEIVED] From: {from_}, To: {to}, Message: {message}")
+
+        return {
+            "success": True,
+            "message_id": message_id,
+            "from_": from_,
+            "to": to,
+            "message": message,
+            "timestamp": timestamp,
+            "provider": "real",
+        }

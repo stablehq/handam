@@ -27,13 +27,13 @@ async def generate_auto_response(request: GenerateResponseRequest, db: Session =
     # Get message from DB
     msg = db.query(Message).filter(Message.id == request.message_id).first()
     if not msg:
-        raise HTTPException(status_code=404, detail="Message not found")
+        raise HTTPException(status_code=404, detail="메시지를 찾을 수 없습니다")
 
     if msg.direction != MessageDirection.INBOUND:
-        raise HTTPException(status_code=400, detail="Can only auto-respond to inbound messages")
+        raise HTTPException(status_code=400, detail="수신 메시지에만 자동응답을 생성할 수 있습니다")
 
     # Generate response
-    result = await message_router.generate_auto_response(msg.message)
+    result = await message_router.generate_auto_response(msg.content)
 
     # Update message with auto-response
     msg.auto_response = result["response"]
@@ -53,7 +53,7 @@ async def generate_auto_response(request: GenerateResponseRequest, db: Session =
             direction=MessageDirection.OUTBOUND,
             from_=msg.to,
             to=msg.from_,
-            message=result["response"],
+            content=result["response"],
             status=MessageStatus.SENT,
             response_source=result["source"],
         )
@@ -81,4 +81,4 @@ async def test_auto_response(request: GenerateResponseFromTextRequest, current_u
 async def reload_rules(current_user: User = Depends(require_admin_or_above)):
     """Hot reload rules from YAML file"""
     message_router.reload_rules()
-    return {"status": "success", "message": "Rules reloaded"}
+    return {"success": True, "message": "규칙이 다시 로드되었습니다"}
