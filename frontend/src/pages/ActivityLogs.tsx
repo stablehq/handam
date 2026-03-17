@@ -191,7 +191,9 @@ const ActivityLogs = () => {
 
   const fmtTime = (iso: string) => {
     try {
-      return new Date(iso).toLocaleString('ko-KR', {
+      // Backend stores as UTC naive — append Z if no timezone info
+      const normalized = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+      return new Date(normalized).toLocaleString('ko-KR', {
         month: '2-digit',
         day: '2-digit',
         hour: '2-digit',
@@ -331,7 +333,14 @@ const ActivityLogs = () => {
               <TableBody className="divide-y">
                 {logs.map((log) => {
                   const isExpanded = expandedId === log.id
-                  const hasDetail = log.detail && Object.keys(log.detail).length > 0
+                  const parsedDetail = (() => {
+                    if (!log.detail) return null;
+                    if (typeof log.detail === 'string') {
+                      try { return JSON.parse(log.detail); } catch { return null; }
+                    }
+                    return log.detail;
+                  })();
+                  const hasDetail = parsedDetail && typeof parsedDetail === 'object' && Object.keys(parsedDetail).length > 0
                   return (
                     <React.Fragment key={log.id}>
                       <TableRow
@@ -420,7 +429,7 @@ const ActivityLogs = () => {
                         <TableRow>
                           <TableCell colSpan={6} className="!py-3 !px-5 bg-[#F8F9FA] dark:bg-[#1E1E24]">
                             <div className="flex flex-wrap gap-x-6 gap-y-1 text-caption">
-                              {Object.entries(log.detail!).map(([key, value]) => (
+                              {Object.entries(parsedDetail!).map(([key, value]) => (
                                 <span key={key} className="text-[#4E5968] dark:text-gray-400">
                                   <span className="font-medium text-[#8B95A1] dark:text-gray-500">{key}:</span>{' '}
                                   {typeof value === 'object' ? JSON.stringify(value) : String(value ?? '')}
