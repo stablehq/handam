@@ -29,6 +29,25 @@ ROOM_TYPES = {
     "5501758": "여성용 트윈룸",
 }
 
+# Default capacity per room type (used when Naver doesn't provide people count)
+# Dormitory = 1 (per bed), private rooms = actual capacity
+DEFAULT_CAPACITY = {
+    "7358349": 1,   # 파티만
+    "4341604": 2,   # 트윈룸
+    "2579095": 1,   # 남성 4인실 (도미토리, 침대 단위)
+    "5053141": 1,   # 여성 4인실 (도미토리, 침대 단위)
+    "10913": 1,     # 남성 8인캡슐룸 (도미토리)
+    "4206780": 1,   # 남성 2인캡슐룸 (도미토리)
+    "4133363": 1,   # 여성 2인캡슐룸 (도미토리)
+    "7093674": 2,   # 별관 더블룸
+    "6960578": 2,   # 별관 남성 더블룸
+    "4368589": 3,   # 3인실
+    "5314854": 1,   # 여성 4인캡슐룸 (도미토리)
+    "2792572": 1,   # 여성 4인캡슐룸 (도미토리)
+    "3441558": 1,   # 여성 파티만
+    "5501758": 2,   # 여성용 트윈룸
+}
+
 # Dormitory/shared room bizItemIds (gender determined by room, not user info)
 # Note: bizItemId from Naver API may be int or string; use string sets for safe comparison
 DORMITORY_IDS = {"2579095", "5053141", "10913", "4206780", "4133363", "5314854", "2792572"}
@@ -285,6 +304,12 @@ class RealReservationProvider:
         booking_options = item.get('bookingOptionJson') or []
         if booking_options:
             people_count = booking_options[0].get('bookingCount', booking_count)
+
+        # If people_count is still default (1), use room type default capacity
+        if people_count <= 1:
+            default_cap = DEFAULT_CAPACITY.get(str(biz_item_id), 1)
+            if default_cap > people_count:
+                people_count = default_cap
 
         return {
             'external_id': str(item.get('bookingId', '')),
