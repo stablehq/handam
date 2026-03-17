@@ -346,6 +346,17 @@ class TemplateScheduleExecutor:
         """
         targets = self.get_targets(schedule)
 
+        # Batch lookup room assignments from RoomAssignment table (source of truth)
+        target_date = self._parse_date_filter(schedule.date_filter or "today")
+        res_ids = [r.id for r in targets]
+        room_map: dict[int, str] = {}
+        if res_ids and target_date:
+            assignments = self.db.query(RoomAssignment).filter(
+                RoomAssignment.reservation_id.in_(res_ids),
+                RoomAssignment.date == target_date,
+            ).all()
+            room_map = {ra.reservation_id: ra.room_number for ra in assignments}
+
         return [
             {
                 "id": r.id,
@@ -353,7 +364,7 @@ class TemplateScheduleExecutor:
                 "phone": r.phone,
                 "check_in_date": r.check_in_date,
                 "check_in_time": r.check_in_time,
-                "room_number": r.room_number,
+                "room_number": room_map.get(r.id) or r.room_number,
                 "tags": r.tags,
             }
             for r in targets
