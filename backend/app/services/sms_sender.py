@@ -267,23 +267,23 @@ class SmsSender:
             for r in self.db.query(Reservation).filter(Reservation.id.in_(reservation_ids)).all()
         }
 
+        from app.db.models import RoomAssignment
+        from app.templates.variables import calculate_template_variables
+
         for assignment in assignments:
             reservation = reservations_by_id.get(assignment.reservation_id)
             if not reservation:
                 failed_count += 1
                 continue
             try:
-                context = {
-                    "customer_name": reservation.customer_name,
-                    "phone": reservation.phone,
-                    "building": (reservation.room_number or "")[0] if reservation.room_number and len(reservation.room_number) >= 2 else "",
-                    "room_num": (reservation.room_number or "")[1:] if reservation.room_number and len(reservation.room_number) >= 2 else reservation.room_number or "",
-                    "naver_room_type": reservation.naver_room_type or "",
-                    "room_password": reservation.room_password or "",
-                    "participant_count": str(reservation.party_size or 0),
-                    "male_count": str(reservation.male_count or 0),
-                    "female_count": str(reservation.female_count or 0),
-                }
+                # Lookup room assignment for accurate room info
+                ra = self.db.query(RoomAssignment).filter(
+                    RoomAssignment.reservation_id == reservation.id,
+                    RoomAssignment.date == date,
+                ).first()
+                context = calculate_template_variables(
+                    reservation=reservation, db=self.db, date=date, room_assignment=ra,
+                )
                 message_content = renderer.render(template_key, context)
                 result = await sms_provider.send_sms(
                     to=reservation.phone,
