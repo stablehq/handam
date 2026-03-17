@@ -21,7 +21,10 @@ def get_sms_provider() -> SMSProvider:
         logger.info("🚀 Using RealSMSProvider (DEMO_MODE=false)")
         from app.real.sms import RealSMSProvider
         return RealSMSProvider(
-            api_key=settings.SMS_API_KEY, api_secret=settings.SMS_API_SECRET
+            api_key=settings.ALIGO_API_KEY,
+            user_id=settings.ALIGO_USER_ID,
+            sender=settings.ALIGO_SENDER,
+            testmode=settings.ALIGO_TESTMODE,
         )
 
 

@@ -25,14 +25,14 @@ class Settings(BaseSettings):
     # ChromaDB
     CHROMADB_URL: str = "http://localhost:8001"
 
-    # SMS API (only needed when DEMO_MODE=false)
-    SMS_API_KEY: str = ""
-    SMS_API_SECRET: str = ""
-    SMS_WEBHOOK_URL: str = ""
-    SMS_API_URL: str = "http://15.164.246.59:3000/sendMass"
+    # Aligo SMS API (only needed when DEMO_MODE=false)
+    ALIGO_API_KEY: str = ""
+    ALIGO_USER_ID: str = ""
+    ALIGO_SENDER: str = ""
+    ALIGO_TESTMODE: bool = True  # True = 실제 발송 안함 (테스트), False = 실제 발송
 
-    # Phone numbers
-    SMS_SENDER_NUMBER: str = "010-9999-0000"
+    # SMS Webhook (optional)
+    SMS_WEBHOOK_URL: str = ""
 
     # Claude API (only needed when DEMO_MODE=false)
     CLAUDE_API_KEY: str = ""
