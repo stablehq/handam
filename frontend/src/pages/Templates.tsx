@@ -190,32 +190,66 @@ function getFilterLabel(f: ScheduleFilter, buildingList?: Building[]): string {
   return `${f.type}: ${f.value}`;
 }
 
-function getTargetLabel(record: TemplateSchedule, buildingList?: Building[]): string {
-  if (record.filters) {
-    try {
-      const filters: ScheduleFilter[] = JSON.parse(record.filters);
-      if (filters.length > 0) return filters.map(f => getFilterLabel(f, buildingList)).join(' + ');
-    } catch { /* fallthrough */ }
+function parseFilters(raw: unknown): ScheduleFilter[] {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw); } catch { return []; }
   }
-  return '전체';
+  return [];
 }
 
-function getTargetBadges(record: TemplateSchedule, buildingList?: Building[]): React.ReactNode {
-  if (record.filters) {
-    try {
-      const filters: ScheduleFilter[] = JSON.parse(record.filters);
-      if (filters.length > 0) {
-        return (
-          <div className="flex flex-wrap gap-1">
-            {filters.map((f, i) => (
-              <Badge key={i} color="info" size="xs">{getFilterLabel(f, buildingList)}</Badge>
-            ))}
-          </div>
-        );
-      }
-    } catch { /* fallthrough */ }
+function getDateFilterLabel(dateFilter: string | null): string | null {
+  if (!dateFilter) return null;
+  if (dateFilter === 'today') return '오늘';
+  if (dateFilter === 'tomorrow') return '내일';
+  if (dateFilter === 'today+tomorrow') return '오늘+내일';
+  return dateFilter;
+}
+
+function getTargetLabel(record: TemplateSchedule, buildingList?: Building[]): string {
+  const parts: string[] = [];
+  const dateLabel = getDateFilterLabel(record.date_filter);
+  if (dateLabel) parts.push(dateLabel);
+  const filters = parseFilters(record.filters);
+  if (filters.length > 0) parts.push(filters.map(f => getFilterLabel(f, buildingList)).join(' + '));
+  return parts.length > 0 ? parts.join(' · ') : '전체';
+}
+
+function getTargetSummary(record: TemplateSchedule, buildingList?: Building[]): React.ReactNode {
+  const filters = parseFilters(record.filters);
+  const dateLabel = getDateFilterLabel(record.date_filter) || '오늘';
+
+  const buildingFilters = filters.filter(f => f.type === 'building');
+  const assignmentFilters = filters.filter(f => f.type === 'assignment');
+
+  const buildingText = buildingFilters.length > 0
+    ? buildingFilters.map(f => {
+        if (buildingList) {
+          const b = buildingList.find(b => String(b.id) === f.value);
+          return b?.name || f.value;
+        }
+        return f.value;
+      }).join('·')
+    : '';
+
+  const assignmentText = assignmentFilters.length > 0
+    ? assignmentFilters.map(f => {
+        if (f.value === 'room') return '객실배정';
+        if (f.value === 'party') return '파티만';
+        if (f.value === 'unassigned') return '미배정';
+        return f.value;
+      }).join('·')
+    : '';
+
+  if (!buildingText && !assignmentText) {
+    return <span className="text-caption text-[#8B95A1]">{dateLabel} 전체 예약자</span>;
   }
-  return <Badge color="gray" size="sm">{getTargetLabel(record, buildingList)}</Badge>;
+
+  const parts: string[] = [];
+  if (buildingText) parts.push(buildingText);
+  if (assignmentText) parts.push(`${assignmentText} 상태`);
+
+  return <span className="text-caption text-[#4E5968] dark:text-gray-400">{parts.join('의 ')}의 {dateLabel} 예약자</span>;
 }
 
 const CATEGORY_ICON: Record<string, string> = {
@@ -509,11 +543,7 @@ const Templates: React.FC = () => {
     setSMinute(String(s.minute ?? 0));
     setSDayOfWeek(s.day_of_week ? s.day_of_week.split(',').map(d => d.trim()) : []);
     setSIntervalMinutes(String(s.interval_minutes ?? 10));
-    if (s.filters) {
-      try { setSFilters(JSON.parse(s.filters)); } catch { setSFilters([]); }
-    } else {
-      setSFilters([]);
-    }
+    setSFilters(parseFilters(s.filters));
     setSDateFilter(s.date_filter || 'today');
     // sExcludeSent는 항상 true 고정
     setSActive(s.active);
@@ -839,7 +869,7 @@ const Templates: React.FC = () => {
                         <span className="text-body text-[#4E5968] dark:text-gray-300">{formatScheduleTime(s)}</span>
                       </TableCell>
                       <TableCell>
-                        {getTargetBadges(s, buildings)}
+                        {getTargetSummary(s, buildings)}
                       </TableCell>
                       <TableCell>
                         <Badge color={isNextRunSoon ? 'warning' : 'gray'} size="sm">{nextRun}</Badge>

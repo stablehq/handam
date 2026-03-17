@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import {
   Badge,
   Select,
@@ -20,6 +20,7 @@ import {
   Megaphone,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   User,
   CheckCircle2,
   XCircle,
@@ -41,9 +42,10 @@ interface ActivityLog {
   id: number
   type: ActivityType
   title: string
+  detail?: Record<string, unknown> | null
   target?: string | null
   success_count?: number | null
-  fail_count?: number | null
+  failed_count?: number | null
   status: ActivityStatus
   actor?: string | null
   created_at: string
@@ -113,6 +115,7 @@ const PAGE_SIZE = 20
 
 const ActivityLogs = () => {
   const [logs, setLogs] = useState<ActivityLog[]>([])
+  const [expandedId, setExpandedId] = useState<number | null>(null)
   const [stats, setStats] = useState<ActivityStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [statsLoading, setStatsLoading] = useState(true)
@@ -323,82 +326,110 @@ const ActivityLogs = () => {
                 </TableRow>
               </TableHead>
               <TableBody className="divide-y">
-                {logs.map((log) => (
-                  <TableRow key={log.id}>
-                    {/* Time */}
-                    <TableCell>
-                      <span className="whitespace-nowrap text-caption tabular-nums text-[#8B95A1] dark:text-gray-500">
-                        {fmtTime(log.created_at)}
-                      </span>
-                    </TableCell>
-
-                    {/* Type badge */}
-                    <TableCell>
-                      <Badge
-                        color={TYPE_BADGE_COLOR[log.type] as any}
-                        size="sm"
-                        className="whitespace-nowrap"
+                {logs.map((log) => {
+                  const isExpanded = expandedId === log.id
+                  const hasDetail = log.detail && Object.keys(log.detail).length > 0
+                  return (
+                    <React.Fragment key={log.id}>
+                      <TableRow
+                        className={hasDetail ? 'cursor-pointer' : ''}
+                        onClick={() => hasDetail && setExpandedId(isExpanded ? null : log.id)}
                       >
-                        {TYPE_LABELS[log.type] ?? log.type}
-                      </Badge>
-                    </TableCell>
+                        {/* Time */}
+                        <TableCell>
+                          <div className="flex items-center gap-1.5">
+                            <ChevronDown className={`h-3 w-3 shrink-0 text-[#B0B8C1] transition-transform ${isExpanded ? 'rotate-180' : ''} ${hasDetail ? '' : 'invisible'}`} />
+                            <span className="whitespace-nowrap text-caption tabular-nums text-[#8B95A1] dark:text-gray-500">
+                              {fmtTime(log.created_at)}
+                            </span>
+                          </div>
+                        </TableCell>
 
-                    {/* Title */}
-                    <TableCell>
-                      <span className="line-clamp-1 text-body text-[#191F28] dark:text-white">
-                        {log.title}
-                      </span>
-                      {log.target && (
-                        <span className="mt-0.5 block text-caption text-[#8B95A1] dark:text-gray-500">
-                          {log.target}
-                        </span>
-                      )}
-                    </TableCell>
+                        {/* Type badge */}
+                        <TableCell>
+                          <Badge
+                            color={TYPE_BADGE_COLOR[log.type] as any}
+                            size="sm"
+                            className="whitespace-nowrap"
+                          >
+                            {TYPE_LABELS[log.type] ?? log.type}
+                          </Badge>
+                        </TableCell>
 
-                    {/* Counts */}
-                    <TableCell>
-                      <div className="flex items-center justify-end gap-1.5 text-caption tabular-nums">
-                        {log.success_count != null && (
-                          <span className="flex items-center gap-0.5 text-[#00C9A7]">
-                            <CheckCircle2 className="h-3 w-3" />
-                            {log.success_count}
+                        {/* Title */}
+                        <TableCell>
+                          <span className="line-clamp-1 text-body text-[#191F28] dark:text-white">
+                            {log.title}
                           </span>
-                        )}
-                        {log.fail_count != null && log.fail_count > 0 && (
-                          <span className="flex items-center gap-0.5 text-[#F04452]">
-                            <XCircle className="h-3 w-3" />
-                            {log.fail_count}
-                          </span>
-                        )}
-                        {log.success_count == null && log.fail_count == null && (
-                          <span className="text-[#B0B8C1]">—</span>
-                        )}
-                      </div>
-                    </TableCell>
+                          {log.target && (
+                            <span className="mt-0.5 block text-caption text-[#8B95A1] dark:text-gray-500">
+                              {log.target}
+                            </span>
+                          )}
+                        </TableCell>
 
-                    {/* Status badge */}
-                    <TableCell>
-                      <Badge color={statusBadgeColor(log.status)} size="sm">
-                        {STATUS_LABELS[log.status] ?? log.status}
-                      </Badge>
-                    </TableCell>
+                        {/* Counts */}
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-1.5 text-caption tabular-nums">
+                            {log.success_count != null && (
+                              <span className="flex items-center gap-0.5 text-[#00C9A7]">
+                                <CheckCircle2 className="h-3 w-3" />
+                                {log.success_count}
+                              </span>
+                            )}
+                            {log.failed_count != null && log.failed_count > 0 && (
+                              <span className="flex items-center gap-0.5 text-[#F04452]">
+                                <XCircle className="h-3 w-3" />
+                                {log.failed_count}
+                              </span>
+                            )}
+                            {log.success_count == null && log.failed_count == null && (
+                              <span className="text-[#B0B8C1]">—</span>
+                            )}
+                          </div>
+                        </TableCell>
 
-                    {/* Actor */}
-                    <TableCell>
-                      {log.actor ? (
-                        <span className="flex items-center gap-1 text-label text-[#4E5968] dark:text-gray-300">
-                          <User className="h-3 w-3 shrink-0 text-[#B0B8C1]" />
-                          {log.actor}
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-label text-[#B0B8C1]">
-                          <AlertCircle className="h-3 w-3" />
-                          시스템
-                        </span>
+                        {/* Status badge */}
+                        <TableCell>
+                          <Badge color={statusBadgeColor(log.status)} size="sm">
+                            {STATUS_LABELS[log.status] ?? log.status}
+                          </Badge>
+                        </TableCell>
+
+                        {/* Actor */}
+                        <TableCell>
+                          {log.actor ? (
+                            <span className="flex items-center gap-1 text-label text-[#4E5968] dark:text-gray-300">
+                              <User className="h-3 w-3 shrink-0 text-[#B0B8C1]" />
+                              {log.actor}
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-label text-[#B0B8C1]">
+                              <AlertCircle className="h-3 w-3" />
+                              시스템
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+
+                      {/* Detail row */}
+                      {isExpanded && hasDetail && (
+                        <TableRow>
+                          <TableCell colSpan={6} className="!py-3 !px-5 bg-[#F8F9FA] dark:bg-[#1E1E24]">
+                            <div className="flex flex-wrap gap-x-6 gap-y-1 text-caption">
+                              {Object.entries(log.detail!).map(([key, value]) => (
+                                <span key={key} className="text-[#4E5968] dark:text-gray-400">
+                                  <span className="font-medium text-[#8B95A1] dark:text-gray-500">{key}:</span>{' '}
+                                  {typeof value === 'object' ? JSON.stringify(value) : String(value ?? '')}
+                                </span>
+                              ))}
+                            </div>
+                          </TableCell>
+                        </TableRow>
                       )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                    </React.Fragment>
+                  )
+                })}
               </TableBody>
             </Table>
           )}

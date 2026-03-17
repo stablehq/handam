@@ -103,8 +103,8 @@ async def get_dashboard_stats(db: Session = Depends(get_db), current_user: User 
                 "id": res.id,
                 "customer_name": res.customer_name,
                 "phone": res.phone,
-                "date": res.check_in_date,
-                "time": res.check_in_time,
+                "check_in_date": res.check_in_date,
+                "check_in_time": res.check_in_time,
                 "status": res.status.value,
             }
             for res in recent_reservations
@@ -114,7 +114,7 @@ async def get_dashboard_stats(db: Session = Depends(get_db), current_user: User 
                 "id": msg.id,
                 "direction": msg.direction.value,
                 "from_": msg.from_,
-                "message": msg.content[:50] + "..." if len(msg.content) > 50 else msg.content,
+                "content": msg.content[:50] + "..." if len(msg.content) > 50 else msg.content,
                 "created_at": msg.created_at.isoformat(),
             }
             for msg in recent_messages

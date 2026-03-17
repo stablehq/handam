@@ -475,7 +475,7 @@ const Dashboard = () => {
                       </TableCell>
                       <TableCell>
                         <span className="line-clamp-1 max-w-[200px] text-gray-600 dark:text-gray-300">
-                          {m.message ?? '—'}
+                          {m.content ?? '—'}
                         </span>
                       </TableCell>
                       <TableCell>

@@ -11,6 +11,7 @@ from app.db.models import Message, MessageDirection, MessageStatus, Reservation,
 from app.auth.dependencies import get_current_user
 from app.factory import get_sms_provider
 from app.config import settings
+from app.services.activity_logger import log_activity
 from datetime import datetime
 
 router = APIRouter(prefix="/api/messages", tags=["messages"])
@@ -58,7 +59,7 @@ class ContactResponse(BaseModel):
 async def get_contacts(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Get unique contact list with last message preview"""
     # Get all messages, find unique phone numbers (excluding our own number)
-    our_number = settings.SMS_SENDER_NUMBER
+    our_number = settings.ALIGO_SENDER
 
     messages = (
         db.query(Message)
@@ -163,13 +164,24 @@ async def send_sms(request: SendSMSRequest, db: Session = Depends(get_db), curre
     msg = Message(
         message_id=result["message_id"],
         direction=MessageDirection.OUTBOUND,
-        from_=settings.SMS_SENDER_NUMBER,
+        from_=settings.ALIGO_SENDER,
         to=request.to,
         content=request.content,
         status=MessageStatus.SENT,
         response_source="manual",
     )
     db.add(msg)
+    db.commit()
+
+    log_activity(
+        db,
+        type="sms_manual",
+        title=f"수동 문자 발송 → {request.to}",
+        detail={"to": request.to, "content": request.content[:50], "success": result.get("success", False)},
+        target_count=1,
+        success_count=1 if result.get("success") else 0,
+        created_by=current_user.username,
+    )
     db.commit()
 
     return {"success": True, "result": result}

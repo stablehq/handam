@@ -101,8 +101,8 @@ class TemplateScheduleResponse(BaseModel):
     active: bool
     created_at: datetime
     updated_at: datetime
-    last_run_at: Optional[datetime] = None
-    next_run_at: Optional[datetime] = None
+    last_run: Optional[datetime] = None
+    next_run: Optional[datetime] = None
 
     class Config:
         from_attributes = True

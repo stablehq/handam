@@ -50,7 +50,7 @@ export const reservationsAPI = {
   delete: (id: number) => api.delete(`/api/reservations/${id}`),
   assignRoom: (id: number, data: { room_number: string | null; date?: string; apply_subsequent?: boolean }) =>
     api.put(`/api/reservations/${id}/room`, data),
-  syncNaver: () => api.post('/api/reservations/sync/naver'),
+  syncNaver: (fromDate?: string) => api.post('/api/reservations/sync/naver', null, { params: fromDate ? { from_date: fromDate } : undefined }),
 };
 
 // Rooms API

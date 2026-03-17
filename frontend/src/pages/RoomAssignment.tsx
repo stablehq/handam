@@ -883,10 +883,14 @@ const RoomAssignment = () => {
     if (femaleCount > 0) genderParts.push(`여${femaleCount}`);
     values.gender = genderParts.join('') || null;
     values.party_size = (maleCount + femaleCount) || null;
-    delete values.male_count;
-    delete values.female_count;
+    values.male_count = maleCount || null;
+    values.female_count = femaleCount || null;
 
-    if (!values.time) values.time = '00:00';
+    // Map field names to backend schema
+    values.check_in_date = values.date;
+    values.check_in_time = values.time || '00:00';
+    delete values.date;
+    delete values.time;
 
     if (!editingId && values.guest_type) {
       if (values.guest_type === 'party_only') {

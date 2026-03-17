@@ -150,6 +150,7 @@ export default function Reservations() {
   const [statsReservations, setStatsReservations] = useState<Reservation[]>([]);
   const [loading, setLoading]           = useState(false);
   const [syncing, setSyncing]           = useState(false);
+  const [syncFromDate, setSyncFromDate] = useState('');
 
   const [filterDate,   setFilterDate]   = useState('');
   const [filterStatus, setFilterStatus] = useState<string[]>([]);
@@ -259,11 +260,13 @@ export default function Reservations() {
   async function handleSync() {
     setSyncing(true);
     try {
-      const res = await reservationsAPI.syncNaver();
+      const res = await reservationsAPI.syncNaver(syncFromDate || undefined);
       const added = res.data?.added ?? 0;
-      toast.success(`네이버 동기화 완료 — ${added}건 추가`);
+      const updated = res.data?.updated ?? 0;
+      toast.success(`네이버 동기화 완료 — ${added}건 추가, ${updated}건 갱신`);
       fetchReservations();
       fetchStats();
+      setSyncFromDate('');
     } catch {
       toast.error('네이버 동기화에 실패했습니다.');
     } finally {
@@ -346,8 +349,8 @@ export default function Reservations() {
       const payload: Record<string, unknown> = {
         customer_name:      form.customer_name.trim(),
         phone:              form.phone.trim(),
-        date:               form.reservation_date,
-        time:               '00:00',
+        check_in_date:      form.reservation_date,
+        check_in_time:      '00:00',
         status:             form.status,
         party_size: (maleCount + femaleCount) || null,
         gender:             genderParts.join('') || null,
@@ -413,9 +416,16 @@ export default function Reservations() {
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             예약 등록
           </Button>
+          <input
+            type="date"
+            value={syncFromDate}
+            onChange={(e) => setSyncFromDate(e.target.value)}
+            className="h-[34px] rounded-lg border border-[#E5E8EB] bg-white px-2.5 text-caption text-[#4E5968] dark:border-gray-600 dark:bg-[#1E1E24] dark:text-gray-300"
+            placeholder="시작일"
+          />
           <Button color="blue" size="sm" onClick={handleSync} disabled={syncing}>
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5${syncing ? ' animate-spin' : ''}`} />
-            네이버 예약 동기화
+            {syncFromDate ? `${syncFromDate}부터 동기화` : '네이버 동기화'}
           </Button>
         </div>
       </div>
