@@ -505,6 +505,7 @@ async def toggle_sms_sent(
                 sms_provider=sms_provider,
                 reservation=reservation,
                 template_key=template_key,
+                created_by=current_user.username,
             )
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"SMS 발송 실패: {e}")
@@ -512,18 +513,6 @@ async def toggle_sms_sent(
         if result.get("success"):
             assignment.sent_at = datetime.now()
             db.commit()
-
-            log_activity(
-                db,
-                type="sms_manual",
-                title=f"SMS 발송 ({template_key}) → {reservation.customer_name}",
-                detail={"to": reservation.phone, "template_key": template_key, "success": True},
-                target_count=1,
-                success_count=1,
-                created_by=current_user.username,
-            )
-            db.commit()
-
             return {"success": True, "sent_at": assignment.sent_at}
         else:
             raise HTTPException(status_code=500, detail=result.get("error", "SMS 발송 실패"))

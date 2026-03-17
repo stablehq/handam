@@ -23,10 +23,12 @@ async def send_single_sms(
     reservation: "Reservation",
     template_key: str,
     date: Optional[str] = None,
+    created_by: str = "system",
 ) -> Dict[str, Any]:
     """
     단건 SMS 발송 공통 함수.
     RoomAssignment 조회 + calculate_template_variables + 렌더링 + 발송.
+    발송 결과(성공/실패)를 activity log에 기록합니다.
 
     Returns: {"success": bool, "message_id": str | None, "error": str | None}
     """
@@ -62,7 +64,32 @@ async def send_single_sms(
 
     result = await sms_provider.send_sms(to=reservation.phone, message=message_content)
 
-    if result.get("success"):
+    success = bool(result.get("success"))
+    log_activity(
+        db,
+        type="sms_send",
+        title=f"SMS → {reservation.customer_name} ({reservation.phone})",
+        detail={
+            "reservation_id": reservation.id,
+            "customer_name": reservation.customer_name,
+            "phone": reservation.phone,
+            "template_key": template_key,
+            "message_preview": message_content[:100],
+            "message_length": len(message_content),
+            "room_number": ra.room_number if ra else None,
+            "provider": result.get("provider", "unknown"),
+            "message_id": result.get("message_id"),
+            "error": result.get("error"),
+        },
+        status="success" if success else "failed",
+        target_count=1,
+        success_count=1 if success else 0,
+        failed_count=0 if success else 1,
+        created_by=created_by,
+    )
+    db.commit()
+
+    if success:
         return {"success": True, "message_id": result.get("message_id"), "error": None}
     else:
         return {"success": False, "message_id": None, "error": result.get("error", "SMS 발송 실패")}
@@ -335,6 +362,7 @@ class SmsSender:
                     reservation=reservation,
                     template_key=template_key,
                     date=date,
+                    created_by="schedule",
                 )
                 if result.get("success"):
                     sent_count += 1

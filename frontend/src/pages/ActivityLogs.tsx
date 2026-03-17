@@ -34,6 +34,7 @@ type ActivityType =
   | 'room_assign'
   | 'sms_template'
   | 'sms_manual'
+  | 'sms_send'
   | 'naver_sync'
 
 type ActivityStatus = 'success' | 'failed' | 'partial'
@@ -64,6 +65,7 @@ const TYPE_LABELS: Record<ActivityType, string> = {
   room_assign: '객실 배정',
   sms_template: 'SMS 템플릿',
   sms_manual: '수동 SMS',
+  sms_send: 'SMS 발송',
   naver_sync: '네이버 동기화',
 }
 
@@ -71,6 +73,7 @@ const TYPE_BADGE_COLOR: Record<ActivityType, string> = {
   room_assign: 'blue',
   sms_template: 'purple',
   sms_manual: 'green',
+  sms_send: 'blue',
   naver_sync: 'indigo',
 }
 
