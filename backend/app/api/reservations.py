@@ -479,7 +479,15 @@ async def toggle_sms_sent(
         ReservationSmsAssignment.template_key == template_key,
     ).first()
     if not assignment:
-        raise HTTPException(status_code=404, detail="배정을 찾을 수 없습니다")
+        # Upsert: 레코드가 없으면 생성 (UI에서 태그가 보이는데 DB에 없는 타이밍 이슈 대응)
+        assignment = ReservationSmsAssignment(
+            reservation_id=reservation_id,
+            template_key=template_key,
+            assigned_by='manual',
+            sent_at=None,
+        )
+        db.add(assignment)
+        db.flush()
 
     if assignment.sent_at:
         assignment.sent_at = None  # Mark as unsent
