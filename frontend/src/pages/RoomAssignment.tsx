@@ -1383,9 +1383,9 @@ const RoomAssignment = () => {
           <div className="w-[130px] flex flex-col items-center justify-center px-3 py-4">
             <span className="stat-label whitespace-nowrap">총 예약자</span>
             <div className="flex items-center justify-center gap-2.5 mt-1">
-              <span className="stat-value tabular-nums text-[#7EB4F8]">{summary.roomMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+              <span className="stat-value tabular-nums text-[#4A90D9]">{summary.roomMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
               <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
-              <span className="stat-value tabular-nums text-[#F8838C]">{summary.roomFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+              <span className="stat-value tabular-nums text-[#E05263]">{summary.roomFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
             </div>
           </div>
           <div className="w-px bg-[#E5E8EB] dark:bg-[#2C2C34] my-3" />
@@ -1397,27 +1397,27 @@ const RoomAssignment = () => {
           <div className="w-[130px] flex flex-col items-center justify-center px-3 py-4">
             <span className="stat-label whitespace-nowrap">1차</span>
             <div className="flex items-center justify-center gap-2.5 mt-1">
-              <span className="stat-value tabular-nums text-[#7EB4F8]">{summary.firstMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+              <span className="stat-value tabular-nums text-[#4A90D9]">{summary.firstMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
               <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
-              <span className="stat-value tabular-nums text-[#F8838C]">{summary.firstFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+              <span className="stat-value tabular-nums text-[#E05263]">{summary.firstFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
             </div>
           </div>
           <div className="w-px bg-[#E5E8EB] dark:bg-[#2C2C34] my-3" />
           <div className="w-[130px] flex flex-col items-center justify-center px-3 py-4">
             <span className="stat-label whitespace-nowrap">2차만</span>
             <div className="flex items-center justify-center gap-2.5 mt-1">
-              <span className="stat-value tabular-nums text-[#7EB4F8]">{summary.secondOnlyMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+              <span className="stat-value tabular-nums text-[#4A90D9]">{summary.secondOnlyMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
               <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
-              <span className="stat-value tabular-nums text-[#F8838C]">{summary.secondOnlyFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+              <span className="stat-value tabular-nums text-[#E05263]">{summary.secondOnlyFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
             </div>
           </div>
           <div className="w-px bg-[#E5E8EB] dark:bg-[#2C2C34] my-3" />
           <div className="w-[130px] flex flex-col items-center justify-center px-3 py-4">
             <span className="stat-label whitespace-nowrap">전체</span>
             <div className="flex items-center justify-center gap-2.5 mt-1">
-              <span className="stat-value tabular-nums text-[#7EB4F8]">{summary.partyMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+              <span className="stat-value tabular-nums text-[#4A90D9]">{summary.partyMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
               <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
-              <span className="stat-value tabular-nums text-[#F8838C]">{summary.partyFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+              <span className="stat-value tabular-nums text-[#E05263]">{summary.partyFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
             </div>
           </div>
         </div>
