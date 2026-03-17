@@ -5,7 +5,6 @@ import logging
 from datetime import datetime
 from typing import Optional
 from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.orm import Session
 
@@ -207,14 +206,26 @@ class ScheduleManager:
             )
 
         elif schedule.schedule_type == 'interval':
-            # Every N minutes
+            # Every N minutes using CronTrigger for precise hour range control
             if not schedule.interval_minutes:
                 logger.error(f"Interval schedule #{schedule.id} missing interval_minutes")
                 return None
 
-            return IntervalTrigger(
-                minutes=schedule.interval_minutes,
-                timezone=timezone
+            # Build minute spec: */N
+            minute_spec = f'*/{schedule.interval_minutes}'
+
+            # Build hour spec from active hours
+            start_h = schedule.active_start_hour
+            end_h = schedule.active_end_hour
+            if start_h is not None and end_h is not None and start_h < end_h:
+                hour_spec = f'{start_h}-{end_h - 1}'
+            else:
+                hour_spec = '*'
+
+            return CronTrigger(
+                minute=minute_spec,
+                hour=hour_spec,
+                timezone=timezone,
             )
 
         else:
