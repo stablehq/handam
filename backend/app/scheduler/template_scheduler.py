@@ -45,18 +45,12 @@ def _condition_by_assignment(value, ctx):
     elif value == "party":
         return and_(
             Reservation.id.notin_(assigned_ids),
-            or_(
-                Reservation.tags.like('%파티만%'),
-                Reservation.naver_room_type.like('%파티만%'),
-            )
+            Reservation.naver_room_type.like('%파티만%'),
         )
     elif value == "unassigned":
         return and_(
             Reservation.id.notin_(assigned_ids),
-            ~or_(
-                Reservation.tags.like('%파티만%'),
-                Reservation.naver_room_type.like('%파티만%'),
-            )
+            ~Reservation.naver_room_type.like('%파티만%'),
         )
     return None
 

@@ -624,8 +624,8 @@ const RoomAssignment = () => {
         partyOnlyList.push(res);
       } else if (sectionOverrides[res.id] === 'unassigned') {
         unassignedList.push(res);
-      } else if (res.tags?.includes('파티만') || res.naver_room_type?.includes('파티만')) {
-        // 태그 또는 상품명에 '파티만' 포함 시 파티만 섹션
+      } else if (res.naver_room_type?.includes('파티만')) {
+        // naver_room_type에 '파티만' 포함 시 파티만 섹션
         partyOnlyList.push(res);
       } else {
         unassignedList.push(res);
@@ -747,7 +747,7 @@ const RoomAssignment = () => {
 
     // Already in unassigned section → nothing to do
     if (!res.room_number && sectionOverrides[resId] === 'unassigned') return;
-    if (!res.room_number && !sectionOverrides[resId] && !res.tags?.includes('파티만') && !res.naver_room_type?.includes('파티만')) return;
+    if (!res.room_number && !sectionOverrides[resId] && !res.naver_room_type?.includes('파티만')) return;
 
     if (res.room_number) {
       // Optimistic update: clear room + remove unsent room_info tag
@@ -799,7 +799,7 @@ const RoomAssignment = () => {
 
     // Already in party section → nothing to do
     if (!guest.room_number && sectionOverrides[resId] === 'party') return;
-    if (!guest.room_number && !sectionOverrides[resId] && (guest.tags?.includes('파티만') || guest.naver_room_type?.includes('파티만'))) return;
+    if (!guest.room_number && !sectionOverrides[resId] && guest.naver_room_type?.includes('파티만')) return;
 
     if (guest.room_number) {
       // Optimistic update: clear room + remove unsent room_info tag
@@ -897,15 +897,14 @@ const RoomAssignment = () => {
 
     if (!editingId && values.guest_type) {
       if (values.guest_type === 'party_only') {
-        if (!values.tags?.includes('파티만')) {
-          values.tags = values.tags ? `${values.tags},파티만` : '파티만';
+        values.naver_room_type = '파티만';
+      } else {
+        // 수동 추가 - 미배정: naver_room_type을 '수동추가'로 설정
+        if (!values.naver_room_type) {
+          values.naver_room_type = '수동추가';
         }
       }
       delete values.guest_type;
-    }
-
-    if (!values.room_number && !values.tags?.includes('파티만')) {
-      values.tags = values.tags ? `${values.tags},파티만` : '파티만';
     }
 
     try {
@@ -1588,8 +1587,8 @@ const RoomAssignment = () => {
                 >
                   <div className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">이름</div>
                   <div className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">전화번호</div>
-                  <div className="text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">성별</div>
                   <div className="text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">파티</div>
+                  <div className="text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">성별</div>
                   <div className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1] text-center">예약객실</div>
                   <div className="flex items-center gap-2">
                     <div className="min-w-[60px] flex-1 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">메모</div>

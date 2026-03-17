@@ -142,14 +142,12 @@ def _matches_filter_group(
             if value == "room" and has_room:
                 return True
             if value == "party":
-                tags = reservation.tags or ''
                 naver_rt = reservation.naver_room_type or ''
-                if not has_room and ('파티만' in tags or '파티만' in naver_rt):
+                if not has_room and '파티만' in naver_rt:
                     return True
             if value == "unassigned":
-                tags = reservation.tags or ''
                 naver_rt = reservation.naver_room_type or ''
-                if not has_room and '파티만' not in tags and '파티만' not in naver_rt:
+                if not has_room and '파티만' not in naver_rt:
                     return True
         elif ftype == "building":
             if building_id is not None and str(building_id) == str(value):
