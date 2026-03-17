@@ -69,37 +69,50 @@ class ScheduleManager:
             logger.error(f"Failed to create trigger for schedule #{schedule.id}")
             return
 
+        # Capture only schedule ID to avoid detached instance errors
+        schedule_id_captured = schedule.id
+
         # Create executor function
         async def execute_job():
-            # Check active hours for hourly/interval schedules
-            if schedule.active_start_hour is not None and schedule.active_end_hour is not None:
-                import pytz
-                tz = pytz.timezone(schedule.timezone or "Asia/Seoul")
-                now_hour = datetime.now(tz).hour
-                start_h = schedule.active_start_hour
-                end_h = schedule.active_end_hour
-                if start_h <= end_h:
-                    # Normal range e.g. 9-20
-                    if not (start_h <= now_hour < end_h):
-                        logger.info(
-                            f"Skipping schedule #{schedule.id}: outside active hours "
-                            f"({start_h}-{end_h}, current={now_hour})"
-                        )
-                        return
-                else:
-                    # Overnight range e.g. 22-6
-                    if end_h <= now_hour < start_h:
-                        logger.info(
-                            f"Skipping schedule #{schedule.id}: outside active hours "
-                            f"({start_h}-{end_h}, current={now_hour})"
-                        )
-                        return
-
             from app.db.database import SessionLocal
             db_session = SessionLocal()
             try:
+                # Re-fetch schedule from fresh session
+                fresh_schedule = db_session.query(TemplateSchedule).filter(
+                    TemplateSchedule.id == schedule_id_captured
+                ).first()
+                if not fresh_schedule:
+                    logger.error(f"Schedule #{schedule_id_captured} not found")
+                    return
+
+                # Check active hours for hourly/interval schedules
+                if fresh_schedule.active_start_hour is not None and fresh_schedule.active_end_hour is not None:
+                    from zoneinfo import ZoneInfo
+                    tz = ZoneInfo(fresh_schedule.timezone or "Asia/Seoul")
+                    now_hour = datetime.now(tz).hour
+                    start_h = fresh_schedule.active_start_hour
+                    end_h = fresh_schedule.active_end_hour
+                    if start_h <= end_h:
+                        if not (start_h <= now_hour < end_h):
+                            logger.info(
+                                f"Skipping schedule #{schedule_id_captured}: outside active hours "
+                                f"({start_h}-{end_h}, current={now_hour})"
+                            )
+                            return
+                    else:
+                        if end_h <= now_hour < start_h:
+                            logger.info(
+                                f"Skipping schedule #{schedule_id_captured}: outside active hours "
+                                f"({start_h}-{end_h}, current={now_hour})"
+                            )
+                            return
+            finally:
+                db_session.close()
+
+            db_session = SessionLocal()
+            try:
                 executor = TemplateScheduleExecutor(db_session)
-                await executor.execute_schedule(schedule.id)
+                await executor.execute_schedule(schedule_id_captured)
             finally:
                 db_session.close()
 
