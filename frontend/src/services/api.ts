@@ -136,8 +136,8 @@ export const smsAssignmentsAPI = {
     api.post(`/api/reservations/${reservationId}/sms-assign`, data),
   remove: (reservationId: number, templateKey: string) =>
     api.delete(`/api/reservations/${reservationId}/sms-assign/${templateKey}`),
-  toggle: (reservationId: number, templateKey: string) =>
-    api.patch(`/api/reservations/${reservationId}/sms-toggle/${templateKey}`),
+  toggle: (reservationId: number, templateKey: string, skipSend?: boolean) =>
+    api.patch(`/api/reservations/${reservationId}/sms-toggle/${templateKey}`, null, { params: skipSend ? { skip_send: true } : undefined }),
 };
 
 // Template Schedules API

@@ -942,7 +942,7 @@ const RoomAssignment = () => {
     });
   };
 
-  const doSmsToggle = async (resId: number, templateKey: string) => {
+  const doSmsToggle = async (resId: number, templateKey: string, skipSend?: boolean) => {
     const res = reservations.find(r => r.id === resId);
     const assignment = res?.sms_assignments?.find(a => a.template_key === templateKey);
     const wasSent = !!assignment?.sent_at;
@@ -954,7 +954,7 @@ const RoomAssignment = () => {
       )
     );
     try {
-      await smsAssignmentsAPI.toggle(resId, templateKey);
+      await smsAssignmentsAPI.toggle(resId, templateKey, skipSend);
     } catch {
       // Revert on failure
       updateReservationSms(resId, assignments =>
@@ -1895,20 +1895,44 @@ const RoomAssignment = () => {
                       : `${sendConfirm?.customerName}님에게 ${sendConfirm?.templateName}을(를) 발송하시겠습니까?`;
                   })()}
             </p>
-            <div className="flex justify-center gap-3">
-              <Button color="blue" onClick={() => {
-                if (sendConfirm?.type === 'campaign') {
-                  handleSendCampaign();
-                } else if (sendConfirm?.type === 'toggle' && sendConfirm.resId && sendConfirm.templateKey) {
-                  setSendConfirm(null);
-                  doSmsToggle(sendConfirm.resId, sendConfirm.templateKey);
-                }
-              }}>
-                발송
-              </Button>
-              <Button color="light" onClick={() => setSendConfirm(null)}>
-                취소
-              </Button>
+            <div className="flex flex-col items-center gap-2">
+              <div className="flex justify-center gap-3">
+                <Button color="blue" onClick={() => {
+                  if (sendConfirm?.type === 'campaign') {
+                    handleSendCampaign();
+                  } else if (sendConfirm?.type === 'toggle' && sendConfirm.resId && sendConfirm.templateKey) {
+                    setSendConfirm(null);
+                    doSmsToggle(sendConfirm.resId, sendConfirm.templateKey);
+                  }
+                }}>
+                  {(() => {
+                    const r = reservations.find(r => r.id === sendConfirm?.resId);
+                    const isSent = r?.sms_assignments?.some(a => a.template_key === sendConfirm?.templateKey && !!a.sent_at);
+                    return isSent ? '발송 취소' : '발송';
+                  })()}
+                </Button>
+                <Button color="light" onClick={() => setSendConfirm(null)}>
+                  취소
+                </Button>
+              </div>
+              {sendConfirm?.type === 'toggle' && (() => {
+                const r = reservations.find(r => r.id === sendConfirm?.resId);
+                const isSent = r?.sms_assignments?.some(a => a.template_key === sendConfirm?.templateKey && !!a.sent_at);
+                if (isSent) return null;
+                return (
+                  <button
+                    className="text-caption text-[#8B95A1] underline hover:text-[#4E5968] dark:text-gray-500 dark:hover:text-gray-300"
+                    onClick={() => {
+                      if (sendConfirm.resId && sendConfirm.templateKey) {
+                        setSendConfirm(null);
+                        doSmsToggle(sendConfirm.resId, sendConfirm.templateKey, true);
+                      }
+                    }}
+                  >
+                    발송 없이 완료 처리
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </ModalBody>

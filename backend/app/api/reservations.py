@@ -465,10 +465,15 @@ async def unassign_sms_template(
 async def toggle_sms_sent(
     reservation_id: int,
     template_key: str,
+    skip_send: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Toggle the sent status of an SMS assignment"""
+    """Toggle the sent status of an SMS assignment.
+
+    Args:
+        skip_send: If True, mark as sent without actually sending SMS.
+    """
     assignment = db.query(ReservationSmsAssignment).filter(
         ReservationSmsAssignment.reservation_id == reservation_id,
         ReservationSmsAssignment.template_key == template_key,
@@ -480,6 +485,11 @@ async def toggle_sms_sent(
         assignment.sent_at = None  # Mark as unsent
         db.commit()
         return {"success": True, "sent_at": None}
+    elif skip_send:
+        # 발송 없이 상태만 변경
+        assignment.sent_at = datetime.now()
+        db.commit()
+        return {"success": True, "sent_at": assignment.sent_at}
     else:
         # 실제 SMS 발송
         reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
