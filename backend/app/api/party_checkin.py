@@ -36,11 +36,7 @@ class ToggleResponse(BaseModel):
     checked_in_at: Optional[str]
 
 
-def _is_party_only(res: Reservation) -> bool:
-    """파티만 예약자인지 확인 (RoomAssignment 페이지의 partyOnlyList 로직과 동일)"""
-    tags = res.tags or ""
-    room_type = res.naver_room_type or ""
-    return "파티만" in tags or "파티만" in room_type
+PARTY_TYPE_VALUES = {'1', '2', '2차만'}
 
 
 @router.get("", response_model=List[PartyCheckinItem])
@@ -49,21 +45,23 @@ async def get_party_checkin_list(
     db: Session = Depends(get_db),
     current_user=Depends(require_any_role),
 ):
-    """해당 날짜의 파티 참여 예약자 목록 조회 (가나다순)"""
-    # confirmed 예약 중 파티만 태그를 가진 예약자 조회
+    """해당 날짜의 파티 참여 예약자 목록 조회 (가나다순)
+
+    파티 참여자: party_type이 '1', '2', '2차만' 중 하나인 예약자
+    """
     reservations = (
         db.query(Reservation)
         .filter(
             and_(
                 Reservation.check_in_date == date,
                 Reservation.status == ReservationStatus.CONFIRMED,
+                Reservation.party_type.in_(PARTY_TYPE_VALUES),
             )
         )
         .all()
     )
 
-    # 파티만 섹션에 해당하는 예약자만 필터링 (room_number 없음 + 파티만 태그)
-    party_reservations = [r for r in reservations if _is_party_only(r) and not r.room_number]
+    party_reservations = reservations
 
     # 가나다순 정렬
     party_reservations.sort(key=lambda r: r.customer_name or "")
