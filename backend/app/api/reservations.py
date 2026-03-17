@@ -496,24 +496,18 @@ async def toggle_sms_sent(
         if not reservation or not reservation.phone:
             raise HTTPException(status_code=400, detail="전화번호가 없습니다")
 
-        from app.templates.renderer import TemplateRenderer
-        from app.templates.variables import calculate_template_variables
-
-        # Lookup room assignment for this reservation + date
-        ra = db.query(RoomAssignment).filter(
-            RoomAssignment.reservation_id == reservation_id,
-            RoomAssignment.date == reservation.check_in_date,
-        ).first()
-
-        renderer = TemplateRenderer(db)
-        message_vars = calculate_template_variables(reservation=reservation, db=db, room_assignment=ra)
-        try:
-            message_content = renderer.render(template_key, message_vars)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"템플릿 렌더링 실패: {e}")
+        from app.services.sms_sender import send_single_sms
 
         sms_provider = get_sms_provider()
-        result = await sms_provider.send_sms(to=reservation.phone, message=message_content)
+        try:
+            result = await send_single_sms(
+                db=db,
+                sms_provider=sms_provider,
+                reservation=reservation,
+                template_key=template_key,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"SMS 발송 실패: {e}")
 
         if result.get("success"):
             assignment.sent_at = datetime.now()

@@ -17,6 +17,57 @@ from app.services.activity_logger import log_activity
 logger = logging.getLogger(__name__)
 
 
+async def send_single_sms(
+    db: Session,
+    sms_provider,
+    reservation: "Reservation",
+    template_key: str,
+    date: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    단건 SMS 발송 공통 함수.
+    RoomAssignment 조회 + calculate_template_variables + 렌더링 + 발송.
+
+    Returns: {"success": bool, "message_id": str | None, "error": str | None}
+    """
+    from app.db.models import RoomAssignment
+    from app.templates.renderer import TemplateRenderer
+    from app.templates.variables import calculate_template_variables
+
+    if not reservation.phone:
+        return {"success": False, "message_id": None, "error": "전화번호가 없습니다"}
+
+    effective_date = date or (
+        reservation.check_in_date.strftime("%Y-%m-%d")
+        if hasattr(reservation.check_in_date, "strftime")
+        else str(reservation.check_in_date)
+        if reservation.check_in_date
+        else None
+    )
+
+    ra = db.query(RoomAssignment).filter(
+        RoomAssignment.reservation_id == reservation.id,
+        RoomAssignment.date == effective_date,
+    ).first()
+
+    context = calculate_template_variables(
+        reservation=reservation,
+        db=db,
+        date=effective_date,
+        room_assignment=ra,
+    )
+
+    renderer = TemplateRenderer(db)
+    message_content = renderer.render(template_key, context)
+
+    result = await sms_provider.send_sms(to=reservation.phone, message=message_content)
+
+    if result.get("success"):
+        return {"success": True, "message_id": result.get("message_id"), "error": None}
+    else:
+        return {"success": False, "message_id": None, "error": result.get("error", "SMS 발송 실패")}
+
+
 class SmsSender:
     """
     Sender for tag-based SMS campaigns
@@ -142,17 +193,24 @@ class SmsSender:
             # Prepare messages
             messages = []
 
-            for reservation in targets:
-                from app.templates.renderer import TemplateRenderer
-                from app.templates.variables import calculate_template_variables
+            from app.db.models import RoomAssignment
+            from app.templates.renderer import TemplateRenderer
+            from app.templates.variables import calculate_template_variables
 
-                renderer = TemplateRenderer(self.db)
+            renderer = TemplateRenderer(self.db)
+
+            for reservation in targets:
+                ra = self.db.query(RoomAssignment).filter(
+                    RoomAssignment.reservation_id == reservation.id,
+                    RoomAssignment.date == date,
+                ).first()
 
                 message_vars = calculate_template_variables(
                     reservation=reservation,
                     db=self.db,
                     date=date,
-                    custom_vars=variables
+                    room_assignment=ra,
+                    custom_vars=variables,
                 )
 
                 message = renderer.render(template_key, message_vars)
@@ -225,7 +283,6 @@ class SmsSender:
             dict with sent_count, failed_count, target_count
         """
         from app.db.models import MessageTemplate, ReservationSmsAssignment
-        from app.templates.renderer import TemplateRenderer
 
         template = self.db.query(MessageTemplate).filter(
             MessageTemplate.template_key == template_key,
@@ -246,7 +303,6 @@ class SmsSender:
         if not assignments:
             return {"sent_count": 0, "failed_count": 0, "target_count": 0}
 
-        renderer = TemplateRenderer(self.db)
         sent_count = 0
         failed_count = 0
 
@@ -267,27 +323,18 @@ class SmsSender:
             for r in self.db.query(Reservation).filter(Reservation.id.in_(reservation_ids)).all()
         }
 
-        from app.db.models import RoomAssignment
-        from app.templates.variables import calculate_template_variables
-
         for assignment in assignments:
             reservation = reservations_by_id.get(assignment.reservation_id)
             if not reservation:
                 failed_count += 1
                 continue
             try:
-                # Lookup room assignment for accurate room info
-                ra = self.db.query(RoomAssignment).filter(
-                    RoomAssignment.reservation_id == reservation.id,
-                    RoomAssignment.date == date,
-                ).first()
-                context = calculate_template_variables(
-                    reservation=reservation, db=self.db, date=date, room_assignment=ra,
-                )
-                message_content = renderer.render(template_key, context)
-                result = await sms_provider.send_sms(
-                    to=reservation.phone,
-                    message=message_content,
+                result = await send_single_sms(
+                    db=self.db,
+                    sms_provider=sms_provider,
+                    reservation=reservation,
+                    template_key=template_key,
+                    date=date,
                 )
                 if result.get("success"):
                     sent_count += 1
