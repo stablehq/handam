@@ -337,26 +337,23 @@ async def trigger_auto_assign(
         date = dt.now(_ZI("Asia/Seoul")).strftime("%Y-%m-%d")
 
     today = date
-    tomorrow = (dt.strptime(date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
 
     # 기존 자동 배정만 삭제 (수동 배정 유지)
-    for target_date in [today, tomorrow]:
-        db.query(RoomAssignment).filter(
-            RoomAssignment.date == target_date,
-            RoomAssignment.assigned_by == "auto",
-        ).delete(synchronize_session="fetch")
+    db.query(RoomAssignment).filter(
+        RoomAssignment.date == today,
+        RoomAssignment.assigned_by == "auto",
+    ).delete(synchronize_session="fetch")
     db.commit()
 
-    # 재배정
+    # 재배정 (오늘만)
     result_today = auto_assign_rooms(db, today)
-    result_tomorrow = auto_assign_rooms(db, tomorrow)
 
-    total_assigned = result_today.get("assigned", 0) + result_tomorrow.get("assigned", 0)
+    total_assigned = result_today.get("assigned", 0)
     log_activity(
         db,
         type="room_assign",
         title=f"객실 자동 배정 ({today})",
-        detail={"today": result_today, "tomorrow": result_tomorrow},
+        detail={"today": result_today},
         target_count=total_assigned,
         success_count=total_assigned,
         created_by=current_user.username,
@@ -366,5 +363,4 @@ async def trigger_auto_assign(
     return {
         "success": True,
         "today": result_today,
-        "tomorrow": result_tomorrow,
     }

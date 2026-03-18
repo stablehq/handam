@@ -292,7 +292,6 @@ const RoomAssignment = () => {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   // Track which section unassigned reservations belong to: 'party' or 'unassigned'
   const [sectionOverrides, setSectionOverrides] = useState<Record<number, 'party' | 'unassigned'>>({});
-  const [prevDayReservations, setPrevDayReservations] = useState<Reservation[]>([]);
   const [nextDayReservations, setNextDayReservations] = useState<Reservation[]>([]);
   const [rooms, setRooms] = useState<any[]>([]);
   const [animDirection, setAnimDirection] = useState<'none' | 'left' | 'right'>('none');
@@ -374,14 +373,27 @@ const RoomAssignment = () => {
   };
 
 
-  const [smsColumnWidth, setSmsColumnWidth] = useState(200);
-  const [isResizing, setIsResizing] = useState(false);
-  const [resizeStartX, setResizeStartX] = useState(0);
-  const [resizeStartWidth, setResizeStartWidth] = useState(200);
+  const defaultColWidths = { name: 60, phone: 120, party: 60, gender: 60, roomType: 100, notes: 100, sms: 140, nextDay: 96 };
+  const [colWidths, setColWidths] = useState(() => {
+    try {
+      const saved = localStorage.getItem('roomAssignment_colWidths');
+      if (saved) return { ...defaultColWidths, ...JSON.parse(saved) };
+    } catch { /* ignore */ }
+    return defaultColWidths;
+  });
+  const [resizeCol, setResizeCol] = useState<string | null>(null);
+  const [resizeGuideX, setResizeGuideX] = useState<number | null>(null);
+  const resizeStartXRef = useRef(0);
+  const resizeStartWidthRef = useRef(0);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem('roomAssignment_colWidths', JSON.stringify(colWidths));
+  }, [colWidths]);
 
   const GUEST_COLS = useMemo(() => {
-    return `56px 120px 40px 40px 72px 1fr`;
-  }, []);
+    return `${colWidths.name}px ${colWidths.phone}px ${colWidths.party}px ${colWidths.gender}px ${colWidths.roomType}px ${colWidths.notes}px minmax(${colWidths.sms}px, 1fr)`;
+  }, [colWidths]);
 
   const roomInfoMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -398,18 +410,6 @@ const RoomAssignment = () => {
       bed_capacity: room.bed_capacity || 1,
     }));
   }, [rooms]);
-
-  const prevDayRoomMap = useMemo(() => {
-    const map = new Map<string, Reservation[]>();
-    prevDayReservations.forEach((r) => {
-      if (r.room_number) {
-        const existing = map.get(r.room_number) || [];
-        existing.push(r);
-        map.set(r.room_number, existing);
-      }
-    });
-    return map;
-  }, [prevDayReservations]);
 
   const nextDayRoomMap = useMemo(() => {
     const map = new Map<string, Reservation[]>();
@@ -439,8 +439,7 @@ const RoomAssignment = () => {
       const dateStr = selectedDate.format('YYYY-MM-DD');
       const res = await roomsAPI.autoAssign(dateStr);
       const today = res.data.today;
-      const tomorrow = res.data.tomorrow;
-      toast.success(`객실 자동 배정 완료: 오늘 ${today.assigned}건, 내일 ${tomorrow.assigned}건`);
+      toast.success(`객실 자동 배정 완료: ${today.assigned}건 배정`);
       fetchReservations(selectedDate);
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || '객실 자동 배정에 실패했습니다.');
@@ -468,14 +467,12 @@ const RoomAssignment = () => {
         setter([]);
       }
     };
-    fetchOne(date.subtract(1, 'day'), setPrevDayReservations);
     fetchOne(date.add(1, 'day'), setNextDayReservations);
   }, []);
 
   // 날짜 이동 방향 추적 (프리페치용)
   const prevDateRef = useRef<Dayjs>(selectedDate);
   const reservationsRef = useRef<Reservation[]>([]);
-  const prevDayRef = useRef<Reservation[]>([]);
   const nextDayRef = useRef<Reservation[]>([]);
 
   const filterActive = useCallback((data: any[]) =>
@@ -497,10 +494,7 @@ const RoomAssignment = () => {
       prevDateRef.current = date;
       setLoading(false);
 
-      // 양옆 백그라운드 fetch
-      reservationsAPI.getAll({ date: date.subtract(1, 'day').format('YYYY-MM-DD'), limit: 200 })
-        .then(res => { const d = filterActive(res.data); setPrevDayReservations(d); prevDayRef.current = d; })
-        .catch(() => { setPrevDayReservations([]); prevDayRef.current = []; });
+      // 다음날 백그라운드 fetch
       reservationsAPI.getAll({ date: date.add(1, 'day').format('YYYY-MM-DD'), limit: 200 })
         .then(res => { const d = filterActive(res.data); setNextDayReservations(d); nextDayRef.current = d; })
         .catch(() => { setNextDayReservations([]); nextDayRef.current = []; });
@@ -540,32 +534,38 @@ const RoomAssignment = () => {
   }, [selectedDate, fetchReservations]);
 
   useEffect(() => {
+    if (!resizeCol) return;
+
     const handleMouseMove = (e: MouseEvent) => {
-      if (isResizing) {
-        const delta = e.clientX - resizeStartX;
-        const newWidth = Math.max(60, Math.min(400, resizeStartWidth + delta));
-        setSmsColumnWidth(newWidth);
+      const delta = e.clientX - resizeStartXRef.current;
+      const minWidths: Record<string, number> = { name: 60, phone: 120, party: 60, gender: 60, roomType: 100, notes: 100, sms: 140, nextDay: 96 };
+      const newWidth = Math.max(minWidths[resizeCol] || 30, resizeStartWidthRef.current + delta);
+      setColWidths((prev: typeof defaultColWidths) => ({ ...prev, [resizeCol!]: newWidth }));
+      if (tableContainerRef.current) {
+        const clampedDelta = newWidth - resizeStartWidthRef.current;
+        const clampedX = resizeStartXRef.current + clampedDelta;
+        const rect = tableContainerRef.current.getBoundingClientRect();
+        setResizeGuideX(clampedX - rect.left);
       }
     };
 
     const handleMouseUp = () => {
-      setIsResizing(false);
-      document.body.style.cursor = 'default';
-      document.body.style.userSelect = 'auto';
+      setResizeCol(null);
+      setResizeGuideX(null);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
     };
 
-    if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-    }
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
 
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isResizing, resizeStartX, resizeStartWidth]);
+  }, [resizeCol]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -1065,30 +1065,28 @@ const RoomAssignment = () => {
           </div>
         )}
         <div
-          className="flex-1 grid items-center gap-2 px-3 py-1.5"
+          className="flex-1 grid items-center py-1.5"
           style={{ gridTemplateColumns: GUEST_COLS }}
         >
-          <div className="overflow-hidden">
+          <div className="overflow-hidden px-1.5">
             <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className="font-medium text-[#191F28] dark:text-white" placeholder="이름" />
 
           </div>
-          <div className="overflow-hidden">
+          <div className="overflow-hidden px-1.5">
             <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-[#8B95A1] tabular-nums" placeholder="연락처" />
           </div>
-          <div className="overflow-hidden text-center">
+          <div className="overflow-hidden text-center px-1.5">
             <InlineInput value={res.party_type || ''} field="party_type" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-white font-medium text-center" placeholder="-" />
           </div>
-          <div className="overflow-hidden text-center">
+          <div className="overflow-hidden text-center px-1.5">
             <InlineInput value={genderPeople} field="genderPeople" resId={res.id} onSave={handleFieldSave} className="text-[#4E5968] dark:text-white font-medium text-center" placeholder="-" />
           </div>
-          <div className="overflow-hidden truncate text-body text-[#8B95A1] dark:text-[#8B95A1] text-center">{res.naver_room_type || <span className="text-[#B0B8C1] dark:text-[#4E5968]">-</span>}</div>
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="min-w-[60px] flex-1 overflow-hidden">
-              <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-[#8B95A1]" placeholder="" />
-            </div>
-            <div className="min-w-[120px] flex-1 overflow-visible">
-              <SmsCell reservation={res} templateLabels={templateLabels} onToggle={handleSmsToggle} onAssign={handleSmsAssign} onRemove={handleSmsRemove} />
-            </div>
+          <div className="overflow-hidden truncate text-body text-[#8B95A1] dark:text-[#8B95A1] text-center px-1.5">{res.naver_room_type || <span className="text-[#B0B8C1] dark:text-[#4E5968]">-</span>}</div>
+          <div className="overflow-hidden px-1.5">
+            <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-[#8B95A1]" placeholder="" />
+          </div>
+          <div className="overflow-visible px-1.5">
+            <SmsCell reservation={res} templateLabels={templateLabels} onToggle={handleSmsToggle} onAssign={handleSmsAssign} onRemove={handleSmsRemove} />
           </div>
         </div>
       </div>
@@ -1099,17 +1097,14 @@ const RoomAssignment = () => {
     const { room_number, isDormitory, bed_capacity } = entry;
     const guestsRaw = assignedRooms.get(room_number) || [];
     const isDragOver = dragOverRoom === room_number;
-    const prevGuestsRaw = prevDayRoomMap.get(room_number) || [];
     const nextGuestsRaw = nextDayRoomMap.get(room_number) || [];
 
     // 도미토리: 연박자 행 위치를 날짜간 통일
     let guests = guestsRaw;
-    let prevGuests = prevGuestsRaw;
     let nextGuests = nextGuestsRaw;
     if (isDormitory) {
       // 원본을 ID순으로 정렬 → 어느 날짜에서 보든 같은 참조 순서
       const byId = (a: Reservation, b: Reservation) => a.id - b.id;
-      const prevSorted = [...prevGuestsRaw].sort(byId);
       const guestsSorted = [...guestsRaw].sort(byId);
       const nextSorted = [...nextGuestsRaw].sort(byId);
 
@@ -1152,13 +1147,12 @@ const RoomAssignment = () => {
         return result;
       };
 
-      // ID 정렬된 전일을 기준으로 당일 정렬 → 안정적 행 위치
-      guests = alignToRef(guestsSorted, prevSorted);
-      prevGuests = alignToRef(prevSorted, guests);
+      // ID 정렬된 당일을 기준으로 익일 정렬 → 안정적 행 위치
+      guests = guestsSorted;
       nextGuests = alignToRef(nextSorted, guests);
     }
 
-    const maxOccupancy = Math.max(guests.length, prevGuests.length, nextGuests.length, 1);
+    const maxOccupancy = Math.max(guests.length, nextGuests.length, 1);
     const visibleRows = isDormitory
       ? Math.min(bed_capacity, maxOccupancy)
       : Math.max(1, guests.length);
@@ -1169,11 +1163,6 @@ const RoomAssignment = () => {
       <div
         key={room_number}
         className={`group flex select-none transition-colors
-          ${autoAssignConfirm
-            ? (guestsRaw.length > 0 && guestsRaw.every(g => g.room_assigned_by === 'manual')
-              ? 'opacity-40'
-              : '')
-            : ''}
           ${isDragOver
             ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/8 ring-1 ring-inset ring-[#3182F6]/30 dark:ring-[#3182F6]/30'
             : stripeBg
@@ -1183,26 +1172,6 @@ const RoomAssignment = () => {
         onDragLeave={onRoomDragLeave}
         onDrop={(e) => onRoomDrop(e, room_number)}
       >
-        {/* Prev day column */}
-        <div className={`flex-shrink-0 w-24 border-r-8 border-white dark:border-[#2C2C34] shadow-[inset_-1px_0_0_#E5E8EB,1px_0_0_#E5E8EB] z-[2] border-b border-b-[#E5E8EB] dark:border-b-gray-700 ${stripeBg}`}>
-          <div className="divide-y divide-[#F2F4F6] dark:divide-[#2C2C34]">
-            {Array.from({ length: totalRows }).map((_, i) => {
-              const prevGuest = prevGuests[i];
-              const gp = prevGuest ? formatGenderPeople(prevGuest) : '';
-              return (
-                <div key={`prev-${i}`} className={`flex items-center justify-center h-10 px-1 ${prevGuest && isMultiNight(prevGuest) ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15' : ''}`}>
-                  {prevGuest ? (
-                    <div className="flex items-center gap-1.5 truncate">
-                      <span className="truncate text-caption text-[#4E5968] dark:text-[#8B95A1]">{prevGuest.customer_name}</span>
-                      {gp && <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{gp}</span>}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
         {/* Room label - vertically centered, spans all rows */}
         <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
           <span className="font-semibold text-[#191F28] dark:text-white text-body">{room_number}</span>
@@ -1223,10 +1192,10 @@ const RoomAssignment = () => {
               return (
                 <div key={`empty-${i}`} className={`flex items-center h-10 ${guestAreaCursor()}`}>
                   <div
-                    className="flex-1 grid items-center gap-2 px-3 py-1.5"
+                    className="flex-1 grid items-center py-1.5"
                     style={{ gridTemplateColumns: GUEST_COLS }}
                   >
-                    <div className="overflow-hidden truncate col-span-full text-body text-[#B0B8C1] dark:text-[#4E5968] italic">
+                    <div className="overflow-hidden truncate col-span-full text-body text-[#B0B8C1] dark:text-[#4E5968] italic px-1.5">
                       {isDragOver ? '여기에 놓으세요' : ''}
                     </div>
                   </div>
@@ -1238,10 +1207,10 @@ const RoomAssignment = () => {
           ) : (
             <div className={`flex items-center h-10 ${guestAreaCursor()}`}>
               <div
-                className="flex-1 grid items-center gap-2 px-3 py-1.5"
+                className="flex-1 grid items-center py-1.5"
                 style={{ gridTemplateColumns: GUEST_COLS }}
               >
-                <div className="overflow-hidden truncate col-span-full text-body text-[#3182F6] dark:text-[#3182F6] italic">
+                <div className="overflow-hidden truncate col-span-full text-body text-[#3182F6] dark:text-[#3182F6] italic px-1.5">
                   {isDragOver ? '여기에 놓으세요' : ''}
                 </div>
               </div>
@@ -1250,7 +1219,7 @@ const RoomAssignment = () => {
         </div>
 
         {/* Next day column */}
-        <div className={`flex-shrink-0 w-24 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] border-b border-b-[#E5E8EB] dark:border-b-gray-700 ${stripeBg}`}>
+        <div className={`flex-shrink-0 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] border-b border-b-[#E5E8EB] dark:border-b-gray-700 ${stripeBg}`} style={{ width: colWidths.nextDay }}>
           <div className="divide-y divide-[#F2F4F6] dark:divide-[#2C2C34]">
             {Array.from({ length: totalRows }).map((_, i) => {
               const nextGuest = nextGuests[i];
@@ -1290,33 +1259,15 @@ const RoomAssignment = () => {
 
       if (diff === 1 && nextDayRef.current.length > 0) {
         // 다음: 시프트 + 익일만 fetch
-        const newPrev = reservationsRef.current;
         const newCurrent = nextDayRef.current;
         dataPromise = reservationsAPI.getAll({ date: newDate.add(1, 'day').format('YYYY-MM-DD'), limit: 200 })
           .catch(() => ({ data: [] }))
           .then((res: any) => {
             const nextData = filterActive(res.data);
             reservationsRef.current = newCurrent;
-            prevDayRef.current = newPrev;
             nextDayRef.current = nextData;
             setReservations(newCurrent);
-            setPrevDayReservations(newPrev);
             setNextDayReservations(nextData);
-          });
-      } else if (diff === -1 && prevDayRef.current.length > 0) {
-        // 이전: 시프트 + 전일만 fetch
-        const newNext = reservationsRef.current;
-        const newCurrent = prevDayRef.current;
-        dataPromise = reservationsAPI.getAll({ date: newDate.subtract(1, 'day').format('YYYY-MM-DD'), limit: 200 })
-          .catch(() => ({ data: [] }))
-          .then((res: any) => {
-            const prevData = filterActive(res.data);
-            reservationsRef.current = newCurrent;
-            nextDayRef.current = newNext;
-            prevDayRef.current = prevData;
-            setReservations(newCurrent);
-            setNextDayReservations(newNext);
-            setPrevDayReservations(prevData);
           });
       } else {
         // 폴백: 당일 먼저
@@ -1325,10 +1276,7 @@ const RoomAssignment = () => {
             const curr = filterActive(res.data);
             reservationsRef.current = curr;
             setReservations(curr);
-            // 양옆 백그라운드
-            reservationsAPI.getAll({ date: newDate.subtract(1, 'day').format('YYYY-MM-DD'), limit: 200 })
-              .then(r => { const d = filterActive(r.data); setPrevDayReservations(d); prevDayRef.current = d; })
-              .catch(() => { setPrevDayReservations([]); prevDayRef.current = []; });
+            // 다음날 백그라운드
             reservationsAPI.getAll({ date: newDate.add(1, 'day').format('YYYY-MM-DD'), limit: 200 })
               .then(r => { const d = filterActive(r.data); setNextDayReservations(d); nextDayRef.current = d; })
               .catch(() => { setNextDayReservations([]); nextDayRef.current = []; });
@@ -1566,13 +1514,8 @@ const RoomAssignment = () => {
         </div>
       </div>
 
-      {/* 자동배정 오버레이 */}
-      {autoAssignConfirm && (
-        <div className="fixed inset-0 z-40 bg-black/20" onClick={() => setAutoAssignConfirm(false)} />
-      )}
-
       {/* Main grid card */}
-      <div className={`section-card !overflow-visible ${autoAssignConfirm ? 'relative z-[41]' : ''}`}>
+      <div className="section-card !overflow-visible">
         {/* Date navigation header */}
         <div className="section-header justify-center">
           <div className="flex items-center gap-1">
@@ -1611,31 +1554,30 @@ const RoomAssignment = () => {
             }
           >
             {/* Unified Table */}
-            <div className="rounded-xl border border-[#F2F4F6] dark:border-[#2C2C34]">
+            <div ref={tableContainerRef} className="relative rounded-xl border border-[#F2F4F6] dark:border-[#2C2C34]">
+              {resizeGuideX !== null && (
+                <div className="absolute top-0 bottom-0 w-px bg-[#3182F6] z-50 pointer-events-none" style={{ left: resizeGuideX }} />
+              )}
               {/* Header */}
               <div className="flex items-center h-10 bg-[#F2F4F6] dark:bg-[#17171C] border-b border-[#F2F4F6] dark:border-[#2C2C34]">
-                <div className="flex-shrink-0 w-24 px-2 text-center border-r-8 border-white dark:border-[#2C2C34] shadow-[inset_-1px_0_0_#E5E8EB,1px_0_0_#E5E8EB] z-[2] flex items-center justify-center self-stretch">
-                  <span className="text-caption font-semibold text-[#8B95A1] dark:text-[#8B95A1]">{selectedDate.subtract(1, 'day').format('M/D')}</span>
-                </div>
                 <div className="flex-shrink-0 pl-3 pr-2 w-42 border-r border-[#F2F4F6] dark:border-[#2C2C34]">
                   <span className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">객실</span>
                 </div>
                 <div className="w-7 flex-shrink-0" />
                 <div
-                  className="flex-1 grid items-center gap-2 px-3"
+                  className="flex-1 grid items-center"
                   style={{ gridTemplateColumns: GUEST_COLS }}
                 >
-                  <div className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">이름</div>
-                  <div className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">전화번호</div>
-                  <div className="text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">파티</div>
-                  <div className="text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">성별</div>
-                  <div className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1] text-center">예약객실</div>
-                  <div className="flex items-center gap-2">
-                    <div className="min-w-[60px] flex-1 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">메모</div>
-                    <div className="min-w-[60px] flex-1 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">문자</div>
-                  </div>
+                  <div className="relative pl-[9px] pr-1.5 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">이름<div onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); resizeStartXRef.current = e.clientX; resizeStartWidthRef.current = colWidths.name; setResizeCol('name'); }} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
+                  <div className="relative pl-[9px] pr-1.5 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">전화번호<div onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); resizeStartXRef.current = e.clientX; resizeStartWidthRef.current = colWidths.phone; setResizeCol('phone'); }} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
+                  <div className="relative px-1.5 text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">파티<div onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); resizeStartXRef.current = e.clientX; resizeStartWidthRef.current = colWidths.party; setResizeCol('party'); }} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
+                  <div className="relative px-1.5 text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">성별<div onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); resizeStartXRef.current = e.clientX; resizeStartWidthRef.current = colWidths.gender; setResizeCol('gender'); }} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
+                  <div className="relative px-1.5 text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">예약객실<div onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); resizeStartXRef.current = e.clientX; resizeStartWidthRef.current = colWidths.roomType; setResizeCol('roomType'); }} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
+                  <div className="relative pl-[9px] pr-1.5 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">메모<div onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); resizeStartXRef.current = e.clientX; resizeStartWidthRef.current = colWidths.notes; setResizeCol('notes'); }} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
+                  <div className="relative pl-[9px] pr-1.5 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">문자<div onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); resizeStartXRef.current = e.clientX; resizeStartWidthRef.current = colWidths.sms; setResizeCol('sms'); }} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
                 </div>
-                <div className="flex-shrink-0 w-24 px-2 text-center border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] flex items-center justify-center self-stretch">
+                <div className="relative flex-shrink-0 px-2 text-center border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] flex items-center justify-center self-stretch" style={{ width: colWidths.nextDay }}>
+                  <div onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); resizeStartXRef.current = e.clientX; resizeStartWidthRef.current = colWidths.nextDay; setResizeCol('nextDay'); }} className="absolute left-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:left-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" />
                   <span className="text-caption font-semibold text-[#8B95A1] dark:text-[#8B95A1]">{selectedDate.add(1, 'day').format('M/D')}</span>
                 </div>
               </div>
@@ -1650,18 +1592,13 @@ const RoomAssignment = () => {
                 className={`group flex select-none transition-colors ${
                   dragOverPool
                     ? 'bg-[#FF9500]/50 dark:bg-[#FF9500]/8'
-                    : autoAssignConfirm && unassigned.length > 0
-                      ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/10'
-                      : unassigned.length > 0 ? 'bg-white dark:bg-[#1E1E24]' : 'bg-[#F2F4F6]/50 dark:bg-[#17171C]/30'
+                    : unassigned.length > 0 ? 'bg-white dark:bg-[#1E1E24]' : 'bg-[#F2F4F6]/50 dark:bg-[#17171C]/30'
                 }`}
                 style={{ minHeight: `${Math.max(1, unassigned.length) * 40}px` }}
                 onDragOver={onPoolDragOver}
                 onDragLeave={onPoolDragLeave}
                 onDrop={onPoolDrop}
               >
-                {/* Prev day column - empty */}
-                <div className="flex-shrink-0 w-24 border-r-8 border-white dark:border-[#2C2C34] shadow-[inset_-1px_0_0_#E5E8EB,1px_0_0_#E5E8EB] z-[2] bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700" />
-
                 {/* Room label */}
                 <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
                   <span className="font-semibold text-[#FF9500] dark:text-[#FF9500] text-body">미배정</span>
@@ -1673,8 +1610,8 @@ const RoomAssignment = () => {
                     unassigned.map((res) => renderGuestRow(res, true))
                   ) : (
                     <div className={`flex items-center h-10 ${guestAreaCursor()}`}>
-                      <div className="flex-1 grid items-center gap-2 px-3 py-1.5" style={{ gridTemplateColumns: GUEST_COLS }}>
-                        <div className="overflow-hidden truncate col-span-full text-body text-[#FF9500] dark:text-[#FF9500] italic">
+                      <div className="flex-1 grid items-center py-1.5" style={{ gridTemplateColumns: GUEST_COLS }}>
+                        <div className="overflow-hidden truncate col-span-full text-body text-[#FF9500] dark:text-[#FF9500] italic px-1.5">
                           {dragOverPool ? '여기에 놓으면 배정 해제' : ''}
                         </div>
                       </div>
@@ -1683,7 +1620,7 @@ const RoomAssignment = () => {
                 </div>
 
                 {/* Next day column - empty */}
-                <div className="flex-shrink-0 w-24 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700" />
+                <div className="flex-shrink-0 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700" style={{ width: colWidths.nextDay }} />
               </div>
 
               {/* Party-Only */}
@@ -1698,9 +1635,6 @@ const RoomAssignment = () => {
                 onDragLeave={onPartyZoneDragLeave}
                 onDrop={onPartyZoneDrop}
               >
-                {/* Prev day column - empty */}
-                <div className="flex-shrink-0 w-24 border-r-8 border-white dark:border-[#2C2C34] shadow-[inset_-1px_0_0_#E5E8EB,1px_0_0_#E5E8EB] z-[2] bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700" />
-
                 {/* Room label */}
                 <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
                   <span className="font-semibold text-[#7B61FF] dark:text-[#7B61FF] text-body">파티만</span>
@@ -1712,8 +1646,8 @@ const RoomAssignment = () => {
                     partyOnly.map((res) => renderGuestRow(res, true))
                   ) : (
                     <div className={`flex items-center h-10 ${guestAreaCursor()}`}>
-                      <div className="flex-1 grid items-center gap-2 px-3 py-1.5" style={{ gridTemplateColumns: GUEST_COLS }}>
-                        <div className="overflow-hidden truncate col-span-full text-body text-[#7B61FF] dark:text-[#7B61FF] italic">
+                      <div className="flex-1 grid items-center py-1.5" style={{ gridTemplateColumns: GUEST_COLS }}>
+                        <div className="overflow-hidden truncate col-span-full text-body text-[#7B61FF] dark:text-[#7B61FF] italic px-1.5">
                           {dragOverPartyZone ? '여기에 놓으면 파티만 게스트로 전환' : ''}
                         </div>
                       </div>
@@ -1722,7 +1656,7 @@ const RoomAssignment = () => {
                 </div>
 
                 {/* Next day column - empty */}
-                <div className="flex-shrink-0 w-24 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700" />
+                <div className="flex-shrink-0 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700" style={{ width: colWidths.nextDay }} />
               </div>
             </div>
           </div>
@@ -1994,32 +1928,45 @@ const RoomAssignment = () => {
         .date-slide-right { animation: slideRight 0.15s ease-out; }
       `}</style>
 
-      {/* 객실 자동 배정 — 플로팅 카드 (배경 스크롤 가능) */}
-      {autoAssignConfirm && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-2xl border border-[#E5E8EB] dark:border-gray-700 bg-white/95 dark:bg-[#1E1E24]/95 backdrop-blur-sm shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
-          <div className="flex items-center justify-between gap-6 px-5 py-3">
-            <div className="flex items-center gap-3">
-              <UserPlus className="h-5 w-5 text-[#3182F6]" />
-              <div>
-                <p className="text-body font-semibold text-[#191F28] dark:text-white">
-                  객실 자동 배정 — {selectedDate.format('YYYY-MM-DD')}
-                </p>
-                <p className="text-caption text-[#8B95A1]">
-                  미배정 예약자를 객실에 자동 배정합니다. 수동 배정은 유지됩니다.
-                </p>
-              </div>
+      {/* 객실 자동 배정 모달 */}
+      <Modal size="md" show={autoAssignConfirm} onClose={() => setAutoAssignConfirm(false)}>
+        <ModalHeader>객실 자동 배정</ModalHeader>
+        <ModalBody>
+          <p className="text-body text-[#4E5968] dark:text-gray-300 mb-4">
+            미배정 예약자를 상품 매칭에 따라 객실에 자동 배정합니다.
+          </p>
+          <p className="text-label font-medium text-[#8B95A1] mb-2">
+            배정 대상 ({unassigned.length}명)
+          </p>
+          {unassigned.length === 0 ? (
+            <p className="text-body text-[#8B95A1] py-4 text-center">미배정 예약자가 없습니다.</p>
+          ) : (
+            <div className="divide-y divide-[#E5E8EB] dark:divide-gray-700">
+              {unassigned.map((guest) => (
+                <div key={guest.id} className="flex items-center justify-between py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-body font-medium text-[#191F28] dark:text-white">
+                      {guest.customer_name}
+                    </span>
+                    <span className="text-caption text-[#8B95A1]">{guest.phone}</span>
+                  </div>
+                  <span className="text-caption text-[#8B95A1]">
+                    {guest.naver_room_type || '-'}
+                  </span>
+                </div>
+              ))}
             </div>
-            <div className="flex items-center gap-2">
-              <Button color="blue" size="sm" onClick={handleAutoAssign} disabled={autoAssigning}>
-                {autoAssigning ? <><Spinner size="sm" className="mr-1.5" />배정 중...</> : '배정 진행'}
-              </Button>
-              <Button color="light" size="sm" onClick={() => setAutoAssignConfirm(false)}>
-                취소
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+          )}
+        </ModalBody>
+        <ModalFooter className="justify-end">
+          <Button color="light" onClick={() => setAutoAssignConfirm(false)}>
+            취소
+          </Button>
+          <Button color="blue" onClick={handleAutoAssign} disabled={autoAssigning}>
+            {autoAssigning ? <><Spinner size="sm" className="mr-2" />배정 중...</> : '배정 진행'}
+          </Button>
+        </ModalFooter>
+      </Modal>
     </div>
   );
 };
