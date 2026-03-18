@@ -33,11 +33,6 @@ def _get_assigned_ids(ctx):
     ).subquery()
 
 
-def _condition_by_tag(value, ctx):
-    """Return condition for tag filter."""
-    return Reservation.tags.like(f'%{value}%')
-
-
 def _condition_by_assignment(value, ctx):
     """Return condition for assignment status: room / party / unassigned."""
     if value == "room":
@@ -76,11 +71,43 @@ def _condition_by_room(value, ctx):
     return Reservation.id.in_(sub)
 
 
+# Whitelist of allowed columns for column_match filter
+_COLUMN_MATCH_COLUMNS = {"party_type", "gender", "naver_room_type", "notes"}
+
+
+def _condition_by_column_match(value, ctx):
+    """Return condition for column text match filter.
+
+    value format: '{column}:{operator}:{text}'
+    operator: 'contains', 'not_contains', 'is_empty', 'is_not_empty'
+    """
+    parts = value.split(':', 2)
+    if len(parts) < 2:
+        return None
+    column = parts[0]
+    operator = parts[1]
+    text = parts[2] if len(parts) == 3 else ''
+    if column not in _COLUMN_MATCH_COLUMNS:
+        return None
+    col_attr = getattr(Reservation, column, None)
+    if col_attr is None:
+        return None
+    if operator == 'is_empty':
+        return col_attr.is_(None) | (col_attr == '')
+    elif operator == 'is_not_empty':
+        return col_attr.isnot(None) & (col_attr != '')
+    elif operator == 'contains' and text:
+        return col_attr.like(f'%{text}%')
+    elif operator == 'not_contains' and text:
+        return ~col_attr.like(f'%{text}%') | col_attr.is_(None)
+    return None
+
+
 FILTER_BUILDERS = {
-    "tag": _condition_by_tag,
     "assignment": _condition_by_assignment,
     "building": _condition_by_building,
     "room": _condition_by_room,
+    "column_match": _condition_by_column_match,
     # 레거시 호환
     "room_assigned": lambda v, ctx: _condition_by_assignment("room", ctx),
     "party_only": lambda v, ctx: _condition_by_assignment("party", ctx),
@@ -251,8 +278,7 @@ class TemplateScheduleExecutor:
         """
         Filter targets based on schedule configuration.
 
-        Uses the new ``filters`` JSON column (AND-chained).  Falls back to
-        legacy ``target_type`` / ``target_value`` when ``filters`` is empty.
+        Uses the ``filters`` JSON column (AND-chained).
 
         Args:
             schedule: TemplateSchedule instance
@@ -288,22 +314,25 @@ class TemplateScheduleExecutor:
             except (json.JSONDecodeError, TypeError):
                 filters = []
 
-        # Legacy fallback: if filters is empty and target_type is set
-        if not filters and schedule.target_type and schedule.target_type != 'all':
-            if schedule.target_type == 'tag' and schedule.target_value:
-                filters = [{"type": "tag", "value": schedule.target_value}]
-            elif schedule.target_type in ('room_assigned', 'party_only'):
-                filters = [{"type": schedule.target_type, "value": "true"}]
-
         # Apply filters: OR within same type, AND between types
         ctx = {"db": self.db, "target_date": target_date}
 
         # Group filters by type
         filter_groups: dict = defaultdict(list)
         for f in filters:
-            filter_groups[f.get("type", "")].append(f.get("value", ""))
+            ftype = f.get("type", "")
+            fval = f.get("value", "")
+            # column_match: group by type:column so different columns are AND-ed
+            if ftype == "column_match":
+                col = fval.split(':', 1)[0] if ':' in fval else fval
+                group_key = f"column_match:{col}"
+            else:
+                group_key = ftype
+            filter_groups[group_key].append(fval)
 
-        for filter_type, values in filter_groups.items():
+        for group_key, values in filter_groups.items():
+            # Extract base type from group key (e.g., "column_match:party_type" -> "column_match")
+            filter_type = group_key.split(':')[0] if group_key.startswith('column_match:') else group_key
             builder = FILTER_BUILDERS.get(filter_type)
             if not builder:
                 continue
@@ -386,7 +415,6 @@ class TemplateScheduleExecutor:
                 "check_in_date": r.check_in_date,
                 "check_in_time": r.check_in_time,
                 "room_number": room_map.get(r.id) or r.room_number,
-                "tags": r.tags,
             }
             for r in targets
         ]

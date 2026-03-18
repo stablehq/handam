@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 def sync_sms_tags(db: Session, reservation_id: int, schedules=None) -> None:
     """
     Reconcile SMS tags for a reservation based on active TemplateSchedules.
-    Supports both legacy target_type and new filters system.
     - Creates missing tags, removes obsolete unsent tags
     - Protects: sent tags (sent_at != null), manually assigned tags (assigned_by='manual')
     """
@@ -80,9 +79,8 @@ def _reservation_matches_schedule(
     room_assignment_row=None,
     building_id: Optional[int] = None,
 ) -> bool:
-    """Check if a reservation matches a schedule's filters or legacy target_type.
+    """Check if a reservation matches a schedule's filters.
 
-    Uses filters (new system) if present, falls back to target_type (legacy).
     Filters logic: same type = OR, different types = AND.
     """
     import json as _json
@@ -99,33 +97,29 @@ def _reservation_matches_schedule(
     if filters:
         # Group by type
         groups: dict[str, list[str]] = {}
+        group_type_map: dict[str, str] = {}  # group_key -> base ftype
         for f in filters:
             ftype = f.get("type", "")
             fval = f.get("value", "")
             if ftype and fval:
-                groups.setdefault(ftype, []).append(fval)
+                # column_match: group by type:column so different columns are AND-ed
+                if ftype == "column_match":
+                    col = fval.split(':', 1)[0] if ':' in fval else fval
+                    group_key = f"column_match:{col}"
+                else:
+                    group_key = ftype
+                groups.setdefault(group_key, []).append(fval)
+                group_type_map[group_key] = ftype
 
         # Each group must match (AND between groups)
-        for ftype, values in groups.items():
+        for group_key, values in groups.items():
+            ftype = group_type_map.get(group_key, group_key)
             # Any value in group must match (OR within group)
             if not _matches_filter_group(reservation, ftype, values, section, room_assignment_row, building_id):
                 return False
         return True
 
-    # Legacy target_type fallback
-    if schedule.target_type == 'all':
-        return True
-    elif schedule.target_type == 'room_assigned':
-        return section == 'room'
-    elif schedule.target_type == 'party_only':
-        return section == 'party'
-    elif schedule.target_type == 'tag':
-        if not schedule.target_value:
-            return False
-        tags = reservation.tags or ''
-        return schedule.target_value in tags
-
-    # No filters and no target_type → match all
+    # No filters → match all
     return True
 
 
@@ -152,10 +146,26 @@ def _matches_filter_group(
         elif ftype == "room":
             if room_assignment_row and room_assignment_row.room_number == value:
                 return True
-        elif ftype == "tag":
-            tags = reservation.tags or ''
-            if value in tags:
-                return True
+        elif ftype == "column_match":
+            parts = value.split(':', 2)
+            if len(parts) < 2:
+                continue
+            column = parts[0]
+            operator = parts[1]
+            text = parts[2] if len(parts) == 3 else ''
+            col_value = getattr(reservation, column, None)
+            if operator == 'is_empty':
+                if col_value is None or str(col_value).strip() == '':
+                    return True
+            elif operator == 'is_not_empty':
+                if col_value is not None and str(col_value).strip() != '':
+                    return True
+            elif operator == 'contains' and text:
+                if col_value is not None and text in str(col_value):
+                    return True
+            elif operator == 'not_contains' and text:
+                if col_value is None or text not in str(col_value):
+                    return True
     return False
 
 

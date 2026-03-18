@@ -93,6 +93,29 @@ interface Building {
   name: string;
 }
 
+const COLUMN_MATCH_OPTIONS: { value: string; label: string }[] = [
+  { value: 'party_type', label: '파티' },
+  { value: 'gender', label: '성별' },
+  { value: 'naver_room_type', label: '예약객실' },
+  { value: 'notes', label: '메모' },
+];
+
+const COLUMN_LABEL_MAP: Record<string, string> = Object.fromEntries(
+  COLUMN_MATCH_OPTIONS.map(o => [o.value, o.label])
+);
+
+function parseColumnMatchValue(value: string): { column: string; operator: string; text: string } | null {
+  const idx1 = value.indexOf(':');
+  if (idx1 === -1) return null;
+  const idx2 = value.indexOf(':', idx1 + 1);
+  if (idx2 === -1) return null;
+  return {
+    column: value.substring(0, idx1),
+    operator: value.substring(idx1 + 1, idx2),
+    text: value.substring(idx2 + 1),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Helper – variable extraction
 // ---------------------------------------------------------------------------
@@ -185,7 +208,16 @@ function getFilterLabel(f: ScheduleFilter, buildingList?: Building[]): string {
     return `건물: ${f.value}`;
   }
   if (f.type === 'room') return `객실: ${f.value}`;
-  if (f.type === 'tag') return `태그: ${f.value}`;
+  if (f.type === 'column_match') {
+    const parsed = parseColumnMatchValue(f.value);
+    if (parsed) {
+      const colLabel = COLUMN_LABEL_MAP[parsed.column] || parsed.column;
+      if (parsed.operator === 'is_empty') return `${colLabel} 비어있음`;
+      if (parsed.operator === 'is_not_empty') return `${colLabel} 값 있음`;
+      const opLabel = parsed.operator === 'not_contains' ? '미포함' : '포함';
+      return `${colLabel}에 '${parsed.text}' ${opLabel}`;
+    }
+  }
   // legacy backward compat
   if (f.type === 'room_assigned') return '객실배정자';
   if (f.type === 'party_only') return '파티만';
@@ -223,6 +255,7 @@ function getTargetSummary(record: TemplateSchedule, buildingList?: Building[]): 
 
   const buildingFilters = filters.filter(f => f.type === 'building');
   const assignmentFilters = filters.filter(f => f.type === 'assignment');
+  const columnMatchFilters = filters.filter(f => f.type === 'column_match');
 
   const buildingText = buildingFilters.length > 0
     ? buildingFilters.map(f => {
@@ -243,13 +276,25 @@ function getTargetSummary(record: TemplateSchedule, buildingList?: Building[]): 
       }).join('·')
     : '';
 
-  if (!buildingText && !assignmentText) {
+  if (!buildingText && !assignmentText && columnMatchFilters.length === 0) {
     return <span className="text-caption text-[#8B95A1]">{dateLabel} 전체 예약자</span>;
   }
 
   const parts: string[] = [];
   if (buildingText) parts.push(buildingText);
   if (assignmentText) parts.push(`${assignmentText} 상태`);
+  if (columnMatchFilters.length > 0) {
+    const cmTexts = columnMatchFilters.map(f => {
+      const parsed = parseColumnMatchValue(f.value);
+      if (!parsed) return '';
+      const colLabel = COLUMN_LABEL_MAP[parsed.column] || parsed.column;
+      if (parsed.operator === 'is_empty') return `${colLabel} 비어있음`;
+      if (parsed.operator === 'is_not_empty') return `${colLabel} 값 있음`;
+      const opLabel = parsed.operator === 'not_contains' ? '미포함' : '포함';
+      return `${colLabel} '${parsed.text}' ${opLabel}`;
+    }).filter(Boolean);
+    if (cmTexts.length > 0) parts.push(cmTexts.join(', '));
+  }
 
   return <span className="text-caption text-[#4E5968] dark:text-gray-400">{parts.join('의 ')}의 {dateLabel} 예약자</span>;
 }
@@ -344,6 +389,9 @@ const Templates: React.FC = () => {
   const [sFilters, setSFilters] = useState<ScheduleFilter[]>([]);
   const [sDateFilter, setSDateFilter] = useState('today');
   const sExcludeSent = true; // 항상 발송 완료 대상 제외
+  const [cmColumn, setCmColumn] = useState('party_type');
+  const [cmText, setCmText] = useState('');
+  const [cmOperator, setCmOperator] = useState<'contains' | 'not_contains' | 'is_empty' | 'is_not_empty'>('contains');
   const [sActive, setSActive] = useState(true);
 
   // (filter picker state removed — replaced by toggle button UI)
@@ -530,6 +578,9 @@ const Templates: React.FC = () => {
     setSHour('9'); setSMinute('0'); setSDayOfWeek([]);
     setSIntervalMinutes('10'); setSActiveStartHour(''); setSActiveEndHour('');
     setSFilters([]); setSDateFilter('');
+    setCmColumn('party_type');
+    setCmText('');
+    setCmOperator('contains');
     setSActive(true);
   };
 
@@ -1432,7 +1483,108 @@ const Templates: React.FC = () => {
               </div>
             </div>
 
-            {/* Row 3: Date */}
+            {/* Row 3: Column match */}
+            <div className="space-y-1.5">
+              <div className="text-caption font-medium text-[#8B95A1] dark:text-gray-400">컬럼 조건</div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={cmColumn}
+                  onChange={e => setCmColumn(e.target.value)}
+                  className="rounded-lg border border-[#E5E8EB] bg-white px-3 py-2 text-body text-gray-900 dark:border-gray-600 dark:bg-[#1E1E24] dark:text-white"
+                >
+                  {COLUMN_MATCH_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+                <div className="inline-flex rounded-lg overflow-hidden border border-[#E5E8EB] dark:border-gray-600">
+                  {([
+                    { value: 'contains' as const, label: '포함' },
+                    { value: 'not_contains' as const, label: '미포함' },
+                    { value: 'is_empty' as const, label: '비어있음' },
+                    { value: 'is_not_empty' as const, label: '값 있음' },
+                  ]).map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setCmOperator(opt.value)}
+                      className={`px-3 py-2 text-body font-medium transition-colors cursor-pointer border-r border-[#E5E8EB] dark:border-gray-600 last:border-r-0
+                        ${cmOperator === opt.value
+                          ? 'bg-[#3182F6] text-white'
+                          : 'bg-white text-[#B0B8C1] hover:bg-[#F2F4F6] dark:bg-[#1E1E24] dark:text-gray-500 dark:hover:bg-[#2C2C34]'
+                        }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {(cmOperator === 'contains' || cmOperator === 'not_contains') && (
+                  <>
+                    <span className="text-body text-[#8B95A1]">에</span>
+                    <input
+                      type="text"
+                      value={cmText}
+                      onChange={e => setCmText(e.target.value)}
+                      placeholder="검색 텍스트"
+                      className="w-32 rounded-lg border border-[#E5E8EB] bg-white px-3 py-2 text-body text-gray-900 placeholder-[#B0B8C1] dark:border-gray-600 dark:bg-[#1E1E24] dark:text-white dark:placeholder-gray-500"
+                    />
+                  </>
+                )}
+                <button
+                  type="button"
+                  disabled={(cmOperator === 'contains' || cmOperator === 'not_contains') && !cmText.trim()}
+                  onClick={() => {
+                    const isEmptyOp = cmOperator === 'is_empty' || cmOperator === 'is_not_empty';
+                    const filterValue = isEmptyOp
+                      ? `${cmColumn}:${cmOperator}:`
+                      : `${cmColumn}:${cmOperator}:${cmText.trim()}`;
+                    setSFilters(prev => {
+                      if (prev.some(pf => pf.type === 'column_match' && pf.value === filterValue)) return prev;
+                      return [...prev, { type: 'column_match', value: filterValue }];
+                    });
+                    if (!isEmptyOp) setCmText('');
+                  }}
+                  className={`rounded-lg px-3 py-2 text-body font-medium transition-colors
+                    ${(cmOperator === 'is_empty' || cmOperator === 'is_not_empty' || cmText.trim())
+                      ? 'bg-[#3182F6] text-white hover:bg-[#1B64DA] cursor-pointer'
+                      : 'bg-[#F2F4F6] text-[#B0B8C1] cursor-not-allowed dark:bg-[#2C2C34] dark:text-gray-600'
+                    }`}
+                >
+                  + 추가
+                </button>
+              </div>
+              {/* Show added column_match filters as badges */}
+              {sFilters.filter(f => f.type === 'column_match').length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {sFilters.filter(f => f.type === 'column_match').map((f, i) => {
+                    const parsed = parseColumnMatchValue(f.value);
+                    if (!parsed) return null;
+                    const colLabel = COLUMN_LABEL_MAP[parsed.column] || parsed.column;
+                    const badgeText = parsed.operator === 'is_empty'
+                      ? `${colLabel} 비어있음`
+                      : parsed.operator === 'is_not_empty'
+                        ? `${colLabel} 값 있음`
+                        : `${colLabel}에 '${parsed.text}' ${parsed.operator === 'not_contains' ? '미포함' : '포함'}`;
+                    return (
+                      <span
+                        key={i}
+                        className="inline-flex items-center gap-1 rounded-lg bg-[#E8F3FF] px-2.5 py-1 text-caption font-medium text-[#3182F6] dark:bg-[#3182F6]/15 dark:text-blue-300"
+                      >
+                        {badgeText}
+                        <button
+                          type="button"
+                          onClick={() => setSFilters(prev => prev.filter(pf => !(pf.type === f.type && pf.value === f.value)))}
+                          className="ml-0.5 text-[#3182F6]/60 hover:text-[#3182F6] dark:text-blue-300/60 dark:hover:text-blue-300 cursor-pointer"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Row 4: Date */}
             <div className="space-y-1.5">
               <div className="text-caption font-medium text-[#8B95A1] dark:text-gray-400">날짜</div>
               <div className="inline-flex rounded-lg overflow-hidden border border-[#E5E8EB] dark:border-gray-600">
@@ -1461,6 +1613,7 @@ const Templates: React.FC = () => {
               const dateLabel = sDateFilter === 'tomorrow' ? '내일' : '오늘';
               const buildingFilters = sFilters.filter(f => f.type === 'building');
               const assignmentFilters = sFilters.filter(f => f.type === 'assignment');
+              const columnMatchFilters = sFilters.filter(f => f.type === 'column_match');
 
               const buildingText = buildingFilters.length > 0
                 ? buildingFilters.map(f => {
@@ -1478,7 +1631,7 @@ const Templates: React.FC = () => {
                   }).join(' 또는 ')
                 : '';
 
-              if (!buildingText && !assignmentText) {
+              if (!buildingText && !assignmentText && columnMatchFilters.length === 0) {
                 return (
                   <p className="text-caption text-[#B0B8C1] dark:text-gray-600">
                     {dateLabel} 전체 예약자에게 발송됩니다
@@ -1489,6 +1642,18 @@ const Templates: React.FC = () => {
               const parts: string[] = [];
               if (buildingText) parts.push(buildingText);
               if (assignmentText) parts.push(`${assignmentText} 상태`);
+              if (columnMatchFilters.length > 0) {
+                const cmTexts = columnMatchFilters.map(f => {
+                  const parsed = parseColumnMatchValue(f.value);
+                  if (!parsed) return '';
+                  const colLabel = COLUMN_LABEL_MAP[parsed.column] || parsed.column;
+                  if (parsed.operator === 'is_empty') return `${colLabel} 비어있음`;
+                  if (parsed.operator === 'is_not_empty') return `${colLabel} 값 있음`;
+                  const opLabel = parsed.operator === 'not_contains' ? '미포함' : '포함';
+                  return `${colLabel} '${parsed.text}' ${opLabel}`;
+                }).filter(Boolean);
+                if (cmTexts.length > 0) parts.push(cmTexts.join(', '));
+              }
 
               return (
                 <p className="text-caption text-[#3182F6]">
