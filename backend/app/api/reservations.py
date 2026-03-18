@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from pydantic import BaseModel, field_validator
-from typing import List, Optional, Union
+from typing import List, Optional
 from app.db.database import get_db
 from app.db.models import Reservation, ReservationStatus, User, ReservationSmsAssignment, RoomAssignment
 from app.factory import get_reservation_provider, get_sms_provider
@@ -29,7 +29,6 @@ class ReservationCreate(BaseModel):
     status: str = "pending"
     notes: Optional[str] = None
     gender: Optional[str] = None
-    tags: Optional[Union[str, List[str]]] = None  # Accepts both string and array
     male_count: Optional[int] = None
     female_count: Optional[int] = None
     party_size: Optional[int] = 1
@@ -37,17 +36,6 @@ class ReservationCreate(BaseModel):
     booking_source: str = "manual"
     naver_room_type: Optional[str] = None  # Original reservation room type
     section: Optional[str] = None  # 'room', 'unassigned', 'party'
-
-    @field_validator('tags')
-    @classmethod
-    def convert_tags_to_string(cls, v):
-        """Convert tags array to comma-separated string"""
-        if v is None:
-            return None
-        if isinstance(v, list):
-            return ",".join(v)
-        return v
-
 
 class ReservationUpdate(BaseModel):
     customer_name: Optional[str] = None
@@ -57,23 +45,12 @@ class ReservationUpdate(BaseModel):
     status: Optional[str] = None
     notes: Optional[str] = None
     gender: Optional[str] = None
-    tags: Optional[Union[str, List[str]]] = None
     male_count: Optional[int] = None
     female_count: Optional[int] = None
     party_size: Optional[int] = None
     party_type: Optional[str] = None
     naver_room_type: Optional[str] = None  # Original reservation room type
     section: Optional[str] = None  # 'room', 'unassigned', 'party'
-
-    @field_validator('tags')
-    @classmethod
-    def convert_tags_to_string(cls, v):
-        """Convert tags array to comma-separated string"""
-        if v is None:
-            return None
-        if isinstance(v, list):
-            return ",".join(v)
-        return v
 
 
 class RoomAssignRequest(BaseModel):
@@ -116,7 +93,6 @@ class ReservationResponse(BaseModel):
     gender: Optional[str] = None
     male_count: Optional[int] = None
     female_count: Optional[int] = None
-    tags: Optional[str] = None
     party_size: Optional[int] = None
     party_type: Optional[str] = None
     check_out_date: Optional[str] = None
@@ -167,7 +143,6 @@ def _to_response(res: Reservation, override_room: Optional[str] = None, override
         gender=res.gender,
         male_count=res.male_count,
         female_count=res.female_count,
-        tags=res.tags,
         party_size=res.party_size,
         party_type=res.party_type,
         check_out_date=res.check_out_date,
@@ -295,10 +270,10 @@ async def create_reservation(reservation: ReservationCreate, db: Session = Depen
         gender=reservation.gender,
         male_count=reservation.male_count,
         female_count=reservation.female_count,
-        tags=reservation.tags,  # Already converted by validator
         party_size=reservation.party_size,
         party_type=reservation.party_type,
         naver_room_type=reservation.naver_room_type,  # Original reservation room type
+        section=reservation.section or 'unassigned',
     )
     db.add(db_reservation)
     db.commit()
@@ -326,12 +301,15 @@ async def update_reservation(
             raise HTTPException(status_code=400, detail="유효하지 않은 상태입니다")
 
     section_changed = "section" in update_data and update_data["section"] != db_reservation.section
+    # column_match 필터 대상 필드 변경 감지
+    _SMS_TAG_FIELDS = {"section", "party_type", "gender", "naver_room_type", "notes"}
+    sms_fields_changed = section_changed or bool(_SMS_TAG_FIELDS & update_data.keys())
 
     for field, value in update_data.items():
         setattr(db_reservation, field, value)
 
-    # 섹션 변경 시 SMS 태그 재계산
-    if section_changed:
+    # SMS 태그 재계산 (섹션 또는 필터 대상 필드 변경 시)
+    if sms_fields_changed:
         db.flush()
         room_assignment.sync_sms_tags(db, reservation_id)
 

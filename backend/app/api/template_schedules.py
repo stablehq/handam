@@ -132,7 +132,6 @@ class TargetPreview(BaseModel):
     check_in_date: str
     check_in_time: str
     room_number: Optional[str]
-    tags: Optional[str]
 
 
 @router.get("", response_model=List[TemplateScheduleResponse])

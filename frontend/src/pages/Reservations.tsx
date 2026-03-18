@@ -61,7 +61,6 @@ interface Reservation {
   total_price?: number | null;
   confirmed_at?: string | null;
   cancelled_at?: string | null;
-  tags?: string | null;
   notes?: string | null;
   created_at?: string | null;
 }
@@ -74,7 +73,6 @@ interface FormState {
   status: string;
   male_count: number | null;
   female_count: number | null;
-  tags: string;
   notes: string;
 }
 
@@ -86,7 +84,6 @@ const EMPTY_FORM: FormState = {
   status: 'confirmed',
   male_count: null,
   female_count: null,
-  tags: '',
   notes: '',
 };
 
@@ -304,7 +301,6 @@ export default function Reservations() {
       status:           r.status ?? 'confirmed',
       male_count:       maleCount,
       female_count:     femaleCount,
-      tags:             r.tags ?? '',
       notes:            r.notes ?? '',
     });
     setModalOpen(true);
@@ -332,20 +328,6 @@ export default function Reservations() {
       if (maleCount > 0) genderParts.push(`남${maleCount}`);
       if (femaleCount > 0) genderParts.push(`여${femaleCount}`);
 
-      let tags = form.tags.trim() || null;
-
-      // Handle guest type for new entries
-      if (editingId == null && form.guest_type === 'party_only') {
-        if (!tags?.includes('파티만')) {
-          tags = tags ? `${tags},파티만` : '파티만';
-        }
-      }
-
-      // If no room and no 파티만 tag, default to 파티만
-      if (editingId == null && !tags?.includes('파티만')) {
-        tags = tags ? `${tags},파티만` : '파티만';
-      }
-
       const payload: Record<string, unknown> = {
         customer_name:      form.customer_name.trim(),
         phone:              form.phone.trim(),
@@ -356,7 +338,6 @@ export default function Reservations() {
         gender:             genderParts.join('') || null,
         male_count:         maleCount || null,
         female_count:       femaleCount || null,
-        tags:               tags,
         notes:              form.notes.trim() || null,
         booking_source:     'manual',
       };
@@ -770,12 +751,7 @@ export default function Reservations() {
                     key={opt.value}
                     type="button"
                     onClick={() => {
-                      if (opt.value === 'party_only') {
-                        setField('guest_type', opt.value);
-                        setField('tags', '파티만');
-                      } else {
-                        setField('guest_type', opt.value);
-                      }
+                      setField('guest_type', opt.value);
                     }}
                     className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer
                       ${form.guest_type === opt.value

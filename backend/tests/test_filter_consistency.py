@@ -121,7 +121,6 @@ def _make_schedule(db: Session, template_id: int, filters: list) -> TemplateSche
         template_id=template_id,
         schedule_name="테스트 스케줄",
         schedule_type="daily",
-        target_type="all",
         filters=json.dumps(filters),
         is_active=True,
         exclude_sent=False,

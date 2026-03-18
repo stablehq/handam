@@ -152,7 +152,6 @@ def test_target_filtering():
 
         for schedule in schedules:
             logger.info(f"\nTesting: {schedule.schedule_name}")
-            logger.info(f"  Target type: {schedule.target_type}")
             logger.info(f"  Date filter: {schedule.date_filter}")
             logger.info(f"  Exclude sent: {schedule.exclude_sent}")
 

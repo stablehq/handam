@@ -159,26 +159,5 @@ def init_db():
             import logging
             logging.getLogger(__name__).info(f"Migrated {migrated} room biz_item links from 1:1 to N:M")
 
-        # Migrate legacy target_type/target_value to filters JSON
-        schedules_to_migrate = db.query(TemplateSchedule).filter(
-            TemplateSchedule.target_type.isnot(None),
-            (TemplateSchedule.filters.is_(None)) | (TemplateSchedule.filters == '')
-        ).all()
-        migrated_schedules = 0
-        for s in schedules_to_migrate:
-            filters = []
-            if s.target_type == 'tag' and s.target_value:
-                filters.append({"type": "tag", "value": s.target_value})
-            elif s.target_type == 'room_assigned':
-                filters.append({"type": "assignment", "value": "room"})
-            elif s.target_type == 'party_only':
-                filters.append({"type": "assignment", "value": "party"})
-            # 'all' -> empty array
-            s.filters = json.dumps(filters, ensure_ascii=False)
-            migrated_schedules += 1
-        if migrated_schedules:
-            db.commit()
-            import logging
-            logging.getLogger(__name__).info(f"Migrated {migrated_schedules} template schedules to filters JSON")
     finally:
         db.close()

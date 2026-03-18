@@ -127,31 +127,12 @@ class SmsSender:
 
         Ported from: stable-clasp-main/01_sns.js:5-33 (collectPhonesByTagAndMark)
         """
-        # Multi-tag mapping (from line 8-11)
-        multi_tag_map = {
-            '1,2,2차만': ['1', '2', '2차만'],
-            '2차만': ['2차만']
-        }
-
-        # Get target tags
-        target_tags = multi_tag_map.get(tag, [tag])
-
         # Build query
         query = self.db.query(Reservation)
 
         # Filter by date
         if date:
             query = query.filter(Reservation.check_in_date == date)
-
-        # Filter by tags (check if any target tag is in the tags field)
-        # Using SQL LIKE for simplicity (tags stored as comma-separated or JSON)
-        tag_conditions = []
-        for target_tag in target_tags:
-            tag_conditions.append(Reservation.tags.contains(target_tag))
-
-        if tag_conditions:
-            from sqlalchemy import or_
-            query = query.filter(or_(*tag_conditions))
 
         # Filter by sent status via ReservationSmsAssignment
         if exclude_sent and template_key:

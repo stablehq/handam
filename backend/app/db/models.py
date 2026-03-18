@@ -103,9 +103,6 @@ class Reservation(Base):
     party_size = Column("party_participants", Integer, default=0)
     party_type = Column(String(10), nullable=True)  # '1'=1차만, '2'=1+2차, '2차만'=2차만
 
-    # Tag system (comma-separated tags)
-    tags = Column(Text, nullable=True)  # JSON or comma-separated: "객후,1초,2차만"
-
     # Multi-booking flag
     is_multi_booking = Column(Boolean, default=False)
 
@@ -338,8 +335,6 @@ class TemplateSchedule(Base):
     timezone = Column(String(50), default="Asia/Seoul")
 
     # Target filters
-    target_type = Column(String(50), nullable=False)  # DEPRECATED: use filters instead. 'all', 'tag', 'room_assigned', 'party_only'
-    target_value = Column(String(200), nullable=True)  # DEPRECATED: use filters instead. Tag name if target_type='tag'
     filters = Column(Text, nullable=True)  # JSON array: [{"type": "tag", "value": "객후"}, {"type": "building", "value": "1"}]
     date_filter = Column(String(20), nullable=True)  # 'today', 'tomorrow', 'YYYY-MM-DD', null
 
