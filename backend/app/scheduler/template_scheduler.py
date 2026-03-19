@@ -28,14 +28,6 @@ logger = logging.getLogger(__name__)
 # Same-type conditions are OR-ed; different types are AND-ed.
 # ---------------------------------------------------------------------------
 
-def _get_assigned_ids(ctx):
-    """Helper: 해당 날짜에 RoomAssignment가 있는 예약 ID 서브쿼리."""
-    target_date = ctx.get("target_date")
-    return ctx["db"].query(RoomAssignment.reservation_id).filter(
-        RoomAssignment.date == target_date
-    ).subquery()
-
-
 def _condition_by_assignment(value, ctx):
     """Return condition for assignment status: room / party / unassigned."""
     if value == "room":

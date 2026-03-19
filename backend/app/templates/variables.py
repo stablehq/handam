@@ -5,7 +5,6 @@ Defines all available template variables and provides functions to calculate the
 """
 from typing import Dict, Any, Optional
 from datetime import datetime
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db.models import Reservation, ReservationStatus

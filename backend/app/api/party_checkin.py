@@ -4,13 +4,13 @@ Party check-in API endpoints
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from typing import List, Optional
 from datetime import datetime, timezone
 from pydantic import BaseModel
 
 from app.db.database import get_db
-from app.db.models import Reservation, ReservationStatus, PartyCheckin, RoomAssignment
+from app.db.models import Reservation, ReservationStatus, PartyCheckin, RoomAssignment, ReservationDailyInfo
 from app.auth.dependencies import require_any_role
 
 router = APIRouter(prefix="/api/party-checkin", tags=["party-checkin"])
@@ -51,19 +51,36 @@ async def get_party_checkin_list(
 
     파티 참여자: party_type이 '1', '2', '2차만' 중 하나인 예약자
     """
+    # 해당 날짜에 숙박 중인 예약 조회 (연박 포함)
     reservations = (
         db.query(Reservation)
         .filter(
             and_(
-                Reservation.check_in_date == date,
                 Reservation.status == ReservationStatus.CONFIRMED,
-                Reservation.party_type.in_(PARTY_TYPE_VALUES),
+                or_(
+                    # 연박: 체크인 <= 오늘 < 체크아웃
+                    and_(Reservation.check_in_date <= date, Reservation.check_out_date > date),
+                    # 1박(check_out 없음): 체크인 당일만
+                    and_(Reservation.check_in_date == date, Reservation.check_out_date.is_(None)),
+                ),
             )
         )
         .all()
     )
 
-    party_reservations = reservations
+    # party_type 필터: ReservationDailyInfo 우선, Reservation.party_type 폴백
+    daily_infos = {
+        di.reservation_id: di.party_type
+        for di in db.query(ReservationDailyInfo).filter(
+            ReservationDailyInfo.reservation_id.in_([r.id for r in reservations]),
+            ReservationDailyInfo.date == date,
+        ).all()
+    } if reservations else {}
+
+    party_reservations = [
+        r for r in reservations
+        if (daily_infos.get(r.id) or r.party_type) in PARTY_TYPE_VALUES
+    ]
 
     # 가나다순 정렬
     party_reservations.sort(key=lambda r: r.customer_name or "")
@@ -108,7 +125,7 @@ async def get_party_checkin_list(
                 gender=res.gender,
                 male_count=res.male_count,
                 female_count=res.female_count,
-                party_type=res.party_type,
+                party_type=daily_infos.get(res.id) or res.party_type,
                 checked_in=checkin is not None and checkin.checked_in_at is not None,
                 checked_in_at=(
                     checkin.checked_in_at.isoformat() if checkin and checkin.checked_in_at else None
