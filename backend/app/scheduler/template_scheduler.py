@@ -243,17 +243,26 @@ class TemplateScheduleExecutor:
 
             target_date = self._parse_date_filter(schedule.date_filter) if schedule.date_filter else None
 
-            # Build room_number -> building_name map for log display
-            room_numbers = set()
-            for r in targets:
-                if r.room_number:
-                    room_numbers.add(r.room_number)
-            room_building_map = {}
-            if room_numbers:
-                rooms_with_building = self.db.query(Room).filter(Room.room_number.in_(room_numbers)).all()
-                for rm in rooms_with_building:
-                    building_name = rm.building.name if rm.building else ""
-                    room_building_map[rm.room_number] = f"{building_name} {rm.room_number}호" if building_name else f"{rm.room_number}호"
+            # Build reservation_id -> building+room display map for log
+            # Use RoomAssignment for target_date (not denormalized field)
+            target_res_ids = [r.id for r in targets]
+            room_building_map = {}  # reservation_id -> display string
+            if target_res_ids and target_date:
+                from app.db.models import RoomAssignment
+                assignments = self.db.query(RoomAssignment).filter(
+                    RoomAssignment.reservation_id.in_(target_res_ids),
+                    RoomAssignment.date == target_date,
+                ).all()
+                assign_room_map = {ra.reservation_id: ra.room_number for ra in assignments}
+                room_numbers = set(assign_room_map.values())
+                room_name_map = {}
+                if room_numbers:
+                    rooms_with_building = self.db.query(Room).filter(Room.room_number.in_(room_numbers)).all()
+                    for rm in rooms_with_building:
+                        building_name = rm.building.name if rm.building else ""
+                        room_name_map[rm.room_number] = f"{building_name} {rm.room_number}호" if building_name else f"{rm.room_number}호"
+                for res_id, rn in assign_room_map.items():
+                    room_building_map[res_id] = room_name_map.get(rn, rn)
 
             template_key = schedule.template.template_key
 
@@ -291,7 +300,7 @@ class TemplateScheduleExecutor:
                             "name": reservation.customer_name,
                             "phone": reservation.phone,
                             "template_key": template_key,
-                            "template_detail": room_building_map.get(reservation.room_number, "") if reservation.room_number else "",
+                            "template_detail": room_building_map.get(reservation.id, ""),
                             "status": "success",
                             "message_id": result.get("message_id"),
                         })
@@ -303,7 +312,7 @@ class TemplateScheduleExecutor:
                             "name": reservation.customer_name,
                             "phone": reservation.phone,
                             "template_key": template_key,
-                            "template_detail": room_building_map.get(reservation.room_number, "") if reservation.room_number else "",
+                            "template_detail": room_building_map.get(reservation.id, ""),
                             "status": "failed",
                             "error": error_msg,
                         })
