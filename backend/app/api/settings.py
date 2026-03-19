@@ -3,12 +3,14 @@ Settings API - Runtime configuration management
 Handles Naver cookie updates, connection status checks, etc.
 """
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import app.config as _config
 from app.config import settings, get_naver_cookie, set_naver_cookie
 from app.real.reservation import RealReservationProvider
 from app.auth.dependencies import get_current_user, require_admin_or_above
-from app.db.models import User
+from app.api.deps import get_current_tenant, get_tenant_scoped_db
+from app.db.models import User, Tenant
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,10 +32,15 @@ class NaverCookieStatus(BaseModel):
 
 
 @router.get("/naver/status", response_model=NaverCookieStatus)
-async def get_naver_status(current_user: User = Depends(get_current_user)):
+async def get_naver_status(
+    current_user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
+):
     """Get current Naver cookie status and validate it"""
-    cookie = get_naver_cookie()
-    source = "runtime" if _config._runtime_naver_cookie is not None else "env"
+    # Prefer tenant DB cookie, fall back to runtime/env
+    cookie = tenant.naver_cookie or get_naver_cookie()
+    business_id = tenant.naver_business_id or settings.NAVER_BUSINESS_ID
+    source = "tenant_db" if tenant.naver_cookie else ("runtime" if _config._runtime_naver_cookie is not None else "env")
 
     status = NaverCookieStatus(
         has_cookie=bool(cookie),
@@ -41,18 +48,17 @@ async def get_naver_status(current_user: User = Depends(get_current_user)):
         cookie_preview=cookie[:10] + "***" + cookie[-5:] if len(cookie) > 20 else "***",
         is_valid=None,
         source=source,
-        business_id=settings.NAVER_BUSINESS_ID,
+        business_id=business_id,
     )
 
     # Test the cookie by making a lightweight API call
     if cookie:
         try:
             provider = RealReservationProvider(
-                business_id=settings.NAVER_BUSINESS_ID,
+                business_id=business_id,
                 cookie=cookie,
             )
             reservations = await provider.sync_reservations()
-            # If we get here without error, cookie is valid
             status.is_valid = True
             logger.info(f"Naver cookie validation: OK ({len(reservations)} reservations)")
         except Exception as e:
@@ -63,18 +69,31 @@ async def get_naver_status(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/naver/cookie")
-async def update_naver_cookie(req: NaverCookieRequest, current_user: User = Depends(require_admin_or_above)):
-    """Update Naver cookie at runtime (no restart needed)"""
+async def update_naver_cookie(
+    req: NaverCookieRequest,
+    current_user: User = Depends(require_admin_or_above),
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_tenant_scoped_db),
+):
+    """Update Naver cookie — saves to Tenant table + runtime"""
     if not req.cookie.strip():
         return {"success": False, "message": "Cookie cannot be empty"}
 
-    set_naver_cookie(req.cookie.strip())
+    cookie = req.cookie.strip()
+    business_id = tenant.naver_business_id or settings.NAVER_BUSINESS_ID
+
+    # Save to Tenant table (persistent across restarts)
+    tenant.naver_cookie = cookie
+    db.commit()
+
+    # Also update runtime for backward compat
+    set_naver_cookie(cookie)
 
     # Validate the new cookie
     try:
         provider = RealReservationProvider(
-            business_id=settings.NAVER_BUSINESS_ID,
-            cookie=get_naver_cookie(),
+            business_id=business_id,
+            cookie=cookie,
         )
         reservations = await provider.sync_reservations()
         logger.info(f"New Naver cookie set and validated: {len(reservations)} reservations found")
@@ -93,10 +112,16 @@ async def update_naver_cookie(req: NaverCookieRequest, current_user: User = Depe
 
 
 @router.delete("/naver/cookie")
-async def clear_naver_cookie(current_user: User = Depends(require_admin_or_above)):
-    """Clear runtime cookie override (falls back to .env)"""
+async def clear_naver_cookie(
+    current_user: User = Depends(require_admin_or_above),
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_tenant_scoped_db),
+):
+    """Clear Naver cookie from Tenant table + runtime"""
+    tenant.naver_cookie = None
+    db.commit()
     set_naver_cookie(None)
-    return {"success": True, "message": "Runtime cookie cleared. Using .env cookie."}
+    return {"success": True, "message": "Cookie cleared."}
 
 
 @router.get("/naver/bookmarklet")
