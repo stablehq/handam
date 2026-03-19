@@ -57,6 +57,7 @@ interface Template {
   created_at: string;
   updated_at: string;
   schedule_count: number;
+  participant_buffer: number;
 }
 
 interface TemplateSchedule {
@@ -75,6 +76,7 @@ interface TemplateSchedule {
   timezone: string;
   filters: string | null;
   date_filter: string | null;
+  target_mode: string | null;
   exclude_sent: boolean;
   active: boolean;
   created_at: string;
@@ -364,6 +366,7 @@ const Templates: React.FC = () => {
   const [tVariables, setTVariables] = useState('');
   const [tActive, setTActive] = useState(true);
   const [tKeyError, setTKeyError] = useState('');
+  const [tParticipantBuffer, setTParticipantBuffer] = useState<number>(0);
 
   // delete template
   const [deleteTemplateTarget, setDeleteTemplateTarget] = useState<Template | null>(null);
@@ -388,6 +391,7 @@ const Templates: React.FC = () => {
 
   const [sFilters, setSFilters] = useState<ScheduleFilter[]>([]);
   const [sDateFilter, setSDateFilter] = useState('today');
+  const [sTargetMode, setSTargetMode] = useState<'once' | 'daily'>('once');
   const sExcludeSent = true; // 항상 발송 완료 대상 제외
   const [cmColumn, setCmColumn] = useState('party_type');
   const [cmText, setCmText] = useState('');
@@ -505,6 +509,7 @@ const Templates: React.FC = () => {
     setEditingTemplate(null);
     setTKey(''); setTName(''); setTShortLabel(''); setTContent('');
     setTVariables(''); setTActive(true); setTKeyError('');
+    setTParticipantBuffer(0);
     setDetectedVars({ valid: [], invalid: [] });
     loadSampleExamples();
     setTemplateDialogOpen(true);
@@ -515,6 +520,7 @@ const Templates: React.FC = () => {
     setTKey(t.template_key); setTName(t.name); setTShortLabel(t.short_label ?? '');
     setTContent(t.content); setTVariables(t.variables ?? '');
     setTActive(t.active); setTKeyError('');
+    setTParticipantBuffer(t.participant_buffer || 0);
     setDetectedVars(extractAndValidateVariables(t.content, availableVariables));
     loadSampleExamples();
     setTemplateDialogOpen(true);
@@ -540,6 +546,7 @@ const Templates: React.FC = () => {
         short_label: tShortLabel || null,
         variables: tVariables || undefined,
         active: tActive,
+        participant_buffer: tParticipantBuffer,
       };
       if (editingTemplate) {
         await templatesAPI.update(editingTemplate.id, data);
@@ -578,6 +585,7 @@ const Templates: React.FC = () => {
     setSHour('9'); setSMinute('0'); setSDayOfWeek([]);
     setSIntervalMinutes('10'); setSActiveStartHour(''); setSActiveEndHour('');
     setSFilters([]); setSDateFilter('');
+    setSTargetMode('once');
     setCmColumn('party_type');
     setCmText('');
     setCmOperator('contains');
@@ -603,6 +611,7 @@ const Templates: React.FC = () => {
     setSActiveEndHour(s.active_end_hour != null ? String(s.active_end_hour) : '');
     setSFilters(parseFilters(s.filters));
     setSDateFilter(s.date_filter || 'today');
+    setSTargetMode((s.target_mode === 'daily' ? 'daily' : 'once'));
     // sExcludeSent는 항상 true 고정
     setSActive(s.active);
     setScheduleDialogOpen(true);
@@ -624,6 +633,7 @@ const Templates: React.FC = () => {
       timezone: 'Asia/Seoul',
       filters: sFilters.length > 0 ? sFilters : undefined,
       date_filter: sDateFilter || 'today',
+      target_mode: sTargetMode,
       exclude_sent: sExcludeSent,
       active: sActive,
     };
@@ -1186,6 +1196,20 @@ const Templates: React.FC = () => {
               );
             })()}
 
+            {/* Participant buffer */}
+            <div className="flex items-center gap-2 px-4 py-3 rounded-2xl border border-[#F2F4F6] dark:border-gray-800">
+              <code className="font-mono text-caption text-[#FF9F00] dark:text-[#fbbf24] shrink-0">{`{{participant_count}}`}</code>
+              <span className="text-body text-[#4E5968] dark:text-gray-300 shrink-0">+</span>
+              <input
+                type="number"
+                min={0}
+                value={tParticipantBuffer}
+                onChange={(e) => setTParticipantBuffer(Number(e.target.value) || 0)}
+                className="w-14 rounded-lg border border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24] text-sm text-center px-2 py-1 focus:border-[#3182F6] focus:ring-[#3182F6] outline-none text-[#191F28] dark:text-white"
+              />
+              <span className="text-body text-[#4E5968] dark:text-gray-300 shrink-0">명 추가</span>
+            </div>
+
             {/* Active */}
             <div className="flex items-center justify-between rounded-2xl border border-[#F2F4F6] px-4 py-3 dark:border-gray-800">
               <div>
@@ -1661,6 +1685,39 @@ const Templates: React.FC = () => {
                 </p>
               );
             })()}
+          </div>
+
+          <div className="border-t border-[#F2F4F6] dark:border-gray-800" />
+
+          {/* Target mode — 연박자 발송 설정 */}
+          <div className="space-y-2">
+            <Label>연박자 발송 설정</Label>
+            <div className="flex gap-2">
+              {([
+                { value: 'once' as const, label: '한번만', desc: '연박자에게 첫날에만 발송합니다' },
+                { value: 'daily' as const, label: '매일', desc: '연박자에게 매일 발송합니다' },
+              ] as const).map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setSTargetMode(opt.value)}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-colors cursor-pointer
+                    ${sTargetMode === opt.value
+                      ? 'border-[#3182F6] bg-[#E8F3FF] dark:bg-[#3182F6]/15 dark:border-[#3182F6]'
+                      : 'border-[#E5E8EB] bg-white hover:bg-[#F8F9FA] dark:border-gray-700 dark:bg-[#1E1E24] dark:hover:bg-[#2C2C34]'
+                    }`}
+                >
+                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0
+                    ${sTargetMode === opt.value ? 'border-[#3182F6]' : 'border-[#B0B8C1] dark:border-gray-500'}`}>
+                    {sTargetMode === opt.value && <div className="w-2 h-2 rounded-full bg-[#3182F6]" />}
+                  </div>
+                  <div>
+                    <p className={`text-body font-medium ${sTargetMode === opt.value ? 'text-[#3182F6]' : 'text-[#191F28] dark:text-white'}`}>{opt.label}</p>
+                    <p className="text-caption text-[#8B95A1] dark:text-gray-500">{opt.desc}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="border-t border-[#F2F4F6] dark:border-gray-800" />

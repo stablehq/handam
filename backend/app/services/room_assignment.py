@@ -25,148 +25,54 @@ def sync_sms_tags(db: Session, reservation_id: int, schedules=None) -> None:
     if not reservation:
         return
 
-    # Get room assignment for this reservation (source of truth)
-    room_assignment_row = db.query(RoomAssignment).filter(
-        RoomAssignment.reservation_id == reservation_id,
-        RoomAssignment.date == reservation.check_in_date,
-    ).first()
-
-    # Use section field as the canonical location indicator
-    section = reservation.section or 'unassigned'
-
     if schedules is None:
         schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
 
-    # Prefetch building_id once to avoid N+1 queries in _matches_filter_group
-    building_id: Optional[int] = None
-    if room_assignment_row:
-        room = db.query(Room).filter(Room.room_number == room_assignment_row.room_number).first()
-        building_id = room.building_id if room else None
+    # Local import to avoid circular dependency (template_scheduler imports room_assignment)
+    from app.scheduler.template_scheduler import matches_schedule
 
-    # Compute which template_keys should exist based on schedule rules
-    expected_keys: set[str] = set()
+    # Compute which (template_key, date) pairs should exist based on schedule rules
+    expected_pairs: set[tuple[str, str]] = set()
     for schedule in schedules:
-        if _reservation_matches_schedule(reservation, schedule, section, room_assignment_row, building_id):
-            expected_keys.add(schedule.template.template_key)
+        if matches_schedule(db, schedule, reservation_id):
+            template_key = schedule.template.template_key
+            dates = get_schedule_dates(schedule, reservation)
+            for d in dates:
+                expected_pairs.add((template_key, d))
 
     # Get current tags
     existing = db.query(ReservationSmsAssignment).filter(
         ReservationSmsAssignment.reservation_id == reservation_id,
     ).all()
 
-    existing_keys = {a.template_key for a in existing}
+    existing_pairs = {(a.template_key, a.date) for a in existing}
 
-    # Add missing tags
-    for key in expected_keys:
-        if key not in existing_keys:
+    # Add missing (template_key, date) pairs
+    for (key, d) in expected_pairs:
+        if (key, d) not in existing_pairs:
             db.add(ReservationSmsAssignment(
                 reservation_id=reservation_id,
                 template_key=key,
+                date=d,
                 assigned_by='auto',
                 sent_at=None,
             ))
 
     # Remove obsolete tags (only unsent, non-manual)
     for a in existing:
-        if a.template_key not in expected_keys and a.sent_at is None and a.assigned_by != 'manual':
+        if (a.template_key, a.date) not in expected_pairs and a.sent_at is None and a.assigned_by != 'manual':
             db.delete(a)
 
 
-def _reservation_matches_schedule(
-    reservation: Reservation,
-    schedule: TemplateSchedule,
-    section: str,
-    room_assignment_row=None,
-    building_id: Optional[int] = None,
-) -> bool:
-    """Check if a reservation matches a schedule's filters.
-
-    Filters logic: same type = OR, different types = AND.
-    """
-    import json as _json
-
-    # Parse filters
-    filters = []
-    if schedule.filters:
-        try:
-            filters = _json.loads(schedule.filters) if isinstance(schedule.filters, str) else schedule.filters
-        except (ValueError, TypeError):
-            filters = []
-
-    # If filters exist, use new system
-    if filters:
-        # Group by type
-        groups: dict[str, list[str]] = {}
-        group_type_map: dict[str, str] = {}  # group_key -> base ftype
-        for f in filters:
-            ftype = f.get("type", "")
-            fval = f.get("value", "")
-            if ftype and fval:
-                # column_match: group by type:column so different columns are AND-ed
-                if ftype == "column_match":
-                    col = fval.split(':', 1)[0] if ':' in fval else fval
-                    group_key = f"column_match:{col}"
-                else:
-                    group_key = ftype
-                groups.setdefault(group_key, []).append(fval)
-                group_type_map[group_key] = ftype
-
-        # Each group must match (AND between groups)
-        for group_key, values in groups.items():
-            ftype = group_type_map.get(group_key, group_key)
-            # Any value in group must match (OR within group)
-            if not _matches_filter_group(reservation, ftype, values, section, room_assignment_row, building_id):
-                return False
-        return True
-
-    # No filters → match all
-    return True
-
-
-def _matches_filter_group(
-    reservation: Reservation,
-    ftype: str,
-    values: list[str],
-    section: str,
-    room_assignment_row=None,
-    building_id: Optional[int] = None,
-) -> bool:
-    """Check if reservation matches any value in a filter group (OR logic)."""
-    for value in values:
-        if ftype == "assignment":
-            if value == "room" and section == 'room':
-                return True
-            if value == "party" and section == 'party':
-                return True
-            if value == "unassigned" and section == 'unassigned':
-                return True
-        elif ftype == "building":
-            if building_id is not None and str(building_id) == str(value):
-                return True
-        elif ftype == "room":
-            if room_assignment_row and room_assignment_row.room_number == value:
-                return True
-        elif ftype == "column_match":
-            parts = value.split(':', 2)
-            if len(parts) < 2:
-                continue
-            column = parts[0]
-            operator = parts[1]
-            text = parts[2] if len(parts) == 3 else ''
-            col_value = getattr(reservation, column, None)
-            if operator == 'is_empty':
-                if col_value is None or str(col_value).strip() == '':
-                    return True
-            elif operator == 'is_not_empty':
-                if col_value is not None and str(col_value).strip() != '':
-                    return True
-            elif operator == 'contains' and text:
-                if col_value is not None and text in str(col_value):
-                    return True
-            elif operator == 'not_contains' and text:
-                if col_value is None or text not in str(col_value):
-                    return True
-    return False
+def get_schedule_dates(schedule, reservation) -> List[str]:
+    """Get target dates for a schedule+reservation pair based on target_mode."""
+    if (
+        getattr(schedule, 'target_mode', 'once') == 'daily'
+        and reservation.check_out_date
+        and reservation.check_out_date > (reservation.check_in_date or '')
+    ):
+        return _date_range(reservation.check_in_date, reservation.check_out_date)
+    return [reservation.check_in_date or '']
 
 
 def _date_range(from_date: str, end_date: Optional[str]) -> List[str]:

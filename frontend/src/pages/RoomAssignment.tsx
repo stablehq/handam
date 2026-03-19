@@ -35,6 +35,7 @@ interface SmsAssignment {
   assigned_at: string;
   sent_at: string | null;
   assigned_by: string;
+  date: string;
 }
 
 interface Reservation {
@@ -98,12 +99,13 @@ function formatGenderPeople(res: Reservation): string {
 interface SmsCellProps {
   reservation: Reservation;
   templateLabels: {template_key: string; name: string; short_label: string | null}[];
+  selectedDate: string;
   onToggle: (resId: number, templateKey: string) => void;
   onAssign: (resId: number, templateKey: string) => void;
   onRemove: (resId: number, templateKey: string) => void;
 }
 
-const SmsCell: React.FC<SmsCellProps> = ({ reservation, templateLabels, onToggle, onAssign, onRemove }) => {
+const SmsCell: React.FC<SmsCellProps> = ({ reservation, templateLabels, selectedDate, onToggle, onAssign, onRemove }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showArrows, setShowArrows] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -112,11 +114,29 @@ const SmsCell: React.FC<SmsCellProps> = ({ reservation, templateLabels, onToggle
   const [dropdownAbove, setDropdownAbove] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const assignments = [...(reservation.sms_assignments || [])].sort((a, b) => {
-    const ai = templateLabels.findIndex(t => t.template_key === a.template_key);
-    const bi = templateLabels.findIndex(t => t.template_key === b.template_key);
-    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
-  });
+  // Deduplicate by template_key: prefer today's chip, fallback to most recent sent chip
+  const assignments = (() => {
+    const raw = reservation.sms_assignments || [];
+    const byKey = new Map<string, typeof raw[0]>();
+    for (const a of raw) {
+      const existing = byKey.get(a.template_key);
+      if (!existing) {
+        byKey.set(a.template_key, a);
+      } else {
+        // Prefer unsent (today's) over sent (past), or newer date
+        if (!a.sent_at && existing.sent_at) {
+          byKey.set(a.template_key, a);
+        } else if (a.date > (existing.date || '')) {
+          byKey.set(a.template_key, a);
+        }
+      }
+    }
+    return [...byKey.values()].sort((a, b) => {
+      const ai = templateLabels.findIndex(t => t.template_key === a.template_key);
+      const bi = templateLabels.findIndex(t => t.template_key === b.template_key);
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    });
+  })();
 
   const checkScroll = useCallback(() => {
     if (scrollRef.current) {
@@ -186,13 +206,14 @@ const SmsCell: React.FC<SmsCellProps> = ({ reservation, templateLabels, onToggle
         <div className="flex items-center gap-1 flex-nowrap">
           {assignments.map((a) => {
             const isSent = !!a.sent_at;
+            const isPastChip = isSent && a.date < selectedDate;
             return (
               <span
                 key={a.template_key}
-                title={getFullName(a.template_key)}
+                title={isPastChip ? `${getFullName(a.template_key)} (${a.date} 발송완료)` : getFullName(a.template_key)}
                 className={`inline-flex items-center px-1.5 py-1 rounded text-[11px] leading-tight font-medium whitespace-nowrap cursor-pointer transition-all
                   ${isSent
-                    ? 'bg-[#E8F3FF] text-[#3182F6] dark:bg-[#3182F6]/20 dark:text-[#3182F6]'
+                    ? 'bg-[#E8F3FF] text-[#3182F6] border border-[#3182F6]/30 dark:bg-[#3182F6]/20 dark:text-[#3182F6] dark:border-[#3182F6]/30'
                     : 'bg-[#F2F4F6] text-[#8B95A1] border border-[#E5E8EB] dark:bg-[#2C2C34] dark:text-[#8B95A1] dark:border-[#2C2C34]'
                   }`}
                 onClick={(e) => { e.stopPropagation(); onToggle(reservation.id, a.template_key); }}
@@ -315,7 +336,7 @@ const RoomAssignment = () => {
   const [savingReservation, setSavingReservation] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formValues, setFormValues] = useState<any>({
-    guest_type: 'manual',
+    guest_type: 'party_only',
     customer_name: '',
     phone: '',
     date: '',
@@ -353,7 +374,7 @@ const RoomAssignment = () => {
   const handleFieldSave = async (resId: number, field: string, value: string) => {
     if (field === 'party_type') {
       try {
-        await reservationsAPI.update(resId, { party_type: value || null });
+        await reservationsAPI.updateDailyInfo(resId, { date: selectedDate.format('YYYY-MM-DD'), party_type: value || null });
         fetchReservations(selectedDate);
       } catch {
         toast.error('저장 실패');
@@ -371,8 +392,6 @@ const RoomAssignment = () => {
         const total = male_count + female_count;
         const gender = male_count > 0 && female_count > 0 ? '혼성' : male_count > 0 ? '남' : female_count > 0 ? '여' : null;
         await reservationsAPI.update(resId, { male_count, female_count, gender, party_size: total || null });
-      } else if (field === 'party_type') {
-        await reservationsAPI.update(resId, { party_type: value || null });
       } else {
         await reservationsAPI.update(resId, { [field]: value });
       }
@@ -715,7 +734,7 @@ const RoomAssignment = () => {
         const hasRoomInfo = r.sms_assignments?.some((a) => a.template_key === 'room_info');
         const updatedAssignments = hasRoomInfo
           ? r.sms_assignments
-          : [...(r.sms_assignments || []), { id: 0, reservation_id: r.id, template_key: 'room_info', assigned_at: new Date().toISOString(), sent_at: null, assigned_by: 'auto' } as SmsAssignment];
+          : [...(r.sms_assignments || []), { id: 0, reservation_id: r.id, template_key: 'room_info', assigned_at: new Date().toISOString(), sent_at: null, assigned_by: 'auto', date: selectedDate.format('YYYY-MM-DD') } as SmsAssignment];
         return { ...r, room_number: room, sms_assignments: updatedAssignments };
       })
     );
@@ -803,7 +822,7 @@ const RoomAssignment = () => {
       setSectionOverrides((prev) => ({ ...prev, [resId]: 'unassigned' }));
 
       try {
-        await reservationsAPI.assignRoom(resId, { room_number: null, date: selectedDate.format('YYYY-MM-DD') });
+        await reservationsAPI.assignRoom(resId, { room_number: null, date: selectedDate.format('YYYY-MM-DD'), apply_subsequent: true });
         // unassign_room sets section by naver_room_type; override to 'unassigned' explicitly
         await reservationsAPI.update(resId, { section: 'unassigned' });
         toast.success('미배정으로 이동');
@@ -870,7 +889,7 @@ const RoomAssignment = () => {
       setSectionOverrides((prev) => ({ ...prev, [resId]: 'party' }));
 
       try {
-        await reservationsAPI.assignRoom(resId, { room_number: null, date: selectedDate.format('YYYY-MM-DD') });
+        await reservationsAPI.assignRoom(resId, { room_number: null, date: selectedDate.format('YYYY-MM-DD'), apply_subsequent: true });
         // unassign_room sets section by naver_room_type; override to 'party' explicitly
         await reservationsAPI.update(resId, { section: 'party' });
         toast.success('파티만으로 이동');
@@ -901,7 +920,7 @@ const RoomAssignment = () => {
   const handleAddPartyGuest = () => {
     setEditingId(null);
     setFormValues({
-      guest_type: 'manual',
+      guest_type: 'party_only',
       customer_name: '',
       phone: '',
       date: selectedDate.format('YYYY-MM-DD'),
@@ -959,6 +978,14 @@ const RoomAssignment = () => {
     values.male_count = maleCount || null;
     values.female_count = femaleCount || null;
 
+    // 연박: check_out_date 계산
+    if (values.multi_night && values.nights && values.nights >= 2 && values.date) {
+      const checkIn = dayjs(values.date);
+      values.check_out_date = checkIn.add(values.nights, 'day').format('YYYY-MM-DD');
+    }
+    delete values.multi_night;
+    delete values.nights;
+
     // Map field names to backend schema
     values.check_in_date = values.date;
     values.check_in_time = values.time || '00:00';
@@ -1005,7 +1032,9 @@ const RoomAssignment = () => {
 
   const handleSmsToggle = async (resId: number, templateKey: string) => {
     const res = reservations.find(r => r.id === resId);
-    const assignment = res?.sms_assignments?.find(a => a.template_key === templateKey);
+    const dateStr = selectedDate.format('YYYY-MM-DD');
+    const assignment = res?.sms_assignments?.find(a => a.template_key === templateKey && a.date === dateStr)
+      || res?.sms_assignments?.find(a => a.template_key === templateKey);
     const wasSent = !!assignment?.sent_at;
 
     const tpl = templateLabels.find(t => t.template_key === templateKey);
@@ -1020,7 +1049,9 @@ const RoomAssignment = () => {
 
   const doSmsToggle = async (resId: number, templateKey: string, skipSend?: boolean) => {
     const res = reservations.find(r => r.id === resId);
-    const assignment = res?.sms_assignments?.find(a => a.template_key === templateKey);
+    const dateStr = selectedDate.format('YYYY-MM-DD');
+    const assignment = res?.sms_assignments?.find(a => a.template_key === templateKey && a.date === dateStr)
+      || res?.sms_assignments?.find(a => a.template_key === templateKey);
     const wasSent = !!assignment?.sent_at;
     // Optimistic update
     updateReservationSms(resId, assignments =>
@@ -1030,7 +1061,7 @@ const RoomAssignment = () => {
       )
     );
     try {
-      await smsAssignmentsAPI.toggle(resId, templateKey, skipSend);
+      await smsAssignmentsAPI.toggle(resId, templateKey, skipSend, assignment?.date || selectedDate.format('YYYY-MM-DD'));
     } catch {
       // Revert on failure
       updateReservationSms(resId, assignments =>
@@ -1047,10 +1078,10 @@ const RoomAssignment = () => {
     // Optimistic update
     updateReservationSms(resId, assignments => [
       ...assignments,
-      { id: 0, reservation_id: resId, template_key: templateKey, assigned_at: new Date().toISOString(), sent_at: null, assigned_by: 'manual' },
+      { id: 0, reservation_id: resId, template_key: templateKey, assigned_at: new Date().toISOString(), sent_at: null, assigned_by: 'manual', date: selectedDate.format('YYYY-MM-DD') },
     ]);
     try {
-      await smsAssignmentsAPI.assign(resId, { template_key: templateKey });
+      await smsAssignmentsAPI.assign(resId, { template_key: templateKey, date: selectedDate.format('YYYY-MM-DD') });
     } catch {
       // Revert on failure
       updateReservationSms(resId, assignments =>
@@ -1062,13 +1093,15 @@ const RoomAssignment = () => {
 
   const handleSmsRemove = async (resId: number, templateKey: string) => {
     const res = reservations.find(r => r.id === resId);
-    const removed = res?.sms_assignments?.find(a => a.template_key === templateKey);
+    const dateStr = selectedDate.format('YYYY-MM-DD');
+    const removed = res?.sms_assignments?.find(a => a.template_key === templateKey && a.date === dateStr)
+      || res?.sms_assignments?.find(a => a.template_key === templateKey);
     // Optimistic update
     updateReservationSms(resId, assignments =>
       assignments.filter(a => a.template_key !== templateKey)
     );
     try {
-      await smsAssignmentsAPI.remove(resId, templateKey);
+      await smsAssignmentsAPI.remove(resId, templateKey, selectedDate.format('YYYY-MM-DD'));
     } catch {
       // Revert on failure
       if (removed) {
@@ -1121,7 +1154,7 @@ const RoomAssignment = () => {
             <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-[#8B95A1]" placeholder="" />
           </div>
           <div className="overflow-visible px-1.5">
-            <SmsCell reservation={res} templateLabels={templateLabels} onToggle={handleSmsToggle} onAssign={handleSmsAssign} onRemove={handleSmsRemove} />
+            <SmsCell reservation={res} templateLabels={templateLabels} selectedDate={selectedDate.format('YYYY-MM-DD')} onToggle={handleSmsToggle} onAssign={handleSmsAssign} onRemove={handleSmsRemove} />
           </div>
         </div>
       </div>
@@ -1706,8 +1739,8 @@ const RoomAssignment = () => {
             {!editingId && (
               <div className="flex gap-2">
                 {[
-                  { value: 'manual', label: '미배정' },
                   { value: 'party_only', label: '파티만' },
+                  { value: 'manual', label: '객실 포함' },
                 ].map((opt) => (
                   <button
                     key={opt.value}
@@ -1716,7 +1749,7 @@ const RoomAssignment = () => {
                       setFormValues({ ...formValues, guest_type: opt.value });
                     }}
                     className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer
-                      ${(formValues.guest_type || 'manual') === opt.value
+                      ${(formValues.guest_type || 'party_only') === opt.value
                         ? 'bg-[#3182F6] text-white'
                         : 'bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB] dark:bg-[#2C2C34] dark:text-white dark:hover:bg-[#2C2C34]'
                       }`}
@@ -1752,13 +1785,46 @@ const RoomAssignment = () => {
 
             <div className="space-y-2">
               <Label htmlFor="date">날짜 <span className="text-[#F04452] dark:text-[#F04452]">*</span></Label>
-              <TextInput
-                id="date"
-                type="date"
-                value={formValues.date || ''}
-                onChange={(e) => setFormValues({ ...formValues, date: e.target.value })}
-                sizing="sm"
-              />
+              <div className="flex gap-3 items-center">
+                <TextInput
+                  id="date"
+                  type="date"
+                  value={formValues.date || ''}
+                  onChange={(e) => setFormValues({ ...formValues, date: e.target.value })}
+                  sizing="sm"
+                  className="flex-1"
+                />
+                <label className="flex items-center gap-1.5 cursor-pointer select-none whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={!!formValues.multi_night}
+                    onChange={(e) => setFormValues({ ...formValues, multi_night: e.target.checked, nights: e.target.checked ? (formValues.nights || 2) : null })}
+                    className="rounded border-[#E5E8EB] text-[#3182F6] focus:ring-[#3182F6]"
+                  />
+                  <span className="text-sm text-[#4E5968] dark:text-gray-300">연박</span>
+                </label>
+                <div className="flex items-center gap-0">
+                  <input
+                    type="number"
+                    min={2}
+                    max={30}
+                    value={formValues.multi_night ? (formValues.nights || 2) : ''}
+                    onChange={(e) => setFormValues({ ...formValues, nights: e.target.value ? Number(e.target.value) : 2 })}
+                    disabled={!formValues.multi_night}
+                    placeholder="2"
+                    className={`w-16 rounded-l-lg border border-r-0 border-[#E5E8EB] dark:border-[#2C2C34] text-sm text-center px-2 py-1.5 focus:border-[#3182F6] focus:ring-[#3182F6] outline-none ${
+                      formValues.multi_night
+                        ? 'bg-white dark:bg-[#1E1E24] text-[#191F28] dark:text-white'
+                        : 'bg-[#F2F4F6] dark:bg-[#2C2C34] text-[#B0B8C1] dark:text-gray-600 cursor-not-allowed'
+                    }`}
+                  />
+                  <span className={`flex-shrink-0 px-2 py-1.5 rounded-r-lg border border-[#E5E8EB] dark:border-[#2C2C34] text-sm font-medium ${
+                    formValues.multi_night
+                      ? 'bg-[#F2F4F6] dark:bg-[#2C2C34] text-[#4E5968] dark:text-white'
+                      : 'bg-[#F2F4F6] dark:bg-[#2C2C34] text-[#B0B8C1] dark:text-gray-600'
+                  }`}>박</span>
+                </div>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -1932,13 +1998,16 @@ const RoomAssignment = () => {
                 ? `${templateLabels.find(t => t.template_key === selectedTemplateKey)?.name || selectedTemplateKey} — ${targets.length}건을 발송하시겠습니까?`
                 : (() => {
                     const r = reservations.find(r => r.id === sendConfirm?.resId);
-                    const isSent = r?.sms_assignments?.some(a => a.template_key === sendConfirm?.templateKey && !!a.sent_at);
+                    const dateStr = selectedDate.format('YYYY-MM-DD');
+                    const todayAssignment = r?.sms_assignments?.find(a => a.template_key === sendConfirm?.templateKey && a.date === dateStr)
+                      || r?.sms_assignments?.find(a => a.template_key === sendConfirm?.templateKey);
+                    const isSent = todayAssignment ? !!todayAssignment.sent_at : false;
                     return isSent
                       ? `${sendConfirm?.customerName}님의 ${sendConfirm?.templateName} 발송을 취소하시겠습니까?`
                       : `${sendConfirm?.customerName}님에게 ${sendConfirm?.templateName}을(를) 발송하시겠습니까?`;
                   })()}
             </p>
-            <div className="flex flex-col items-center gap-2">
+            <div className="flex flex-col items-center gap-4">
               <div className="flex justify-center gap-3">
                 <Button color="blue" onClick={() => {
                   if (sendConfirm?.type === 'campaign') {
@@ -1950,7 +2019,10 @@ const RoomAssignment = () => {
                 }}>
                   {(() => {
                     const r = reservations.find(r => r.id === sendConfirm?.resId);
-                    const isSent = r?.sms_assignments?.some(a => a.template_key === sendConfirm?.templateKey && !!a.sent_at);
+                    const dStr = selectedDate.format('YYYY-MM-DD');
+                    const ta = r?.sms_assignments?.find(a => a.template_key === sendConfirm?.templateKey && a.date === dStr)
+                      || r?.sms_assignments?.find(a => a.template_key === sendConfirm?.templateKey);
+                    const isSent = ta ? !!ta.sent_at : false;
                     return isSent ? '발송 취소' : '발송';
                   })()}
                 </Button>
@@ -1960,7 +2032,9 @@ const RoomAssignment = () => {
               </div>
               {sendConfirm?.type === 'toggle' && (() => {
                 const r = reservations.find(r => r.id === sendConfirm?.resId);
-                const isSent = r?.sms_assignments?.some(a => a.template_key === sendConfirm?.templateKey && !!a.sent_at);
+                const dStr = selectedDate.format('YYYY-MM-DD');
+                const ta = r?.sms_assignments?.find(a => a.template_key === sendConfirm?.templateKey && a.date === dStr);
+                const isSent = ta ? !!ta.sent_at : false;
                 if (isSent) return null;
                 return (
                   <button

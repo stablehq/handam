@@ -161,6 +161,7 @@ class MessageTemplate(Base):
     variables = Column(Text, nullable=True)  # JSON list of variable names
     category = Column(String(50), nullable=True)  # 'room_guide', 'party_guide', etc.
     is_active = Column(Boolean, default=True)
+    participant_buffer = Column(Integer, default=0)  # 참여인원 버퍼 (+N명)
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
@@ -177,10 +178,12 @@ class ReservationSmsAssignment(Base):
     sent_at = Column(DateTime, nullable=True)  # null=pending, value=sent
     assigned_by = Column(String(20), default="auto")  # 'auto', 'manual', 'schedule'
 
+    date = Column(String(20), nullable=False, default='')  # YYYY-MM-DD, 발송 대상 날짜
+
     reservation = relationship("Reservation", backref="sms_assignments")
 
     __table_args__ = (
-        UniqueConstraint("reservation_id", "template_key", name="uq_res_sms_template"),
+        UniqueConstraint("reservation_id", "template_key", "date", name="uq_res_sms_template_date"),
     )
 
 
@@ -350,6 +353,8 @@ class TemplateSchedule(Base):
     last_run_at = Column(DateTime, nullable=True)
     next_run_at = Column(DateTime, nullable=True)
 
+    target_mode = Column(String(20), default='once')  # 'once' (체크인 당일만) or 'daily' (매일, 연박 포함)
+
     # Relationship
     template = relationship("MessageTemplate", backref="schedules")
 
@@ -387,6 +392,25 @@ class PartyCheckin(Base):
     reservation = relationship("Reservation", backref="party_checkins")
 
 
+class ReservationDailyInfo(Base):
+    """날짜별 예약 부가 정보 (파티 참여 등)"""
+    __tablename__ = "reservation_daily_info"
+
+    id = Column(Integer, primary_key=True, index=True)
+    reservation_id = Column(Integer, ForeignKey("reservations.id", ondelete="CASCADE"), nullable=False)
+    date = Column(String(20), nullable=False)  # YYYY-MM-DD
+    party_type = Column(String(20), nullable=True)  # '1'=1차만, '2'=1+2차, '2차만'=2차만, 'X'=미참여
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    reservation = relationship("Reservation", backref="daily_info")
+
+    __table_args__ = (
+        UniqueConstraint("reservation_id", "date", name="uq_reservation_daily_info"),
+        Index("ix_reservation_daily_date", "reservation_id", "date"),
+    )
+
+
 class User(Base):
     """User accounts for authentication"""
 
@@ -400,3 +424,14 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+
+class ParticipantSnapshot(Base):
+    """Daily participant count snapshot for consistent SMS template variables"""
+    __tablename__ = "participant_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(String(20), nullable=False, unique=True, index=True)  # YYYY-MM-DD
+    male_count = Column(Integer, default=0)
+    female_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=utc_now)

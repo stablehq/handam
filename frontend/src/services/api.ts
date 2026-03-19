@@ -51,6 +51,8 @@ export const reservationsAPI = {
   assignRoom: (id: number, data: { room_number: string | null; date?: string; apply_subsequent?: boolean }) =>
     api.put(`/api/reservations/${id}/room`, data),
   syncNaver: (fromDate?: string) => api.post('/api/reservations/sync/naver', null, { params: fromDate ? { from_date: fromDate } : undefined }),
+  updateDailyInfo: (id: number, data: { date: string; party_type: string | null }) =>
+    api.put(`/api/reservations/${id}/daily-info`, data),
 };
 
 // Rooms API
@@ -132,12 +134,12 @@ export const templatesAPI = {
 };
 
 export const smsAssignmentsAPI = {
-  assign: (reservationId: number, data: { template_key: string }) =>
+  assign: (reservationId: number, data: { template_key: string; date?: string }) =>
     api.post(`/api/reservations/${reservationId}/sms-assign`, data),
-  remove: (reservationId: number, templateKey: string) =>
-    api.delete(`/api/reservations/${reservationId}/sms-assign/${templateKey}`),
-  toggle: (reservationId: number, templateKey: string, skipSend?: boolean) =>
-    api.patch(`/api/reservations/${reservationId}/sms-toggle/${templateKey}`, null, { params: skipSend ? { skip_send: true } : undefined }),
+  remove: (reservationId: number, templateKey: string, date?: string) =>
+    api.delete(`/api/reservations/${reservationId}/sms-assign/${templateKey}`, { params: date ? { date } : undefined }),
+  toggle: (reservationId: number, templateKey: string, skipSend?: boolean, date?: string) =>
+    api.patch(`/api/reservations/${reservationId}/sms-toggle/${templateKey}`, null, { params: { ...(skipSend ? { skip_send: true } : {}), ...(date ? { date } : {}) } }),
 };
 
 // Template Schedules API

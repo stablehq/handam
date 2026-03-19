@@ -7,7 +7,7 @@ from sqlalchemy import or_, and_
 from pydantic import BaseModel, field_validator
 from typing import List, Optional
 from app.db.database import get_db
-from app.db.models import Reservation, ReservationStatus, User, ReservationSmsAssignment, RoomAssignment
+from app.db.models import Reservation, ReservationStatus, User, ReservationSmsAssignment, RoomAssignment, ReservationDailyInfo
 from app.factory import get_reservation_provider, get_sms_provider
 from app.auth.dependencies import get_current_user
 from app.rate_limit import limiter
@@ -26,6 +26,7 @@ class ReservationCreate(BaseModel):
     phone: str
     check_in_date: str  # YYYY-MM-DD
     check_in_time: str  # HH:MM
+    check_out_date: Optional[str] = None  # YYYY-MM-DD (연박 시)
     status: str = "pending"
     notes: Optional[str] = None
     gender: Optional[str] = None
@@ -62,6 +63,7 @@ class RoomAssignRequest(BaseModel):
 class SmsAssignRequest(BaseModel):
     template_key: str
     assigned_by: str = "manual"
+    date: str = ''
 
 
 class SmsAssignmentResponse(BaseModel):
@@ -69,6 +71,7 @@ class SmsAssignmentResponse(BaseModel):
     assigned_at: datetime
     sent_at: Optional[datetime] = None
     assigned_by: str = "auto"
+    date: str = ''
 
     class Config:
         from_attributes = True
@@ -112,17 +115,28 @@ class ReservationResponse(BaseModel):
         from_attributes = True
 
 
-def _to_response(res: Reservation, override_room: Optional[str] = None, override_password: Optional[str] = None, override_assigned_by: Optional[str] = None, db: Session = None) -> ReservationResponse:
+def _to_response(res: Reservation, override_room: Optional[str] = None, override_password: Optional[str] = None, override_assigned_by: Optional[str] = None, override_party_type: Optional[str] = None, db: Session = None, filter_date: Optional[str] = None) -> ReservationResponse:
     assignments = []
     if db is not None and hasattr(res, 'sms_assignments'):
+        source = res.sms_assignments
+        if filter_date is not None:
+            # once 모드 template_key 조회 (과거 발송완료 칩은 once만 표시)
+            from app.db.models import TemplateSchedule
+            daily_keys = {
+                s.template.template_key
+                for s in db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True, TemplateSchedule.target_mode == 'daily').all()
+                if s.template
+            }
+            source = [a for a in source if (a.date or '') == filter_date or ((a.date or '') < filter_date and a.sent_at is not None and a.template_key not in daily_keys)]
         assignments = [
             SmsAssignmentResponse(
                 template_key=a.template_key,
                 assigned_at=a.assigned_at,
                 sent_at=a.sent_at,
                 assigned_by=a.assigned_by,
+                date=a.date or '',
             )
-            for a in res.sms_assignments
+            for a in source
         ]
     return ReservationResponse(
         id=res.id,
@@ -144,7 +158,7 @@ def _to_response(res: Reservation, override_room: Optional[str] = None, override
         male_count=res.male_count,
         female_count=res.female_count,
         party_size=res.party_size,
-        party_type=res.party_type,
+        party_type=override_party_type if override_party_type is not None else res.party_type,
         check_out_date=res.check_out_date,
         biz_item_name=res.biz_item_name,
         booking_count=res.booking_count,
@@ -226,6 +240,17 @@ async def get_reservations(
                 .all()
             )
             room_map = {ra.reservation_id: (ra.room_number, ra.room_password, ra.assigned_by) for ra in room_assignments}
+
+            # Batch-query daily info for the target date
+            daily_infos = (
+                db.query(ReservationDailyInfo)
+                .filter(
+                    ReservationDailyInfo.reservation_id.in_(res_ids),
+                    ReservationDailyInfo.date == date,
+                )
+                .all()
+            )
+            daily_party_map = {di.reservation_id: di.party_type for di in daily_infos}
         else:
             # date 없음: 각 예약의 check-in date 기준으로 조회
             # (reservation_id, date) 쌍을 한 번에 가져온 뒤 매핑
@@ -240,13 +265,28 @@ async def get_reservations(
                 lookup = res_date_map.get(ra.reservation_id)
                 if ra.date == lookup:
                     room_map[ra.reservation_id] = (ra.room_number, ra.room_password, ra.assigned_by)
+            daily_party_map = {}
     else:
         room_map = {}
+        daily_party_map = {}
 
     results = []
     for res in reservations:
-        override_room, override_password, override_assigned_by = room_map.get(res.id, (None, None, None))
-        results.append(_to_response(res, override_room=override_room, override_password=override_password, override_assigned_by=override_assigned_by, db=db))
+        if res.id in room_map:
+            override_room, override_password, override_assigned_by = room_map[res.id]
+        elif date:
+            # 해당 날짜에 배정 없음 — denormalized field 무시하고 빈 값 반환
+            override_room, override_password, override_assigned_by = '', '', None
+        else:
+            override_room, override_password, override_assigned_by = None, None, None
+
+        # Resolve per-date party_type: daily info overrides reservation-level value when date is provided
+        if date and res.id in daily_party_map:
+            override_party_type = daily_party_map[res.id]
+        else:
+            override_party_type = None  # Fall back to reservation.party_type in _to_response
+
+        results.append(_to_response(res, override_room=override_room, override_password=override_password, override_assigned_by=override_assigned_by, override_party_type=override_party_type, db=db, filter_date=date))
     return results
 
 
@@ -272,6 +312,7 @@ async def create_reservation(reservation: ReservationCreate, db: Session = Depen
         female_count=reservation.female_count,
         party_size=reservation.party_size,
         party_type=reservation.party_type,
+        check_out_date=reservation.check_out_date,
         naver_room_type=reservation.naver_room_type,  # Original reservation room type
         section=reservation.section or 'unassigned',
     )
@@ -327,9 +368,10 @@ async def delete_reservation(reservation_id: int, db: Session = Depends(get_db),
         raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다")
 
     # 연관 레코드 먼저 삭제 (FK 제약)
-    from app.db.models import PartyCheckin
+    from app.db.models import PartyCheckin, ReservationDailyInfo
     db.query(RoomAssignment).filter(RoomAssignment.reservation_id == reservation_id).delete()
     db.query(ReservationSmsAssignment).filter(ReservationSmsAssignment.reservation_id == reservation_id).delete()
+    db.query(ReservationDailyInfo).filter(ReservationDailyInfo.reservation_id == reservation_id).delete()
     db.query(PartyCheckin).filter(PartyCheckin.reservation_id == reservation_id).delete()
 
     db.delete(db_reservation)
@@ -378,6 +420,52 @@ async def assign_room(
     return _to_response(db_reservation, db=db)
 
 
+class DailyInfoUpdate(BaseModel):
+    date: str  # YYYY-MM-DD
+    party_type: Optional[str] = None
+
+
+@router.put("/{reservation_id}/daily-info", response_model=ReservationResponse)
+async def update_daily_info(
+    reservation_id: int,
+    request: DailyInfoUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upsert per-date party_type for a reservation via ReservationDailyInfo."""
+    db_reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
+    if not db_reservation:
+        raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다")
+
+    existing = db.query(ReservationDailyInfo).filter(
+        ReservationDailyInfo.reservation_id == reservation_id,
+        ReservationDailyInfo.date == request.date,
+    ).first()
+
+    if existing:
+        existing.party_type = request.party_type
+        existing.updated_at = datetime.now(timezone.utc)
+    else:
+        db.add(ReservationDailyInfo(
+            reservation_id=reservation_id,
+            date=request.date,
+            party_type=request.party_type,
+        ))
+
+    db.commit()
+
+    # 칩 재계산 (party_type 변경으로 필터 매칭이 달라질 수 있음)
+    from app.services.room_assignment import sync_sms_tags
+    sync_sms_tags(db, reservation_id)
+    db.commit()
+
+    db.refresh(db_reservation)
+
+    # Return with the daily override applied
+    override_party_type = request.party_type
+    return _to_response(db_reservation, override_party_type=override_party_type, db=db)
+
+
 @router.post("/sync/naver")
 @limiter.limit("5/minute")
 async def sync_from_naver(request: Request, from_date: Optional[str] = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -422,6 +510,7 @@ async def assign_sms_template(
     existing = db.query(ReservationSmsAssignment).filter(
         ReservationSmsAssignment.reservation_id == reservation_id,
         ReservationSmsAssignment.template_key == request.template_key,
+        ReservationSmsAssignment.date == (request.date or ''),
     ).first()
     if existing:
         raise HTTPException(status_code=409, detail="이미 배정된 템플릿입니다")
@@ -430,6 +519,7 @@ async def assign_sms_template(
         reservation_id=reservation_id,
         template_key=request.template_key,
         assigned_by=request.assigned_by,
+        date=request.date or '',
     )
     db.add(assignment)
     db.commit()
@@ -440,14 +530,18 @@ async def assign_sms_template(
 async def unassign_sms_template(
     reservation_id: int,
     template_key: str,
+    date: str = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Remove an SMS template assignment from a reservation"""
-    assignment = db.query(ReservationSmsAssignment).filter(
+    query = db.query(ReservationSmsAssignment).filter(
         ReservationSmsAssignment.reservation_id == reservation_id,
         ReservationSmsAssignment.template_key == template_key,
-    ).first()
+    )
+    if date:
+        query = query.filter(ReservationSmsAssignment.date == date)
+    assignment = query.first()
     if not assignment:
         raise HTTPException(status_code=404, detail="배정을 찾을 수 없습니다")
 
@@ -461,6 +555,7 @@ async def toggle_sms_sent(
     reservation_id: int,
     template_key: str,
     skip_send: bool = False,
+    date: str = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -468,16 +563,21 @@ async def toggle_sms_sent(
 
     Args:
         skip_send: If True, mark as sent without actually sending SMS.
+        date: Target date (YYYY-MM-DD) for date-specific assignment lookup.
     """
-    assignment = db.query(ReservationSmsAssignment).filter(
+    query = db.query(ReservationSmsAssignment).filter(
         ReservationSmsAssignment.reservation_id == reservation_id,
         ReservationSmsAssignment.template_key == template_key,
-    ).first()
+    )
+    if date:
+        query = query.filter(ReservationSmsAssignment.date == date)
+    assignment = query.first()
     if not assignment:
         # Upsert: 레코드가 없으면 생성 (UI에서 태그가 보이는데 DB에 없는 타이밍 이슈 대응)
         assignment = ReservationSmsAssignment(
             reservation_id=reservation_id,
             template_key=template_key,
+            date=date or '',
             assigned_by='manual',
             sent_at=None,
         )
@@ -509,6 +609,7 @@ async def toggle_sms_sent(
                 reservation=reservation,
                 template_key=template_key,
                 created_by=current_user.username,
+                date=date,
             )
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"SMS 발송 실패: {e}")

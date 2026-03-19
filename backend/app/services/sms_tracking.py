@@ -16,6 +16,7 @@ def record_sms_sent(
     template_key: str,
     sms_type_label: str,
     assigned_by: str = "auto",
+    date: str = "",
 ) -> None:
     """
     SMS 발송 기록을 ReservationSmsAssignment에 upsert.
@@ -33,6 +34,7 @@ def record_sms_sent(
         .filter(
             ReservationSmsAssignment.reservation_id == reservation_id,
             ReservationSmsAssignment.template_key == template_key,
+            ReservationSmsAssignment.date == date,
         )
         .first()
     )
@@ -45,4 +47,5 @@ def record_sms_sent(
             template_key=template_key,
             assigned_by=assigned_by,
             sent_at=datetime.now(timezone.utc),
+            date=date,
         ))

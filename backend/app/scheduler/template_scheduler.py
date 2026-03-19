@@ -7,14 +7,17 @@ from collections import defaultdict
 from typing import List, Dict, Any, Optional
 from datetime import datetime, date, timedelta, timezone
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, func
 
-from app.db.models import TemplateSchedule, Reservation, RoomAssignment, ReservationSmsAssignment, Room
+from app.db.models import TemplateSchedule, Reservation, RoomAssignment, ReservationSmsAssignment, Room, ReservationStatus, ReservationDailyInfo
 from app.factory import get_sms_provider
 from app.templates.renderer import TemplateRenderer
+from app.templates.variables import calculate_template_variables
+from app.services.room_assignment import get_schedule_dates
 from app.services.sms_tracking import record_sms_sent
 from app.services.activity_logger import log_activity
 from app.services.event_bus import publish as publish_event
+from app.services.sms_sender import send_single_sms
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +83,9 @@ def _condition_by_column_match(value, ctx):
 
     value format: '{column}:{operator}:{text}'
     operator: 'contains', 'not_contains', 'is_empty', 'is_not_empty'
+
+    For party_type: uses per-date ReservationDailyInfo if available,
+    falling back to Reservation.party_type.
     """
     parts = value.split(':', 2)
     if len(parts) < 2:
@@ -89,6 +95,30 @@ def _condition_by_column_match(value, ctx):
     text = parts[2] if len(parts) == 3 else ''
     if column not in _COLUMN_MATCH_COLUMNS:
         return None
+
+    # For party_type: resolve effective value as daily info override OR reservation fallback
+    if column == 'party_type':
+        target_date = ctx.get('target_date')
+        daily_sub = (
+            ctx['db'].query(ReservationDailyInfo.party_type)
+            .filter(
+                ReservationDailyInfo.reservation_id == Reservation.id,
+                ReservationDailyInfo.date == target_date,
+            )
+            .correlate(Reservation)
+            .scalar_subquery()
+        )
+        effective = func.coalesce(daily_sub, Reservation.party_type)
+        if operator == 'is_empty':
+            return effective.is_(None) | (effective == '')
+        elif operator == 'is_not_empty':
+            return effective.isnot(None) & (effective != '')
+        elif operator == 'contains' and text:
+            return effective.like(f'%{text}%')
+        elif operator == 'not_contains' and text:
+            return ~effective.like(f'%{text}%') | effective.is_(None)
+        return None
+
     col_attr = getattr(Reservation, column, None)
     if col_attr is None:
         return None
@@ -112,6 +142,56 @@ FILTER_BUILDERS = {
     "room_assigned": lambda v, ctx: _condition_by_assignment("room", ctx),
     "party_only": lambda v, ctx: _condition_by_assignment("party", ctx),
 }
+
+
+def matches_schedule(db: Session, schedule: TemplateSchedule, reservation_id: int) -> bool:
+    """Check if a single reservation matches a schedule's structural filters.
+
+    Does NOT apply date_filter or exclude_sent — those are for get_targets() only.
+    Applies only building/assignment/room/column_match filters.
+
+    Returns True if the reservation passes all filter groups (AND between groups,
+    OR within same group), or if there are no filters.
+    """
+    filters = []
+    if schedule.filters:
+        try:
+            filters = json.loads(schedule.filters) if isinstance(schedule.filters, str) else schedule.filters
+        except (json.JSONDecodeError, TypeError):
+            filters = []
+
+    if not filters:
+        return True
+
+    query = db.query(Reservation).filter(Reservation.id == reservation_id)
+
+    # Use today as target_date for building/room subqueries
+    ctx = {"db": db, "target_date": date.today().strftime('%Y-%m-%d')}
+
+    # Group filters: OR within same group, AND between groups
+    filter_groups: dict = defaultdict(list)
+    for f in filters:
+        ftype = f.get("type", "")
+        fval = f.get("value", "")
+        if ftype == "column_match":
+            col = fval.split(':', 1)[0] if ':' in fval else fval
+            group_key = f"column_match:{col}"
+        else:
+            group_key = ftype
+        filter_groups[group_key].append(fval)
+
+    for group_key, values in filter_groups.items():
+        filter_type = group_key.split(':')[0] if group_key.startswith('column_match:') else group_key
+        builder = FILTER_BUILDERS.get(filter_type)
+        if not builder:
+            continue
+        conditions = [c for c in (builder(v, ctx) for v in values) if c is not None]
+        if len(conditions) == 1:
+            query = query.filter(conditions[0])
+        elif len(conditions) > 1:
+            query = query.filter(or_(*conditions))
+
+    return query.first() is not None
 
 
 class TemplateScheduleExecutor:
@@ -171,23 +251,34 @@ class TemplateScheduleExecutor:
 
             target_date = self._parse_date_filter(schedule.date_filter) if schedule.date_filter else None
 
+            # Build room_number -> building_name map for log display
+            room_numbers = set()
+            for r in targets:
+                if r.room_number:
+                    room_numbers.add(r.room_number)
+            room_building_map = {}
+            if room_numbers:
+                rooms_with_building = self.db.query(Room).filter(Room.room_number.in_(room_numbers)).all()
+                for rm in rooms_with_building:
+                    building_name = rm.building.name if rm.building else ""
+                    room_building_map[rm.room_number] = f"{building_name} {rm.room_number}호" if building_name else f"{rm.room_number}호"
+
+            template_key = schedule.template.template_key
+
+            schedule_custom_vars = {'_participant_buffer': schedule.template.participant_buffer or 0}
+
             for reservation in targets:
                 try:
-                    # Render template with reservation data
-                    context = self._build_template_context(reservation, target_date=target_date)
-
-                    # Always use the schedule's own template (building override removed)
-                    template_key = schedule.template.template_key
-
-                    message_content = self.template_renderer.render(
-                        template_key,
-                        context
-                    )
-
-                    # Send SMS
-                    result = await self.sms_provider.send_sms(
-                        to=reservation.phone,
-                        message=message_content
+                    result = await send_single_sms(
+                        db=self.db,
+                        sms_provider=self.sms_provider,
+                        reservation=reservation,
+                        template_key=template_key,
+                        date=target_date,
+                        created_by="system",
+                        skip_activity_log=True,
+                        skip_commit=True,
+                        custom_vars=schedule_custom_vars,
                     )
 
                     if result.get('success'):
@@ -196,9 +287,10 @@ class TemplateScheduleExecutor:
                         record_sms_sent(
                             self.db,
                             reservation.id,
-                            schedule.template.template_key,
+                            template_key,
                             schedule.template.category,
                             assigned_by='schedule',
+                            date=target_date or '',
                         )
 
                         self.db.flush()
@@ -206,6 +298,8 @@ class TemplateScheduleExecutor:
                         send_results.append({
                             "name": reservation.customer_name,
                             "phone": reservation.phone,
+                            "template_key": template_key,
+                            "template_detail": room_building_map.get(reservation.room_number, "") if reservation.room_number else "",
                             "status": "success",
                             "message_id": result.get("message_id"),
                         })
@@ -216,6 +310,8 @@ class TemplateScheduleExecutor:
                         send_results.append({
                             "name": reservation.customer_name,
                             "phone": reservation.phone,
+                            "template_key": template_key,
+                            "template_detail": room_building_map.get(reservation.room_number, "") if reservation.room_number else "",
                             "status": "failed",
                             "error": error_msg,
                         })
@@ -226,6 +322,8 @@ class TemplateScheduleExecutor:
                     send_results.append({
                         "name": reservation.customer_name,
                         "phone": reservation.phone,
+                        "template_key": template_key,
+                        "template_detail": "",
                         "status": "error",
                         "error": str(e),
                     })
@@ -288,7 +386,7 @@ class TemplateScheduleExecutor:
             List of Reservation instances
         """
         query = self.db.query(Reservation).filter(
-            Reservation.status == 'confirmed'
+            Reservation.status == ReservationStatus.CONFIRMED
         )
 
         # Safety guard: never send to reservations more than 1 day out
@@ -300,7 +398,23 @@ class TemplateScheduleExecutor:
         if schedule.date_filter:
             target_date = self._parse_date_filter(schedule.date_filter)
             if target_date:
-                query = query.filter(Reservation.check_in_date == target_date)
+                if schedule.target_mode == 'daily':
+                    query = query.filter(
+                        or_(
+                            # 연박: 체크인 <= 오늘 < 체크아웃
+                            and_(
+                                Reservation.check_in_date <= target_date,
+                                Reservation.check_out_date > target_date,
+                            ),
+                            # 1박(check_out 없음): 체크인 당일만
+                            and_(
+                                Reservation.check_in_date == target_date,
+                                Reservation.check_out_date.is_(None),
+                            ),
+                        )
+                    )
+                else:
+                    query = query.filter(Reservation.check_in_date == target_date)
 
         # Default target_date for filters that need it
         if not target_date:
@@ -345,13 +459,14 @@ class TemplateScheduleExecutor:
         # Apply exclude_sent filter via join table
         if exclude_sent and schedule.exclude_sent:
             from sqlalchemy import exists
-            query = query.filter(
-                ~exists().where(
-                    (ReservationSmsAssignment.reservation_id == Reservation.id) &
-                    (ReservationSmsAssignment.template_key == schedule.template.template_key) &
-                    (ReservationSmsAssignment.sent_at.isnot(None))
-                )
+            sent_conditions = (
+                (ReservationSmsAssignment.reservation_id == Reservation.id) &
+                (ReservationSmsAssignment.template_key == schedule.template.template_key) &
+                (ReservationSmsAssignment.sent_at.isnot(None))
             )
+            if target_date:
+                sent_conditions = sent_conditions & (ReservationSmsAssignment.date == target_date)
+            query = query.filter(~exists().where(sent_conditions))
 
         return query.all()
 
@@ -369,18 +484,29 @@ class TemplateScheduleExecutor:
         created = 0
 
         for reservation in targets:
-            existing = self.db.query(ReservationSmsAssignment).filter(
-                ReservationSmsAssignment.reservation_id == reservation.id,
-                ReservationSmsAssignment.template_key == template_key,
-            ).first()
-            if not existing:
-                self.db.add(ReservationSmsAssignment(
-                    reservation_id=reservation.id,
-                    template_key=template_key,
-                    assigned_by='schedule',
-                    sent_at=None,
-                ))
-                created += 1
+            # Determine dates to assign based on target_mode
+            dates = get_schedule_dates(schedule, reservation)
+
+            for d in dates:
+                existing = self.db.query(ReservationSmsAssignment).filter(
+                    ReservationSmsAssignment.reservation_id == reservation.id,
+                    ReservationSmsAssignment.template_key == template_key,
+                    ReservationSmsAssignment.date == d,
+                ).first()
+                if not existing:
+                    try:
+                        self.db.begin_nested()
+                        self.db.add(ReservationSmsAssignment(
+                            reservation_id=reservation.id,
+                            template_key=template_key,
+                            assigned_by='schedule',
+                            sent_at=None,
+                            date=d or '',
+                        ))
+                        self.db.flush()
+                        created += 1
+                    except Exception:
+                        self.db.rollback()  # Skip duplicate
 
         if created:
             self.db.commit()
@@ -436,48 +562,3 @@ class TemplateScheduleExecutor:
         elif date_filter and len(date_filter) == 10:  # YYYY-MM-DD
             return date_filter
         return None
-
-    def _build_template_context(self, reservation: Reservation, target_date: str = None) -> Dict[str, Any]:
-        """
-        Build template rendering context from reservation
-
-        Args:
-            reservation: Reservation instance
-            target_date: Optional date string to look up RoomAssignment
-
-        Returns:
-            Context dict with all available variables
-        """
-        # Look up RoomAssignment for target date if provided
-        room_number = reservation.room_number or ""
-        room_password = reservation.room_password or ""
-        if target_date:
-            assignment = self.db.query(RoomAssignment).filter(
-                RoomAssignment.reservation_id == reservation.id,
-                RoomAssignment.date == target_date,
-            ).first()
-            if assignment:
-                room_number = assignment.room_number or ""
-                room_password = assignment.room_password or ""
-
-        # Parse room number for building/room_num
-        building = ""
-        room_num = ""
-        if room_number:
-            if len(room_number) >= 2:
-                building = room_number[0]
-                room_num = room_number[1:]
-            else:
-                room_num = room_number
-
-        return {
-            "customer_name": reservation.customer_name,
-            "phone": reservation.phone,
-            "building": building,
-            "room_num": room_num,
-            "naver_room_type": reservation.naver_room_type or "",
-            "room_password": room_password,
-            "participant_count": str(reservation.party_size or 0),
-            "male_count": str(reservation.male_count or 0),
-            "female_count": str(reservation.female_count or 0),
-        }

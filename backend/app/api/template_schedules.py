@@ -45,6 +45,7 @@ def _schedule_to_response(schedule: TemplateSchedule) -> dict:
         "timezone": schedule.timezone,
         "filters": filters,
         "date_filter": schedule.date_filter,
+        "target_mode": schedule.target_mode or "once",
         "exclude_sent": schedule.exclude_sent,
         "active": schedule.is_active,
         "created_at": schedule.created_at,
@@ -68,6 +69,7 @@ class TemplateScheduleCreate(BaseModel):
     timezone: str = "Asia/Seoul"
     filters: Optional[List[dict]] = None  # [{"type": "tag", "value": "객후"}, ...]
     date_filter: Optional[str] = None
+    target_mode: Optional[str] = "once"  # 'once' or 'daily'
     exclude_sent: bool = True
     active: bool = True
 
@@ -85,6 +87,7 @@ class TemplateScheduleUpdate(BaseModel):
     timezone: Optional[str] = None
     filters: Optional[List[dict]] = None
     date_filter: Optional[str] = None
+    target_mode: Optional[str] = None  # 'once' or 'daily'
     exclude_sent: Optional[bool] = None
     active: Optional[bool] = None
 
@@ -105,6 +108,7 @@ class TemplateScheduleResponse(BaseModel):
     timezone: str
     filters: Optional[List[dict]] = None
     date_filter: Optional[str]
+    target_mode: Optional[str] = "once"
     exclude_sent: bool
     active: bool
     created_at: datetime
@@ -198,6 +202,7 @@ def create_schedule(schedule: TemplateScheduleCreate, db: Session = Depends(get_
         timezone=schedule.timezone,
         filters=filters_json,
         date_filter=schedule.date_filter,
+        target_mode=schedule.target_mode or "once",
         exclude_sent=schedule.exclude_sent,
         is_active=schedule.active
     )
