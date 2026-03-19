@@ -1,5 +1,5 @@
 import { useEffect, useState, DragEvent } from 'react';
-import { Home, Plus, Pencil, Trash2, GripVertical, RefreshCw, Building2 } from 'lucide-react';
+import { Home, Plus, Pencil, Trash2, GripVertical, RefreshCw, Building2, ArrowUpDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { roomsAPI, buildingsAPI } from '@/services/api';
 
@@ -46,6 +46,12 @@ interface BuildingEditRow {
   _deleted?: boolean;
 }
 
+interface BizItemLinkDetail {
+  biz_item_id: string;
+  male_priority: number;
+  female_priority: number;
+}
+
 interface Room {
   id: number;
   room_number: string;
@@ -57,6 +63,7 @@ interface Room {
   created_at: string;
   naver_biz_item_id?: string | null;
   biz_item_ids?: string[];
+  biz_item_links_detail?: BizItemLinkDetail[];
   dormitory: boolean;
   bed_capacity: number;
   door_password?: string | null;
@@ -72,6 +79,7 @@ interface RoomForm {
   sort_order: number;
   active: boolean;
   biz_item_ids: string[];
+  biz_item_priorities: Record<string, { male_priority: number; female_priority: number }>;
   dormitory: boolean;
   bed_capacity: number;
   door_password: string;
@@ -99,6 +107,7 @@ const EMPTY_ROOM_FORM: RoomForm = {
   sort_order: 1,
   active: true,
   biz_item_ids: [],
+  biz_item_priorities: {},
   dormitory: false,
   bed_capacity: 1,
   door_password: '',
@@ -129,6 +138,12 @@ const RoomSettings = () => {
   const [buildingRows, setBuildingRows] = useState<BuildingEditRow[]>([]);
   const [buildingHistory, setBuildingHistory] = useState<BuildingEditRow[][]>([]);
   const [savingBuildings, setSavingBuildings] = useState(false);
+
+  // ── Priority modal state ──
+  const [priorityOpen, setPriorityOpen] = useState(false);
+  // { [biz_item_id]: { [room_id]: { male_priority, female_priority } } }
+  const [priorityData, setPriorityData] = useState<Record<string, Record<number, { male_priority: number; female_priority: number }>>>({});
+  const [savingPriority, setSavingPriority] = useState(false);
 
   // ── Init ──
   useEffect(() => {
@@ -200,6 +215,15 @@ const RoomSettings = () => {
       : room.naver_biz_item_id
         ? [room.naver_biz_item_id]
         : [];
+    const priorities: Record<string, { male_priority: number; female_priority: number }> = {};
+    if (room.biz_item_links_detail) {
+      for (const link of room.biz_item_links_detail) {
+        priorities[link.biz_item_id] = {
+          male_priority: link.male_priority,
+          female_priority: link.female_priority,
+        };
+      }
+    }
     setForm({
       room_number: room.room_number,
       room_type: room.room_type,
@@ -208,6 +232,7 @@ const RoomSettings = () => {
       sort_order: room.sort_order,
       active: room.active,
       biz_item_ids: ids,
+      biz_item_priorities: priorities,
       dormitory: room.dormitory || false,
       bed_capacity: room.bed_capacity || 1,
       door_password: room.door_password || '',
@@ -229,8 +254,27 @@ const RoomSettings = () => {
           newRoomType = item.name;
         }
       }
-      return { ...f, biz_item_ids: newIds, room_type: newRoomType };
+      const newPriorities = { ...f.biz_item_priorities };
+      if (already) {
+        delete newPriorities[bizItemId];
+      } else if (!newPriorities[bizItemId]) {
+        newPriorities[bizItemId] = { male_priority: 0, female_priority: 0 };
+      }
+      return { ...f, biz_item_ids: newIds, biz_item_priorities: newPriorities, room_type: newRoomType };
     });
+  };
+
+  const updatePriority = (bizItemId: string, field: 'male_priority' | 'female_priority', value: number) => {
+    setForm((f) => ({
+      ...f,
+      biz_item_priorities: {
+        ...f.biz_item_priorities,
+        [bizItemId]: {
+          ...(f.biz_item_priorities[bizItemId] || { male_priority: 0, female_priority: 0 }),
+          [field]: value,
+        },
+      },
+    }));
   };
 
   const handleSubmit = async () => {
@@ -240,11 +284,21 @@ const RoomSettings = () => {
     }
     setSaving(true);
     try {
+      // Build biz_item_links with priority for API
+      const { biz_item_ids, biz_item_priorities, ...rest } = form;
+      const payload = {
+        ...rest,
+        biz_item_links: biz_item_ids.map((id) => ({
+          biz_item_id: id,
+          male_priority: biz_item_priorities[id]?.male_priority ?? 0,
+          female_priority: biz_item_priorities[id]?.female_priority ?? 0,
+        })),
+      };
       if (editingId !== null) {
-        await roomsAPI.update(editingId, form);
+        await roomsAPI.update(editingId, payload);
         toast.success('수정 완료');
       } else {
-        await roomsAPI.create(form);
+        await roomsAPI.create(payload);
         toast.success('추가 완료');
       }
       setDialogOpen(false);
@@ -337,6 +391,69 @@ const RoomSettings = () => {
       toast.error(err?.response?.data?.detail || '저장 실패');
     } finally {
       setSavingBuildings(false);
+    }
+  };
+
+  // ── Priority modal helpers ──
+  const openPriorityModal = () => {
+    // Build priority data from rooms' biz_item_links_detail grouped by biz_item_id
+    const data: Record<string, Record<number, { male_priority: number; female_priority: number }>> = {};
+    for (const room of rooms) {
+      const links = room.biz_item_links_detail || [];
+      for (const link of links) {
+        if (!data[link.biz_item_id]) data[link.biz_item_id] = {};
+        data[link.biz_item_id][room.id] = {
+          male_priority: link.male_priority,
+          female_priority: link.female_priority,
+        };
+      }
+    }
+    setPriorityData(data);
+    setPriorityOpen(true);
+  };
+
+  const updatePriorityValue = (bizItemId: string, roomId: number, field: 'male_priority' | 'female_priority', value: number) => {
+    setPriorityData((prev) => ({
+      ...prev,
+      [bizItemId]: {
+        ...prev[bizItemId],
+        [roomId]: {
+          ...(prev[bizItemId]?.[roomId] || { male_priority: 0, female_priority: 0 }),
+          [field]: value,
+        },
+      },
+    }));
+  };
+
+  const handlePrioritySave = async () => {
+    setSavingPriority(true);
+    try {
+      // Group by room_id: collect all biz_item_links for each room
+      const roomLinks: Record<number, { biz_item_id: string; male_priority: number; female_priority: number }[]> = {};
+      for (const [bizItemId, roomMap] of Object.entries(priorityData)) {
+        for (const [roomIdStr, prio] of Object.entries(roomMap)) {
+          const roomId = Number(roomIdStr);
+          if (!roomLinks[roomId]) roomLinks[roomId] = [];
+          roomLinks[roomId].push({
+            biz_item_id: bizItemId,
+            male_priority: prio.male_priority,
+            female_priority: prio.female_priority,
+          });
+        }
+      }
+      // Update each room with its biz_item_links
+      await Promise.all(
+        Object.entries(roomLinks).map(([roomIdStr, links]) =>
+          roomsAPI.update(Number(roomIdStr), { biz_item_links: links })
+        )
+      );
+      toast.success('배정 순서 저장 완료');
+      setPriorityOpen(false);
+      loadRooms();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || '저장 실패');
+    } finally {
+      setSavingPriority(false);
     }
   };
 
@@ -455,6 +572,10 @@ const RoomSettings = () => {
                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
               )}
               상품 동기화
+            </Button>
+            <Button color="light" size="sm" onClick={openPriorityModal}>
+              <ArrowUpDown className="mr-1.5 h-3.5 w-3.5" />
+              배정 순서
             </Button>
             <Button color="blue" size="sm" onClick={openCreate}>
               <Plus className="mr-1.5 h-3.5 w-3.5" />
@@ -869,6 +990,101 @@ const RoomSettings = () => {
               </Button>
             </div>
           </div>
+        </ModalFooter>
+      </Modal>
+
+      {/* ── Priority Management Modal ── */}
+      <Modal show={priorityOpen} onClose={() => setPriorityOpen(false)} size="lg">
+        <ModalHeader>배정 순서 관리</ModalHeader>
+        <ModalBody>
+          <p className="text-caption text-[#8B95A1] dark:text-gray-500 mb-4">
+            상품별로 객실 배정 순서를 설정합니다. 숫자가 낮을수록 먼저 배정되며, 0은 미설정입니다.
+          </p>
+          {Object.keys(priorityData).length === 0 ? (
+            <div className="empty-state">
+              <ArrowUpDown size={40} strokeWidth={1} />
+              <p className="text-body">상품에 연결된 객실이 없습니다</p>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {Object.entries(priorityData).map(([bizItemId, roomMap]) => {
+                const bizItem = bizItems.find((b) => b.biz_item_id === bizItemId);
+                const label = bizItem ? bizItem.name : bizItemId;
+                // Sort rooms by sort_order
+                const roomEntries = Object.entries(roomMap)
+                  .map(([roomIdStr, prio]) => {
+                    const room = rooms.find((r) => r.id === Number(roomIdStr));
+                    return { roomId: Number(roomIdStr), room, prio };
+                  })
+                  .filter((e) => e.room)
+                  .sort((a, b) => (a.room!.sort_order - b.room!.sort_order));
+
+                if (roomEntries.length === 0) return null;
+
+                return (
+                  <div key={bizItemId}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Badge color="info" size="sm">{label}</Badge>
+                      <span className="text-tiny text-[#B0B8C1] dark:text-gray-600">{roomEntries.length}개 객실</span>
+                    </div>
+                    <div className="rounded-xl border border-[#E5E8EB] dark:border-gray-700 overflow-hidden">
+                      {/* Header */}
+                      <div className="flex items-center bg-[#F8F9FA] dark:bg-[#1E1E24] px-4 py-2">
+                        <span className="flex-1 text-caption font-medium text-[#8B95A1] dark:text-gray-500">객실</span>
+                        <span className="w-20 text-center text-caption font-medium text-[#8B95A1] dark:text-gray-500">남자 순서</span>
+                        <span className="w-20 text-center text-caption font-medium text-[#8B95A1] dark:text-gray-500">여자 순서</span>
+                      </div>
+                      {/* Rows */}
+                      {roomEntries.map(({ roomId, room, prio }) => (
+                        <div
+                          key={roomId}
+                          className="flex items-center border-t border-[#E5E8EB] dark:border-gray-700 px-4 py-2 hover:bg-[#F8F9FA] dark:hover:bg-[#1E1E24] transition-colors"
+                        >
+                          <div className="flex-1 flex items-center gap-2">
+                            <span className="text-body font-medium text-[#191F28] dark:text-white">{room!.room_number}</span>
+                            {room!.building_name && (
+                              <span className="text-tiny text-[#B0B8C1] dark:text-gray-600">{room!.building_name}</span>
+                            )}
+                          </div>
+                          <div className="w-20 flex justify-center">
+                            <input
+                              type="number"
+                              min={0}
+                              value={prio.male_priority}
+                              onChange={(e) => updatePriorityValue(bizItemId, roomId, 'male_priority', parseInt(e.target.value) || 0)}
+                              className="w-14 rounded-lg border border-[#E5E8EB] bg-white px-2 py-1.5 text-center text-body tabular-nums dark:border-gray-600 dark:bg-[#2C2C34] dark:text-white focus:border-[#3182F6] focus:ring-1 focus:ring-[#3182F6]"
+                            />
+                          </div>
+                          <div className="w-20 flex justify-center">
+                            <input
+                              type="number"
+                              min={0}
+                              value={prio.female_priority}
+                              onChange={(e) => updatePriorityValue(bizItemId, roomId, 'female_priority', parseInt(e.target.value) || 0)}
+                              className="w-14 rounded-lg border border-[#E5E8EB] bg-white px-2 py-1.5 text-center text-body tabular-nums dark:border-gray-600 dark:bg-[#2C2C34] dark:text-white focus:border-[#3182F6] focus:ring-1 focus:ring-[#3182F6]"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button color="blue" onClick={handlePrioritySave} disabled={savingPriority}>
+            {savingPriority ? (
+              <>
+                <Spinner size="sm" className="mr-2" />
+                저장 중...
+              </>
+            ) : (
+              '저장'
+            )}
+          </Button>
+          <Button color="light" onClick={() => setPriorityOpen(false)}>취소</Button>
         </ModalFooter>
       </Modal>
     </div>

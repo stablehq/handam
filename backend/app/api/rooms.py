@@ -4,7 +4,7 @@ Rooms API endpoints
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 from app.db.database import get_db
 from app.db.models import Room, NaverBizItem, User, RoomAssignment, RoomBizItemLink, Building
 from app.factory import get_reservation_provider
@@ -21,6 +21,17 @@ router = APIRouter(prefix="/api/rooms", tags=["rooms"])
 logger = logging.getLogger(__name__)
 
 
+class BizItemLinkInput(BaseModel):
+    biz_item_id: str
+    male_priority: int = 0
+    female_priority: int = 0
+
+class BizItemLinkResponse(BaseModel):
+    biz_item_id: str
+    male_priority: int = 0
+    female_priority: int = 0
+
+
 class RoomCreate(BaseModel):
     room_number: str
     room_type: str
@@ -30,6 +41,7 @@ class RoomCreate(BaseModel):
     sort_order: int = 0
     naver_biz_item_id: Optional[str] = None  # Deprecated: use biz_item_ids
     biz_item_ids: Optional[List[str]] = None
+    biz_item_links: Optional[List[BizItemLinkInput]] = None  # Priority-aware links
     building_id: Optional[int] = None
     dormitory: bool = False
     bed_capacity: int = 1
@@ -45,6 +57,7 @@ class RoomUpdate(BaseModel):
     sort_order: Optional[int] = None
     naver_biz_item_id: Optional[str] = None  # Deprecated: use biz_item_ids
     biz_item_ids: Optional[List[str]] = None
+    biz_item_links: Optional[List[BizItemLinkInput]] = None  # Priority-aware links
     building_id: Optional[int] = None
     dormitory: Optional[bool] = None
     bed_capacity: Optional[int] = None
@@ -61,6 +74,7 @@ class RoomResponse(BaseModel):
     sort_order: int
     naver_biz_item_id: Optional[str] = None  # Deprecated: computed from first biz_item_link
     biz_item_ids: List[str] = []
+    biz_item_links_detail: List[BizItemLinkResponse] = []
     building_id: Optional[int] = None
     building_name: Optional[str] = None
     dormitory: bool = False
@@ -100,6 +114,13 @@ def _room_to_response(room: Room) -> dict:
         sort_order=room.sort_order,
         naver_biz_item_id=biz_item_ids[0] if biz_item_ids else room.naver_biz_item_id,
         biz_item_ids=biz_item_ids,
+        biz_item_links_detail=[
+            BizItemLinkResponse(
+                biz_item_id=link.biz_item_id,
+                male_priority=link.male_priority or 0,
+                female_priority=link.female_priority or 0,
+            ) for link in (room.biz_item_links or [])
+        ],
         building_id=room.building_id,
         building_name=room.building.name if room.building else None,
         dormitory=room.is_dormitory,
@@ -110,14 +131,32 @@ def _room_to_response(room: Room) -> dict:
     )
 
 
-def _sync_biz_item_links(db: Session, room: Room, biz_item_ids: List[str]):
-    """Replace all biz_item_links for a room with the given biz_item_ids."""
-    # Delete existing links
-    db.query(RoomBizItemLink).filter(RoomBizItemLink.room_id == room.id).delete(synchronize_session="fetch")
-    # Create new links
+def _sync_biz_item_links(db: Session, room: Room, biz_item_ids: List[str],
+                          priorities: Optional[Dict[str, dict]] = None):
+    """Upsert biz_item_links: preserve existing priority, add new, remove stale."""
+    existing = {link.biz_item_id: link for link in room.biz_item_links}
+    target_ids = set(biz_item_ids)
+
+    # Remove stale links
+    for biz_id, link in existing.items():
+        if biz_id not in target_ids:
+            db.delete(link)
+
+    # Add or update
     for biz_id in biz_item_ids:
-        db.add(RoomBizItemLink(room_id=room.id, biz_item_id=biz_id))
-    # Update deprecated naver_biz_item_id for backward compat
+        if biz_id in existing:
+            link = existing[biz_id]
+            if priorities and biz_id in priorities:
+                link.male_priority = priorities[biz_id].get("male_priority", link.male_priority)
+                link.female_priority = priorities[biz_id].get("female_priority", link.female_priority)
+        else:
+            prio = (priorities or {}).get(biz_id, {})
+            db.add(RoomBizItemLink(
+                room_id=room.id, biz_item_id=biz_id,
+                male_priority=prio.get("male_priority", 0),
+                female_priority=prio.get("female_priority", 0),
+            ))
+
     room.naver_biz_item_id = biz_item_ids[0] if biz_item_ids else None
 
 
@@ -218,10 +257,15 @@ async def get_room(room_id: int, db: Session = Depends(get_db), current_user: Us
 @router.post("", response_model=RoomResponse)
 async def create_room(room: RoomCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Create a new room (duplicates allowed)"""
-    # Resolve biz_item_ids: prefer biz_item_ids, fall back to legacy naver_biz_item_id
-    biz_item_ids = room.biz_item_ids if room.biz_item_ids is not None else (
-        [room.naver_biz_item_id] if room.naver_biz_item_id else []
-    )
+    # Resolve biz_item_links: prefer biz_item_links (with priority), fall back to biz_item_ids, then legacy
+    if room.biz_item_links is not None:
+        biz_item_ids = [item.biz_item_id for item in room.biz_item_links]
+        priorities = {item.biz_item_id: {"male_priority": item.male_priority, "female_priority": item.female_priority} for item in room.biz_item_links}
+    else:
+        biz_item_ids = room.biz_item_ids if room.biz_item_ids is not None else (
+            [room.naver_biz_item_id] if room.naver_biz_item_id else []
+        )
+        priorities = None
 
     db_room = Room(
         room_number=room.room_number,
@@ -239,9 +283,14 @@ async def create_room(room: RoomCreate, db: Session = Depends(get_db), current_u
     db.add(db_room)
     db.flush()  # Get room.id before creating links
 
-    # Create N:M links
+    # Create N:M links with priority
     for biz_id in biz_item_ids:
-        db.add(RoomBizItemLink(room_id=db_room.id, biz_item_id=biz_id))
+        prio = (priorities or {}).get(biz_id, {})
+        db.add(RoomBizItemLink(
+            room_id=db_room.id, biz_item_id=biz_id,
+            male_priority=prio.get("male_priority", 0),
+            female_priority=prio.get("female_priority", 0),
+        ))
 
     db.commit()
     db.refresh(db_room)
@@ -264,13 +313,16 @@ async def update_room(
 
     update_data = room.dict(exclude_unset=True)
 
-    # Handle biz_item_ids separately
+    # Handle biz_item_links (priority-aware) — takes precedence over biz_item_ids
+    biz_item_links_input = update_data.pop("biz_item_links", None)
     biz_item_ids = update_data.pop("biz_item_ids", None)
-
-    # Handle legacy naver_biz_item_id: if biz_item_ids not provided but naver_biz_item_id is,
-    # treat it as a single-item list for backward compat
     legacy_biz_id = update_data.pop("naver_biz_item_id", None)
-    if biz_item_ids is None and legacy_biz_id is not None:
+
+    priorities = None
+    if biz_item_links_input is not None:
+        biz_item_ids = [item["biz_item_id"] for item in biz_item_links_input]
+        priorities = {item["biz_item_id"]: {"male_priority": item.get("male_priority", 0), "female_priority": item.get("female_priority", 0)} for item in biz_item_links_input}
+    elif biz_item_ids is None and legacy_biz_id is not None:
         biz_item_ids = [legacy_biz_id] if legacy_biz_id else []
 
     # Remap JSON keys to ORM column names
@@ -284,7 +336,7 @@ async def update_room(
 
     # Sync N:M links if biz_item_ids was provided
     if biz_item_ids is not None:
-        _sync_biz_item_links(db, db_room, biz_item_ids)
+        _sync_biz_item_links(db, db_room, biz_item_ids, priorities)
 
     db.commit()
     db.refresh(db_room)

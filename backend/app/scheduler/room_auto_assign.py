@@ -107,6 +107,28 @@ def _get_unassigned_reservations(db: Session, target_date: str) -> List[Reservat
     ]
 
 
+def _sort_candidate_rooms(rooms: List[Room], biz_item_id: str, gender: str) -> List[Room]:
+    """Sort candidate rooms by gender-specific priority from RoomBizItemLink."""
+    def get_priority(room: Room) -> tuple:
+        for link in room.biz_item_links:
+            if link.biz_item_id == biz_item_id:
+                if gender == "여":
+                    return (link.female_priority or 0, room.sort_order, room.id)
+                elif gender == "남":
+                    return (link.male_priority or 0, room.sort_order, room.id)
+                break
+        return (0, room.sort_order, room.id)
+    return sorted(rooms, key=get_priority)
+
+
+def _gender_sort_key(res: Reservation) -> int:
+    """Sort key: females first (0), males second (1), unknown last (2)."""
+    g = (res.gender or "").strip()
+    if g == "여": return 0
+    if g == "남": return 1
+    return 2
+
+
 def _assign_all_rooms(
     db: Session,
     candidates: List[Reservation],
@@ -121,8 +143,14 @@ def _assign_all_rooms(
     """
     assigned_ids = []
 
+    # Sort candidates: females first, then males, then unknown gender
+    candidates = sorted(candidates, key=_gender_sort_key)
+
     for res in candidates:
         candidate_rooms = biz_to_rooms.get(res.naver_biz_item_id, [])
+        # Sort rooms by gender-specific priority
+        res_gender = (res.gender or "").strip()
+        candidate_rooms = _sort_candidate_rooms(candidate_rooms, res.naver_biz_item_id, res_gender)
         if not candidate_rooms:
             continue
 

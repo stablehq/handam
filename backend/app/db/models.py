@@ -229,6 +229,8 @@ class RoomBizItemLink(Base):
     id = Column(Integer, primary_key=True, index=True)
     room_id = Column(Integer, ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
     biz_item_id = Column(String(100), ForeignKey("naver_biz_items.biz_item_id"), nullable=False)
+    male_priority = Column(Integer, default=0)      # 남성 배정 순서 (낮을수록 먼저, 0=미설정)
+    female_priority = Column(Integer, default=0)     # 여성 배정 순서 (낮을수록 먼저, 0=미설정)
     created_at = Column(DateTime, default=utc_now)
 
     __table_args__ = (
