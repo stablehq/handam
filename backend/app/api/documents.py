@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List
-from app.db.database import get_db
+from app.api.deps import get_tenant_scoped_db
 from app.db.models import Document, User
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.api.shared_schemas import ActionResponse
@@ -41,14 +41,14 @@ def _doc_to_response(doc: Document) -> DocumentResponse:
 
 
 @router.get("", response_model=List[DocumentResponse])
-async def get_documents(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_documents(db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Get all documents"""
     documents = db.query(Document).order_by(Document.uploaded_at.desc()).all()
     return [_doc_to_response(d) for d in documents]
 
 
 @router.post("/upload")
-async def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
+async def upload_document(file: UploadFile = File(...), db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
     """Upload document (mock - only saves metadata in demo mode)"""
     # M16: Path Traversal 방어 - 확장자 검증 및 안전한 파일명 생성
     original_filename = file.filename or ""
@@ -88,7 +88,7 @@ async def upload_document(file: UploadFile = File(...), db: Session = Depends(ge
 
 
 @router.delete("/{document_id}", response_model=ActionResponse)
-async def delete_document(document_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
+async def delete_document(document_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
     """Delete document"""
     doc = db.query(Document).filter(Document.id == document_id).first()
     if not doc:

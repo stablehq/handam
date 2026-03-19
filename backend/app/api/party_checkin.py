@@ -9,7 +9,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 from pydantic import BaseModel
 
-from app.db.database import get_db
+from app.api.deps import get_tenant_scoped_db
 from app.db.models import Reservation, ReservationStatus, PartyCheckin, RoomAssignment, ReservationDailyInfo
 from app.auth.dependencies import require_any_role
 
@@ -44,7 +44,7 @@ PARTY_TYPE_VALUES = {'1', '2', '2차만'}
 @router.get("", response_model=List[PartyCheckinItem])
 async def get_party_checkin_list(
     date: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user=Depends(require_any_role),
 ):
     """해당 날짜의 파티 참여 예약자 목록 조회 (가나다순)
@@ -141,7 +141,7 @@ async def get_party_checkin_list(
 async def toggle_party_checkin(
     reservation_id: int,
     date: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user=Depends(require_any_role),
 ):
     """파티 체크인/체크아웃 토글"""

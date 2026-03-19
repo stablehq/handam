@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from pydantic import BaseModel
 from typing import List, Optional
-from app.db.database import get_db
+from app.api.deps import get_tenant_scoped_db
 from app.db.models import Message, MessageDirection, MessageStatus, Reservation, User
 from app.auth.dependencies import get_current_user
 from app.factory import get_sms_provider
@@ -56,7 +56,7 @@ class ContactResponse(BaseModel):
 
 # IMPORTANT: /contacts must be defined BEFORE /review-queue for correct route matching
 @router.get("/contacts", response_model=List[ContactResponse])
-async def get_contacts(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_contacts(db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Get unique contact list with last message preview"""
     # Get all messages, find unique phone numbers (excluding our own number)
     our_number = settings.ALIGO_SENDER
@@ -118,7 +118,7 @@ async def get_messages(
     limit: int = 50,
     direction: Optional[str] = None,
     phone: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get message history with pagination"""
@@ -155,7 +155,7 @@ async def get_messages(
 
 
 @router.post("/send")
-async def send_sms(request: SendSMSRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def send_sms(request: SendSMSRequest, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Send SMS manually"""
     sms_provider = get_sms_provider()
     result = await sms_provider.send_sms(to=request.to, message=request.content)
@@ -188,7 +188,7 @@ async def send_sms(request: SendSMSRequest, db: Session = Depends(get_db), curre
 
 
 @router.get("/review-queue")
-async def get_review_queue(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_review_queue(db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Get messages that need human review"""
     messages = (
         db.query(Message)

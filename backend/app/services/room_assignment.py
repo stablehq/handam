@@ -252,7 +252,7 @@ def get_occupancy(db: Session, date: str, room_number: str) -> int:
                 0,
             )
         )
-        .join(RoomAssignment, RoomAssignment.reservation_id == Reservation.id)
+        .join(RoomAssignment, and_(RoomAssignment.reservation_id == Reservation.id, RoomAssignment.tenant_id == Reservation.tenant_id))
         .filter(
             RoomAssignment.date == date,
             RoomAssignment.room_number == room_number,
@@ -374,7 +374,7 @@ def check_capacity_all_dates(
                     0,
                 ).label("occupancy"),
             )
-            .join(Reservation, RoomAssignment.reservation_id == Reservation.id)
+            .join(Reservation, and_(RoomAssignment.reservation_id == Reservation.id, RoomAssignment.tenant_id == Reservation.tenant_id))
             .filter(
                 RoomAssignment.room_number == room_number,
                 RoomAssignment.date.in_(dates),

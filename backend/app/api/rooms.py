@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from typing import List, Optional, Dict
-from app.db.database import get_db
+from app.api.deps import get_tenant_scoped_db
 from app.db.models import Room, NaverBizItem, User, RoomAssignment, RoomBizItemLink, Building
 from app.factory import get_reservation_provider
 from app.auth.dependencies import get_current_user, require_admin_or_above
@@ -163,7 +163,7 @@ def _sync_biz_item_links(db: Session, room: Room, biz_item_ids: List[str],
 @router.get("", response_model=List[RoomResponse])
 async def get_rooms(
     include_inactive: bool = False,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get all rooms"""
@@ -194,7 +194,7 @@ def _biz_item_to_response(item: NaverBizItem) -> NaverBizItemResponse:
 
 
 @router.get("/naver/biz-items", response_model=List[NaverBizItemResponse])
-async def get_naver_biz_items(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_naver_biz_items(db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Get stored Naver biz items"""
     items = db.query(NaverBizItem).filter(NaverBizItem.is_active == True).order_by(NaverBizItem.name).all()
     return [_biz_item_to_response(i) for i in items]
@@ -202,7 +202,7 @@ async def get_naver_biz_items(db: Session = Depends(get_db), current_user: User 
 
 @router.post("/naver/biz-items/sync")
 @limiter.limit("5/minute")
-async def sync_naver_biz_items(request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
+async def sync_naver_biz_items(request: Request, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
     """Sync biz items from Naver Smart Place API"""
     provider = get_reservation_provider()
     items = await provider.fetch_biz_items()
@@ -246,7 +246,7 @@ async def sync_naver_biz_items(request: Request, db: Session = Depends(get_db), 
 
 
 @router.get("/{room_id}", response_model=RoomResponse)
-async def get_room(room_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_room(room_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Get a single room by ID"""
     room = db.query(Room).options(selectinload(Room.biz_item_links), selectinload(Room.building)).filter(Room.id == room_id).first()
     if not room:
@@ -255,7 +255,7 @@ async def get_room(room_id: int, db: Session = Depends(get_db), current_user: Us
 
 
 @router.post("", response_model=RoomResponse)
-async def create_room(room: RoomCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def create_room(room: RoomCreate, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Create a new room (duplicates allowed)"""
     # Resolve biz_item_links: prefer biz_item_links (with priority), fall back to biz_item_ids, then legacy
     if room.biz_item_links is not None:
@@ -303,7 +303,7 @@ async def create_room(room: RoomCreate, db: Session = Depends(get_db), current_u
 async def update_room(
     room_id: int,
     room: RoomUpdate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Update a room"""
@@ -346,7 +346,7 @@ async def update_room(
 
 
 @router.delete("/{room_id}", response_model=ActionResponse)
-async def delete_room(room_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def delete_room(room_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Delete a room"""
     db_room = db.query(Room).filter(Room.id == room_id).first()
     if not db_room:
@@ -374,7 +374,7 @@ async def delete_room(room_id: int, db: Session = Depends(get_db), current_user:
 @router.post("/auto-assign")
 async def trigger_auto_assign(
     date: str = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """

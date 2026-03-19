@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, func
 
 from app.db.models import TemplateSchedule, Reservation, RoomAssignment, ReservationSmsAssignment, Room, ReservationStatus, ReservationDailyInfo
-from app.factory import get_sms_provider
+from app.factory import get_sms_provider, get_sms_provider_for_tenant
 from app.templates.renderer import TemplateRenderer
 from app.templates.variables import calculate_template_variables
 from app.services.room_assignment import get_schedule_dates
@@ -44,7 +44,7 @@ def _condition_by_building(value, ctx):
     target_date = ctx.get("target_date")
     sub = (
         ctx["db"].query(RoomAssignment.reservation_id)
-        .join(Room, Room.room_number == RoomAssignment.room_number)
+        .join(Room, and_(Room.room_number == RoomAssignment.room_number, Room.tenant_id == RoomAssignment.tenant_id))
         .filter(
             RoomAssignment.date == target_date,
             Room.building_id == int(value),
@@ -189,9 +189,9 @@ def matches_schedule(db: Session, schedule: TemplateSchedule, reservation_id: in
 class TemplateScheduleExecutor:
     """Execute template-based scheduled messages"""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, tenant=None):
         self.db = db
-        self.sms_provider = get_sms_provider()
+        self.sms_provider = get_sms_provider_for_tenant(tenant)
         self.template_renderer = TemplateRenderer(db)
 
     async def execute_schedule(self, schedule_id: int) -> Dict[str, Any]:

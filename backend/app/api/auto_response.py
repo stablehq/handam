@@ -4,7 +4,7 @@ Auto-response API endpoints
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from app.db.database import get_db
+from app.api.deps import get_tenant_scoped_db
 from app.db.models import Message, MessageDirection, MessageStatus, User
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.router.message_router import message_router
@@ -22,7 +22,7 @@ class GenerateResponseFromTextRequest(BaseModel):
 
 
 @router.post("/generate")
-async def generate_auto_response(request: GenerateResponseRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def generate_auto_response(request: GenerateResponseRequest, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Generate auto-response for a message by ID"""
     # Get message from DB
     msg = db.query(Message).filter(Message.id == request.message_id).first()

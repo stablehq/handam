@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from app.db.database import get_db
-from app.db.models import User, UserRole
+from app.db.models import User, UserRole, Tenant, UserTenantRole
 from app.auth.utils import verify_password, hash_password, create_access_token
-from app.auth.schemas import LoginRequest, LoginResponse, UserInfo, UserCreate, UserUpdate
+from app.auth.schemas import LoginRequest, LoginResponse, UserInfo, TenantInfo, UserCreate, UserUpdate
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.rate_limit import limiter
 
@@ -32,6 +32,18 @@ async def login(request: Request, login_data: LoginRequest, db: Session = Depend
         )
 
     token = create_access_token(data={"sub": user.username})
+
+    # Get accessible tenants
+    if user.role == UserRole.SUPERADMIN:
+        tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
+    else:
+        tenants = (
+            db.query(Tenant)
+            .join(UserTenantRole, UserTenantRole.tenant_id == Tenant.id)
+            .filter(UserTenantRole.user_id == user.id, Tenant.is_active == True)
+            .all()
+        )
+
     return LoginResponse(
         access_token=token,
         user=UserInfo(
@@ -40,18 +52,31 @@ async def login(request: Request, login_data: LoginRequest, db: Session = Depend
             name=user.name,
             role=user.role.value,
             active=user.is_active,
+            tenants=[TenantInfo(id=t.id, slug=t.slug, name=t.name) for t in tenants],
         ),
     )
 
 
 @router.get("/me", response_model=UserInfo)
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Get accessible tenants
+    if current_user.role == UserRole.SUPERADMIN:
+        tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
+    else:
+        tenants = (
+            db.query(Tenant)
+            .join(UserTenantRole, UserTenantRole.tenant_id == Tenant.id)
+            .filter(UserTenantRole.user_id == current_user.id, Tenant.is_active == True)
+            .all()
+        )
+
     return UserInfo(
         id=current_user.id,
         username=current_user.username,
         name=current_user.name,
         role=current_user.role.value,
         active=current_user.is_active,
+        tenants=[TenantInfo(id=t.id, slug=t.slug, name=t.name) for t in tenants],
     )
 
 

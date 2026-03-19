@@ -8,10 +8,38 @@ from datetime import datetime, timezone
 import logging
 
 from app.db.database import SessionLocal
-from app.factory import get_reservation_provider, get_sms_provider
+from app.db.models import Tenant
+from app.db.tenant_context import current_tenant_id, bypass_tenant_filter
+from app.factory import get_reservation_provider, get_sms_provider, get_reservation_provider_for_tenant
 from app.scheduler.room_auto_assign import daily_assign_rooms
 
 logger = logging.getLogger(__name__)
+
+
+def _for_each_tenant(job_fn):
+    """Execute a job function for each active tenant with proper context."""
+    db = SessionLocal()
+    try:
+        token_bypass = bypass_tenant_filter.set(True)
+        try:
+            tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
+        finally:
+            bypass_tenant_filter.reset(token_bypass)
+    finally:
+        db.close()
+
+    for tenant in tenants:
+        token = current_tenant_id.set(tenant.id)
+        db = SessionLocal()
+        try:
+            job_fn(db, tenant)
+            db.commit()
+        except Exception as e:
+            logger.error(f"[{tenant.slug}] Job error: {e}")
+            db.rollback()
+        finally:
+            db.close()
+            current_tenant_id.reset(token)
 
 # Create scheduler instance
 scheduler = AsyncIOScheduler()
@@ -20,34 +48,46 @@ scheduler = AsyncIOScheduler()
 async def sync_naver_reservations_job():
     """
     Sync reservations from Naver Smart Place API
-    Runs every 10 minutes from 10:10 to 21:59
+    Runs every 5 minutes, 24h. Iterates over all active tenants.
 
     Ported from: stable-clasp-main/03_trigger.js:1-16 (processTodayAuto)
     """
-    logger.info("Running Naver reservations sync job")
+    logger.info("Running Naver reservations sync job (all tenants)")
 
+    from app.api.reservations_sync import sync_naver_to_db
+
+    # Fetch all active tenants without tenant context restriction
+    token_bypass = bypass_tenant_filter.set(True)
     db = SessionLocal()
     try:
-        from app.api.reservations_sync import sync_naver_to_db
-
-        reservation_provider = get_reservation_provider()
-        result = await sync_naver_to_db(reservation_provider, db)
-        logger.info(f"Scheduler sync result: {result['message']}")
-
-    except Exception as e:
-        logger.error(f"Error in reservation sync job: {e}")
-        db.rollback()
+        tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
     finally:
         db.close()
+        bypass_tenant_filter.reset(token_bypass)
+
+    for tenant in tenants:
+        token = current_tenant_id.set(tenant.id)
+        db = SessionLocal()
+        try:
+            reservation_provider = get_reservation_provider_for_tenant(tenant)
+            result = await sync_naver_to_db(reservation_provider, db)
+            logger.info(f"[{tenant.slug}] Scheduler sync result: {result['message']}")
+        except Exception as e:
+            logger.error(f"[{tenant.slug}] Error in reservation sync job: {e}")
+            db.rollback()
+        finally:
+            db.close()
+            current_tenant_id.reset(token)
 
 
 async def load_template_schedules():
     """
     Load all active template schedules into APScheduler
-    Called on startup
+    Called on startup — loads ALL tenants' schedules (bypass tenant filter)
     """
     logger.info("Loading template schedules")
 
+    bypass_token = bypass_tenant_filter.set(True)
     db = SessionLocal()
     try:
         from .schedule_manager import ScheduleManager
@@ -60,12 +100,14 @@ async def load_template_schedules():
         logger.error(f"Error loading template schedules: {e}")
     finally:
         db.close()
+        bypass_tenant_filter.reset(bypass_token)
 
 
 async def sync_status_log_job():
     """
     6시간 단위 동기화 상태 활동 로그.
     00:00, 06:00, 12:00, 18:00에 실행.
+    Iterates over all active tenants.
     """
     from zoneinfo import ZoneInfo
     from app.services.activity_logger import log_activity
@@ -76,8 +118,7 @@ async def sync_status_log_job():
     period_start = f"{(current_hour - 6) % 24:02d}:00"
     period_end = f"{current_hour:02d}:00"
 
-    db = SessionLocal()
-    try:
+    def _log_status(db, tenant):
         log_activity(
             db,
             type="sync_status",
@@ -85,31 +126,24 @@ async def sync_status_log_job():
             detail={"period_start": period_start, "period_end": period_end},
             created_by="scheduler",
         )
-        db.commit()
-        logger.info(f"Sync status log recorded: {period_start}~{period_end}")
-    except Exception as e:
-        logger.error(f"Error logging sync status: {e}")
-        db.rollback()
-    finally:
-        db.close()
+        logger.info(f"[{tenant.slug}] Sync status log recorded: {period_start}~{period_end}")
+
+    _for_each_tenant(_log_status)
 
 
 async def daily_room_assign_job():
     """
     Daily room auto-assignment for today and tomorrow.
     Only fills missing assignments, never overwrites manual ones.
+    Iterates over all active tenants.
     """
-    logger.info("Running daily room auto-assignment job")
+    logger.info("Running daily room auto-assignment job (all tenants)")
 
-    db = SessionLocal()
-    try:
+    def _assign(db, tenant):
         result = daily_assign_rooms(db)
-        logger.info(f"Daily room auto-assignment result: {result}")
-    except Exception as e:
-        logger.error(f"Error in daily room auto-assignment job: {e}")
-        db.rollback()
-    finally:
-        db.close()
+        logger.info(f"[{tenant.slug}] Daily room auto-assignment result: {result}")
+
+    _for_each_tenant(_assign)
 
 
 def setup_scheduler():

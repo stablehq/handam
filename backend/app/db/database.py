@@ -42,6 +42,10 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+# Register tenant context event listeners
+import app.db.tenant_context  # noqa: F401 — registers before_flush event
+
+
 def init_db():
     """Initialize database tables and ensure default admin exists"""
     from app.db.models import Base, User, UserRole, Room, RoomBizItemLink, Building, TemplateSchedule
@@ -152,7 +156,7 @@ def init_db():
                 RoomBizItemLink.biz_item_id == room.naver_biz_item_id,
             ).first()
             if not existing_link:
-                db.add(RoomBizItemLink(room_id=room.id, biz_item_id=room.naver_biz_item_id))
+                db.add(RoomBizItemLink(room_id=room.id, biz_item_id=room.naver_biz_item_id, tenant_id=1))
                 migrated += 1
         if migrated:
             db.commit()

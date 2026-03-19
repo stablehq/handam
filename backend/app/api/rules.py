@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
-from app.db.database import get_db
+from app.api.deps import get_tenant_scoped_db
 from app.db.models import Rule, User
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.api.shared_schemas import ActionResponse
@@ -70,14 +70,14 @@ def _rule_to_response(rule: Rule) -> dict:
 
 
 @router.get("", response_model=List[RuleResponse])
-async def get_rules(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_rules(db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Get all rules"""
     rules = db.query(Rule).order_by(Rule.priority.desc()).all()
     return [_rule_to_response(r) for r in rules]
 
 
 @router.post("", response_model=RuleResponse)
-async def create_rule(rule: RuleCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
+async def create_rule(rule: RuleCreate, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
     """Create a new rule"""
     _validate_regex_pattern(rule.pattern)
     rule_data = rule.dict()
@@ -92,7 +92,7 @@ async def create_rule(rule: RuleCreate, db: Session = Depends(get_db), current_u
 
 
 @router.put("/{rule_id}", response_model=RuleResponse)
-async def update_rule(rule_id: int, rule: RuleUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
+async def update_rule(rule_id: int, rule: RuleUpdate, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
     """Update a rule"""
     db_rule = db.query(Rule).filter(Rule.id == rule_id).first()
     if not db_rule:
@@ -113,7 +113,7 @@ async def update_rule(rule_id: int, rule: RuleUpdate, db: Session = Depends(get_
 
 
 @router.delete("/{rule_id}", response_model=ActionResponse)
-async def delete_rule(rule_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
+async def delete_rule(rule_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
     """Delete a rule"""
     db_rule = db.query(Rule).filter(Rule.id == rule_id).first()
     if not db_rule:

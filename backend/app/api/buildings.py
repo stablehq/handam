@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from typing import List, Optional
-from app.db.database import get_db
+from app.api.deps import get_tenant_scoped_db
 from app.db.models import Building, Room, User
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.api.shared_schemas import ActionResponse
@@ -59,7 +59,7 @@ def _building_to_response(building: Building) -> BuildingResponse:
 @router.get("", response_model=List[BuildingResponse])
 async def get_buildings(
     include_inactive: bool = False,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get all buildings"""
@@ -77,7 +77,7 @@ async def get_buildings(
 @router.get("/{building_id}", response_model=BuildingResponse)
 async def get_building(
     building_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get a single building by ID"""
@@ -93,7 +93,7 @@ async def get_building(
 @router.post("", response_model=BuildingResponse, status_code=201)
 async def create_building(
     building: BuildingCreate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(require_admin_or_above),
 ):
     """Create a new building"""
@@ -120,7 +120,7 @@ async def create_building(
 async def update_building(
     building_id: int,
     building: BuildingUpdate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(require_admin_or_above),
 ):
     """Update a building (including template linkage)"""
@@ -156,7 +156,7 @@ async def update_building(
 @router.delete("/{building_id}", response_model=ActionResponse)
 async def delete_building(
     building_id: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(require_admin_or_above),
 ):
     """Delete a building (reject if rooms are linked)"""

@@ -8,7 +8,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
-from app.db.database import get_db
+from app.api.deps import get_tenant_scoped_db
 from app.db.models import TemplateSchedule, MessageTemplate, User
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.scheduler.template_scheduler import TemplateScheduleExecutor
@@ -142,7 +142,7 @@ class TargetPreview(BaseModel):
 def get_schedules(
     active: Optional[bool] = None,
     template_id: Optional[int] = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get all template schedules"""
@@ -159,7 +159,7 @@ def get_schedules(
 
 
 @router.get("/{schedule_id}", response_model=TemplateScheduleResponse)
-def get_schedule(schedule_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_schedule(schedule_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Get a specific template schedule"""
     schedule = db.query(TemplateSchedule).filter(TemplateSchedule.id == schedule_id).first()
 
@@ -170,7 +170,7 @@ def get_schedule(schedule_id: int, db: Session = Depends(get_db), current_user: 
 
 
 @router.post("", response_model=TemplateScheduleResponse)
-def create_schedule(schedule: TemplateScheduleCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
+def create_schedule(schedule: TemplateScheduleCreate, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
     """Create a new template schedule"""
     # Verify template exists
     template = db.query(MessageTemplate).filter(MessageTemplate.id == schedule.template_id).first()
@@ -224,7 +224,7 @@ def create_schedule(schedule: TemplateScheduleCreate, db: Session = Depends(get_
 
 
 @router.put("/{schedule_id}", response_model=TemplateScheduleResponse)
-def update_schedule(schedule_id: int, schedule: TemplateScheduleUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
+def update_schedule(schedule_id: int, schedule: TemplateScheduleUpdate, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
     """Update a template schedule"""
     db_schedule = db.query(TemplateSchedule).filter(TemplateSchedule.id == schedule_id).first()
 
@@ -258,7 +258,7 @@ def update_schedule(schedule_id: int, schedule: TemplateScheduleUpdate, db: Sess
 
 
 @router.delete("/{schedule_id}", response_model=ActionResponse)
-def delete_schedule(schedule_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
+def delete_schedule(schedule_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
     """Delete a template schedule"""
     schedule = db.query(TemplateSchedule).filter(TemplateSchedule.id == schedule_id).first()
 
@@ -279,7 +279,7 @@ def delete_schedule(schedule_id: int, db: Session = Depends(get_db), current_use
 
 
 @router.post("/{schedule_id}/run", response_model=ScheduleExecutionResponse)
-async def run_schedule(schedule_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
+async def run_schedule(schedule_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
     """Manually execute a template schedule"""
     schedule = db.query(TemplateSchedule).filter(TemplateSchedule.id == schedule_id).first()
 
@@ -294,7 +294,7 @@ async def run_schedule(schedule_id: int, db: Session = Depends(get_db), current_
 
 
 @router.get("/{schedule_id}/preview", response_model=List[TargetPreview])
-def preview_targets(schedule_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def preview_targets(schedule_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Preview targets for a schedule without sending messages"""
     schedule = db.query(TemplateSchedule).filter(TemplateSchedule.id == schedule_id).first()
 
@@ -310,7 +310,7 @@ def preview_targets(schedule_id: int, db: Session = Depends(get_db), current_use
 @router.post("/auto-assign")
 def auto_assign(
     date: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -353,7 +353,7 @@ def auto_assign(
 
 
 @router.post("/sync")
-def sync_schedules(db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
+def sync_schedules(db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
     """Sync all active schedules to APScheduler"""
     try:
         schedule_manager = ScheduleManager(scheduler)

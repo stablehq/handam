@@ -2,7 +2,7 @@
 SQLAlchemy database models
 """
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Float, Enum, ForeignKey, UniqueConstraint, Index
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, declared_attr
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
 import enum
@@ -12,6 +12,13 @@ def utc_now():
     return datetime.now(timezone.utc)
 
 Base = declarative_base()
+
+
+class TenantMixin:
+    """Mixin that adds tenant_id to models requiring tenant isolation."""
+    @declared_attr
+    def tenant_id(cls):
+        return Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
 
 
 class UserRole(str, enum.Enum):
@@ -39,13 +46,13 @@ class ReservationStatus(str, enum.Enum):
     COMPLETED = "completed"
 
 
-class Message(Base):
+class Message(TenantMixin, Base):
     """SMS message records"""
 
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    message_id = Column(String(100), unique=True, index=True)
+    message_id = Column(String(100), index=True)  # unique constraint is tenant-scoped below
     direction = Column(Enum(MessageDirection, name="message_direction", native_enum=False), nullable=False, index=True)
     from_ = Column("from_phone", String(20), nullable=False, index=True)
     to = Column(String(20), nullable=False, index=True)
@@ -59,15 +66,19 @@ class Message(Base):
     needs_review = Column("is_needs_review", Boolean, default=False, index=True)
     response_source = Column(String(20), nullable=True, index=True)  # 'rule', 'llm', 'manual'
 
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "message_id", name="uq_tenant_message_id"),
+    )
 
-class Reservation(Base):
+
+class Reservation(TenantMixin, Base):
     """Reservation records - Extended for SMS system integration"""
 
     __tablename__ = "reservations"
 
     # Core fields (original)
     id = Column(Integer, primary_key=True, index=True)
-    external_id = Column(String(100), unique=True, nullable=True, index=True)
+    external_id = Column(String(100), nullable=True, index=True)  # unique constraint is tenant-scoped below
     customer_name = Column(String(100), nullable=False)
     phone = Column(String(20), nullable=False, index=True)
     check_in_date = Column("date", String(20), nullable=False, index=True)  # YYYY-MM-DD  # TODO: PostgreSQL 전환 시 Date 타입으로 변경
@@ -119,8 +130,12 @@ class Reservation(Base):
     # Per-date room assignments relationship
     room_assignments = relationship("RoomAssignment", back_populates="reservation", cascade="all, delete-orphan")
 
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "external_id", name="uq_tenant_external_id"),
+    )
 
-class Rule(Base):
+
+class Rule(TenantMixin, Base):
     """Auto-response rules"""
 
     __tablename__ = "rules"
@@ -135,7 +150,7 @@ class Rule(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
-class Document(Base):
+class Document(TenantMixin, Base):
     """Knowledge base documents for RAG"""
 
     __tablename__ = "documents"
@@ -148,13 +163,13 @@ class Document(Base):
     is_indexed = Column(Boolean, default=False)  # ChromaDB indexing status
 
 
-class MessageTemplate(Base):
+class MessageTemplate(TenantMixin, Base):
     """Message templates for SMS campaigns"""
 
     __tablename__ = "message_templates"
 
     id = Column(Integer, primary_key=True, index=True)
-    template_key = Column("key", String(100), unique=True, nullable=False, index=True)
+    template_key = Column("key", String(100), nullable=False, index=True)
     name = Column(String(200), nullable=False)
     short_label = Column(String(10), nullable=True)  # 2-4 char abbreviation for chip display
     content = Column(Text, nullable=False)
@@ -165,8 +180,12 @@ class MessageTemplate(Base):
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "key", name="uq_tenant_template_key"),
+    )
 
-class ReservationSmsAssignment(Base):
+
+class ReservationSmsAssignment(TenantMixin, Base):
     """Join table tracking SMS template assignments per reservation"""
 
     __tablename__ = "reservation_sms_assignments"
@@ -187,7 +206,7 @@ class ReservationSmsAssignment(Base):
     )
 
 
-class CampaignLog(Base):
+class CampaignLog(TenantMixin, Base):
     """SMS campaign execution logs
     DEPRECATED: ActivityLog로 완전 대체됨. 신규 코드에서 생성 금지.
     기존 데이터 유지를 위해 모델은 보존하되, 조회 전용으로만 사용.
@@ -207,7 +226,7 @@ class CampaignLog(Base):
     extra_data = Column("metadata", Text, nullable=True)  # JSON for additional info
 
 
-class GenderStat(Base):
+class GenderStat(TenantMixin, Base):
     """Gender statistics for party planning"""
 
     __tablename__ = "gender_stats"
@@ -221,7 +240,7 @@ class GenderStat(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
-class RoomBizItemLink(Base):
+class RoomBizItemLink(TenantMixin, Base):
     """N:M association table: Room <-> NaverBizItem"""
 
     __tablename__ = "room_biz_item_links"
@@ -242,23 +261,27 @@ class RoomBizItemLink(Base):
     biz_item = relationship("NaverBizItem", lazy="joined")
 
 
-class Building(Base):
+class Building(TenantMixin, Base):
     """건물 관리 (본관, 별관, 로하스 등)"""
 
     __tablename__ = "buildings"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(50), nullable=False, unique=True)  # "본관", "별관", "로하스"
+    name = Column(String(50), nullable=False)  # "본관", "별관", "로하스"
     description = Column(String(200), nullable=True)  # 건물 설명/주소
     is_active = Column(Boolean, default=True)
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=utc_now)
 
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name", name="uq_tenant_building_name"),
+    )
+
     # Relationships
     rooms = relationship("Room", back_populates="building")
 
 
-class Room(Base):
+class Room(TenantMixin, Base):
     """Room configuration for room assignment"""
 
     __tablename__ = "rooms"
@@ -283,7 +306,7 @@ class Room(Base):
     building = relationship("Building", back_populates="rooms")
 
 
-class RoomAssignment(Base):
+class RoomAssignment(TenantMixin, Base):
     """Per-date room assignment records for reservations"""
 
     __tablename__ = "room_assignments"
@@ -304,13 +327,13 @@ class RoomAssignment(Base):
     reservation = relationship("Reservation", back_populates="room_assignments")
 
 
-class NaverBizItem(Base):
+class NaverBizItem(TenantMixin, Base):
     """Naver Smart Place product/room types"""
 
     __tablename__ = "naver_biz_items"
 
     id = Column(Integer, primary_key=True, index=True)
-    biz_item_id = Column(String(50), unique=True, nullable=False, index=True)  # Naver bizItemId
+    biz_item_id = Column(String(50), nullable=False, index=True)  # Naver bizItemId
     name = Column(String(200), nullable=False)  # Product name from Naver
     biz_item_type = Column(String(50), nullable=True)  # STANDARD etc.
     is_exposed = Column(Boolean, default=True)  # 네이버 노출 상태
@@ -318,8 +341,12 @@ class NaverBizItem(Base):
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "biz_item_id", name="uq_tenant_biz_item_id"),
+    )
 
-class TemplateSchedule(Base):
+
+class TemplateSchedule(TenantMixin, Base):
     """Template-based scheduled messaging"""
 
     __tablename__ = "template_schedules"
@@ -361,7 +388,7 @@ class TemplateSchedule(Base):
     template = relationship("MessageTemplate", backref="schedules")
 
 
-class ActivityLog(Base):
+class ActivityLog(TenantMixin, Base):
     """시스템 활동 로그 — 주요 변경사항 기록"""
 
     __tablename__ = "activity_logs"
@@ -378,7 +405,7 @@ class ActivityLog(Base):
     created_by = Column(String(50), nullable=True)  # username 또는 "system"
 
 
-class PartyCheckin(Base):
+class PartyCheckin(TenantMixin, Base):
     """Party check-in records per date"""
 
     __tablename__ = "party_checkins"
@@ -394,7 +421,7 @@ class PartyCheckin(Base):
     reservation = relationship("Reservation", backref="party_checkins")
 
 
-class ReservationDailyInfo(Base):
+class ReservationDailyInfo(TenantMixin, Base):
     """날짜별 예약 부가 정보 (파티 참여 등)"""
     __tablename__ = "reservation_daily_info"
 
@@ -428,12 +455,64 @@ class User(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
-class ParticipantSnapshot(Base):
+class ParticipantSnapshot(TenantMixin, Base):
     """Daily participant count snapshot for consistent SMS template variables"""
     __tablename__ = "participant_snapshots"
 
     id = Column(Integer, primary_key=True, index=True)
-    date = Column(String(20), nullable=False, unique=True, index=True)  # YYYY-MM-DD
+    date = Column(String(20), nullable=False, index=True)  # YYYY-MM-DD
     male_count = Column(Integer, default=0)
     female_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "date", name="uq_tenant_snapshot_date"),
+    )
+
+
+class Tenant(Base):
+    """펜션(테넌트) 마스터 테이블"""
+    __tablename__ = "tenants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    slug = Column(String(50), unique=True, nullable=False, index=True)  # 'handam', 'stable'
+    name = Column(String(100), nullable=False)  # '한담 펜션', '스테이블 펜션'
+    naver_business_id = Column(String(50), nullable=True)
+    naver_cookie = Column(Text, nullable=True)
+    naver_email = Column(String(200), nullable=True)
+    naver_password = Column(String(200), nullable=True)
+    aligo_sender = Column(String(20), nullable=True)  # 펜션별 발신번호
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+
+class UserTenantRole(Base):
+    """유저별 테넌트 접근 매핑"""
+    __tablename__ = "user_tenant_roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "tenant_id", name="uq_user_tenant"),
+    )
+
+    user = relationship("User", backref="tenant_roles")
+    tenant = relationship("Tenant")
+
+
+# ---------------------------------------------------------------------------
+# Register tenant models for automatic SELECT filtering
+# ---------------------------------------------------------------------------
+from app.db.tenant_context import register_tenant_model as _register  # noqa: E402
+
+for _model in [
+    Message, Reservation, Rule, Document, MessageTemplate, ReservationSmsAssignment,
+    CampaignLog, GenderStat, RoomBizItemLink, Building, Room, RoomAssignment,
+    NaverBizItem, TemplateSchedule, ActivityLog, PartyCheckin, ReservationDailyInfo,
+    ParticipantSnapshot,
+]:
+    _register(_model)

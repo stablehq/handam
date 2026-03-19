@@ -8,7 +8,8 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.orm import Session
 
-from app.db.models import TemplateSchedule
+from app.db.models import TemplateSchedule, Tenant
+from app.db.tenant_context import current_tenant_id
 from app.scheduler.template_scheduler import TemplateScheduleExecutor
 
 logger = logging.getLogger(__name__)
@@ -109,10 +110,25 @@ class ScheduleManager:
                 db_session.close()
 
             db_session = SessionLocal()
+            token = None
             try:
-                executor = TemplateScheduleExecutor(db_session)
+                # Re-fetch schedule to get tenant_id for provider selection
+                exec_schedule = db_session.query(TemplateSchedule).filter(
+                    TemplateSchedule.id == schedule_id_captured
+                ).first()
+                tenant = None
+                if exec_schedule and exec_schedule.tenant_id:
+                    tenant = db_session.query(Tenant).filter(
+                        Tenant.id == exec_schedule.tenant_id
+                    ).first()
+                # Set tenant context so queries are auto-filtered
+                if tenant:
+                    token = current_tenant_id.set(tenant.id)
+                executor = TemplateScheduleExecutor(db_session, tenant=tenant)
                 await executor.execute_schedule(schedule_id_captured)
             finally:
+                if token is not None:
+                    current_tenant_id.reset(token)
                 db_session.close()
 
         # Add job to scheduler

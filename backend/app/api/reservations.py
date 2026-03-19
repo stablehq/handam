@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from pydantic import BaseModel, field_validator
 from typing import List, Optional
-from app.db.database import get_db
+from app.api.deps import get_tenant_scoped_db
 from app.db.models import Reservation, ReservationStatus, User, ReservationSmsAssignment, RoomAssignment, ReservationDailyInfo
 from app.factory import get_reservation_provider, get_sms_provider
 from app.auth.dependencies import get_current_user
@@ -182,7 +182,7 @@ async def get_reservations(
     date: Optional[str] = None,
     search: Optional[str] = None,
     source: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get reservations with pagination and filtering"""
@@ -291,7 +291,7 @@ async def get_reservations(
 
 
 @router.post("", response_model=ReservationResponse)
-async def create_reservation(reservation: ReservationCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def create_reservation(reservation: ReservationCreate, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Create a new reservation"""
     # Convert status string to enum
     try:
@@ -325,7 +325,7 @@ async def create_reservation(reservation: ReservationCreate, db: Session = Depen
 
 @router.put("/{reservation_id}", response_model=ReservationResponse)
 async def update_reservation(
-    reservation_id: int, reservation: ReservationUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    reservation_id: int, reservation: ReservationUpdate, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)
 ):
     """Update a reservation"""
     db_reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
@@ -361,7 +361,7 @@ async def update_reservation(
 
 
 @router.delete("/{reservation_id}", response_model=ActionResponse)
-async def delete_reservation(reservation_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def delete_reservation(reservation_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Delete a reservation"""
     db_reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not db_reservation:
@@ -381,7 +381,7 @@ async def delete_reservation(reservation_id: int, db: Session = Depends(get_db),
 
 @router.put("/{reservation_id}/room", response_model=ReservationResponse)
 async def assign_room(
-    reservation_id: int, request: RoomAssignRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    reservation_id: int, request: RoomAssignRequest, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)
 ):
     """Assign or unassign a room to a reservation"""
     db_reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
@@ -429,7 +429,7 @@ class DailyInfoUpdate(BaseModel):
 async def update_daily_info(
     reservation_id: int,
     request: DailyInfoUpdate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Upsert per-date party_type for a reservation via ReservationDailyInfo."""
@@ -468,7 +468,7 @@ async def update_daily_info(
 
 @router.post("/sync/naver")
 @limiter.limit("5/minute")
-async def sync_from_naver(request: Request, from_date: Optional[str] = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def sync_from_naver(request: Request, from_date: Optional[str] = None, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Sync reservations from Naver Smart Place API.
 
     Args:
@@ -498,7 +498,7 @@ async def sync_from_naver(request: Request, from_date: Optional[str] = None, db:
 async def assign_sms_template(
     reservation_id: int,
     request: SmsAssignRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Assign an SMS template to a reservation"""
@@ -531,7 +531,7 @@ async def unassign_sms_template(
     reservation_id: int,
     template_key: str,
     date: str = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Remove an SMS template assignment from a reservation"""
@@ -556,7 +556,7 @@ async def toggle_sms_sent(
     template_key: str,
     skip_send: bool = False,
     date: str = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Toggle the sent status of an SMS assignment.
@@ -638,7 +638,7 @@ class SmsSendByTagRequest(BaseModel):
 async def send_sms_by_tag(
     request: Request,
     sms_data: SmsSendByTagRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Send SMS to all reservations with unsent assignment for a given template_key and date"""

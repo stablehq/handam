@@ -22,6 +22,7 @@ from sqlalchemy import exists
 from sqlalchemy.orm import selectinload
 from app.db.models import Reservation, Room, RoomAssignment, ReservationStatus, TemplateSchedule, RoomBizItemLink
 from app.services import room_assignment
+from app.db.tenant_context import current_tenant_id
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,8 @@ def _get_unassigned_reservations(db: Session, target_date: str) -> List[Reservat
         .filter(
             ~Reservation.id.in_(
                 db.query(RoomAssignment.reservation_id).filter(
-                    RoomAssignment.date == target_date
+                    RoomAssignment.date == target_date,
+                    RoomAssignment.tenant_id == current_tenant_id.get(),
                 )
             )
         )

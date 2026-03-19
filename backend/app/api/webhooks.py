@@ -4,7 +4,7 @@ Webhook endpoints for SMS and external integrations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from app.db.database import get_db
+from app.api.deps import get_tenant_scoped_db
 from app.db.models import Message, MessageDirection, MessageStatus, User
 from app.auth.dependencies import get_current_user
 from app.factory import get_sms_provider
@@ -23,7 +23,7 @@ class SMSReceiveRequest(BaseModel):
 
 
 @router.post("/sms/receive")
-async def receive_sms(request: SMSReceiveRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def receive_sms(request: SMSReceiveRequest, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """
     Webhook for receiving SMS (simulated in demo mode).
     Saves inbound message, runs auto-response pipeline, and auto-sends if confident.
@@ -123,7 +123,7 @@ async def receive_sms(request: SMSReceiveRequest, db: Session = Depends(get_db),
 #    @router.post("/naver/booking")
 #    async def receive_naver_booking_webhook(
 #        request: Request,
-#        db: Session = Depends(get_db)
+#        db: Session = Depends(get_tenant_scoped_db)
 #    ):
 #        # Verify webhook signature
 #        signature = request.headers.get("X-Naver-Signature")

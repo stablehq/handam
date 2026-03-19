@@ -2,8 +2,9 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from app.db.database import get_db
-from app.db.models import User, UserRole
+from app.db.models import User, UserRole, UserTenantRole
 from app.auth.utils import decode_access_token
+from app.api.deps import get_current_tenant_id
 import jwt
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -52,3 +53,23 @@ def require_role(*roles: UserRole):
 require_superadmin = require_role(UserRole.SUPERADMIN)
 require_admin_or_above = require_role(UserRole.SUPERADMIN, UserRole.ADMIN)
 require_any_role = require_role(UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.STAFF)
+
+
+async def verify_tenant_access(
+    tenant_id: int = Depends(get_current_tenant_id),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> int:
+    """Verify current user has access to the requested tenant."""
+    if current_user.role == UserRole.SUPERADMIN:
+        return tenant_id
+
+    mapping = db.query(UserTenantRole).filter(
+        UserTenantRole.user_id == current_user.id,
+        UserTenantRole.tenant_id == tenant_id,
+    ).first()
+
+    if not mapping:
+        raise HTTPException(status_code=403, detail="해당 펜션에 대한 접근 권한이 없습니다")
+
+    return tenant_id

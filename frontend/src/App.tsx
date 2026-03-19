@@ -5,6 +5,7 @@ import FlowbiteWrapper from './components/FlowbiteTheme'
 import ProtectedRoute from './components/ProtectedRoute'
 import { Toaster } from '@/components/ui/Sonner'
 import { useAuthStore } from '@/stores/auth-store'
+import { useTenantStore } from '@/stores/tenant-store'
 import Dashboard from './pages/Dashboard'
 import Reservations from './pages/Reservations'
 import Messages from './pages/Messages'
@@ -29,10 +30,12 @@ function StaffRedirect({ children }: { children: React.ReactNode }) {
 
 function App() {
   const loadFromStorage = useAuthStore((s) => s.loadFromStorage)
+  const loadTenants = useTenantStore((s) => s.loadTenants)
 
   useEffect(() => {
     loadFromStorage()
-  }, [loadFromStorage])
+    loadTenants()
+  }, [loadFromStorage, loadTenants])
 
   return (
     <ThemeProvider>

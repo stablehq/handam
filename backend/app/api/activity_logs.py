@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 KST = ZoneInfo("Asia/Seoul")
 
-from app.db.database import get_db
+from app.api.deps import get_tenant_scoped_db
 from app.db.models import ActivityLog, User
 from app.auth.dependencies import get_current_user
 
@@ -24,7 +24,7 @@ def get_activity_logs(
     date: Optional[str] = None,
     skip: int = 0,
     limit: int = 50,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get activity logs with filtering and pagination"""
@@ -61,7 +61,7 @@ def get_activity_logs(
 
 @router.get("/stats")
 def get_activity_stats(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get today's activity statistics by type"""

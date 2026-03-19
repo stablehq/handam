@@ -7,7 +7,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
-from app.db.database import get_db
+from app.api.deps import get_tenant_scoped_db
 from app.db.models import MessageTemplate, User
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.templates.renderer import TemplateRenderer
@@ -71,7 +71,7 @@ class TemplatePreviewResponse(BaseModel):
 def get_templates(
     category: Optional[str] = None,
     active: Optional[bool] = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get all message templates"""
@@ -108,7 +108,7 @@ def get_templates(
 
 @router.get("/labels")
 def get_template_labels(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get template labels for chip display"""
@@ -124,7 +124,7 @@ def get_template_labels(
 
 
 @router.get("/{template_id}", response_model=TemplateResponse)
-def get_template(template_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_template(template_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Get a specific template"""
     template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
 
@@ -148,7 +148,7 @@ def get_template(template_id: int, db: Session = Depends(get_db), current_user: 
 
 
 @router.post("", response_model=TemplateResponse)
-def create_template(template: TemplateCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
+def create_template(template: TemplateCreate, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
     """Create a new message template"""
     # Check if key already exists
     existing = db.query(MessageTemplate).filter(MessageTemplate.template_key == template.template_key).first()
@@ -188,7 +188,7 @@ def create_template(template: TemplateCreate, db: Session = Depends(get_db), cur
 
 
 @router.put("/{template_id}", response_model=TemplateResponse)
-def update_template(template_id: int, template: TemplateUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
+def update_template(template_id: int, template: TemplateUpdate, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
     """Update a message template"""
     db_template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
 
@@ -230,7 +230,7 @@ def update_template(template_id: int, template: TemplateUpdate, db: Session = De
 
 
 @router.delete("/{template_id}", response_model=ActionResponse)
-def delete_template(template_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin_or_above)):
+def delete_template(template_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
     """Delete a message template"""
     template = db.query(MessageTemplate).filter(MessageTemplate.id == template_id).first()
 
@@ -256,7 +256,7 @@ def delete_template(template_id: int, db: Session = Depends(get_db), current_use
 def preview_template(
     template_id: int,
     request: TemplatePreviewRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
     """Preview template with sample variables"""

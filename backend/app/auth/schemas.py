@@ -15,12 +15,22 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class TenantInfo(BaseModel):
+    id: int
+    slug: str
+    name: str
+
+    class Config:
+        from_attributes = True
+
+
 class UserInfo(BaseModel):
     id: int
     username: str
     name: str
     role: str
     active: bool
+    tenants: list[TenantInfo] = []
 
     class Config:
         from_attributes = True

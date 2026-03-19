@@ -13,6 +13,10 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
+  const tenantId = localStorage.getItem('sms-tenant-id')
+  if (tenantId) {
+    config.headers['X-Tenant-Id'] = tenantId
+  }
   return config
 })
 
@@ -211,6 +215,11 @@ export const partyCheckinAPI = {
   getList: (date: string) => api.get('/api/party-checkin', { params: { date } }),
   toggle: (reservationId: number, date: string) =>
     api.patch(`/api/party-checkin/${reservationId}/toggle`, null, { params: { date } }),
+};
+
+// Tenants API
+export const tenantsAPI = {
+  getAll: () => api.get('/api/tenants'),
 };
 
 export default api;
