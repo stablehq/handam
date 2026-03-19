@@ -3,15 +3,14 @@ SmsSender - Tag-based SMS filtering and sending
 Ported from stable-clasp-main/01_sns.js
 (Renamed from campaigns/tag_manager.py; TagCampaignManager → SmsSender)
 """
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, Optional
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 import logging
 
-from sqlalchemy import exists
-from app.db.models import Reservation, ReservationSmsAssignment
+from app.db.models import Reservation, ReservationStatus
 from app.providers.base import SMSProvider
-from app.services.sms_tracking import record_sms_sent
 from app.services.activity_logger import log_activity
 
 logger = logging.getLogger(__name__)
@@ -24,6 +23,9 @@ async def send_single_sms(
     template_key: str,
     date: Optional[str] = None,
     created_by: str = "system",
+    skip_activity_log: bool = False,
+    skip_commit: bool = False,
+    custom_vars: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     단건 SMS 발송 공통 함수.
@@ -56,6 +58,7 @@ async def send_single_sms(
         reservation=reservation,
         db=db,
         date=effective_date,
+        custom_vars=custom_vars,
         room_assignment=ra,
     )
 
@@ -65,28 +68,30 @@ async def send_single_sms(
     result = await sms_provider.send_sms(to=reservation.phone, message=message_content)
 
     success = bool(result.get("success"))
-    log_activity(
-        db,
-        type="sms_send",
-        title=f"SMS → {reservation.customer_name} ({reservation.phone})",
-        detail={
-            "reservation_id": reservation.id,
-            "customer_name": reservation.customer_name,
-            "phone": reservation.phone,
-            "template_key": template_key,
-            "message": message_content,
-            "room_number": ra.room_number if ra else None,
-            "provider": result.get("provider", "unknown"),
-            "message_id": result.get("message_id"),
-            "error": result.get("error"),
-        },
-        status="success" if success else "failed",
-        target_count=1,
-        success_count=1 if success else 0,
-        failed_count=0 if success else 1,
-        created_by=created_by,
-    )
-    db.commit()
+    if not skip_activity_log:
+        log_activity(
+            db,
+            type="sms_send",
+            title=f"SMS → {reservation.customer_name} ({reservation.phone})",
+            detail={
+                "reservation_id": reservation.id,
+                "customer_name": reservation.customer_name,
+                "phone": reservation.phone,
+                "template_key": template_key,
+                "message": message_content,
+                "room_number": ra.room_number if ra else None,
+                "provider": result.get("provider", "unknown"),
+                "message_id": result.get("message_id"),
+                "error": result.get("error"),
+            },
+            status="success" if success else "failed",
+            target_count=1,
+            success_count=1 if success else 0,
+            failed_count=0 if success else 1,
+            created_by=created_by,
+        )
+    if not skip_commit:
+        db.commit()
 
     if success:
         return {"success": True, "message_id": result.get("message_id"), "error": None}
@@ -104,173 +109,6 @@ class SmsSender:
     def __init__(self, db: Session, sms_provider: SMSProvider):
         self.db = db
         self.sms_provider = sms_provider
-
-    def get_targets_by_tag(
-        self,
-        tag: str,
-        exclude_sent: bool = True,
-        sms_type: str = 'room',  # 'room' or 'party' (legacy, unused)
-        date: Optional[str] = None,  # YYYY-MM-DD
-        template_key: Optional[str] = None,  # template key for exclude_sent filter
-    ) -> List[Reservation]:
-        """
-        Get SMS targets filtered by tag
-
-        Args:
-            tag: Tag to filter by (supports multi-tags like "1,2,2차만")
-            exclude_sent: Whether to exclude already-sent numbers
-            sms_type: Type of SMS ('room' or 'party') for marking check
-            date: Date filter in YYYY-MM-DD format
-
-        Returns:
-            List of Reservation objects matching criteria
-
-        Ported from: stable-clasp-main/01_sns.js:5-33 (collectPhonesByTagAndMark)
-        """
-        # Build query
-        query = self.db.query(Reservation)
-
-        # Filter by date
-        if date:
-            query = query.filter(Reservation.check_in_date == date)
-
-        # Filter by sent status via ReservationSmsAssignment
-        if exclude_sent and template_key:
-            query = query.filter(
-                ~exists().where(
-                    (ReservationSmsAssignment.reservation_id == Reservation.id) &
-                    (ReservationSmsAssignment.template_key == template_key) &
-                    (ReservationSmsAssignment.sent_at.isnot(None))
-                )
-            )
-
-        # Filter valid phone numbers (from line 25)
-        query = query.filter(Reservation.phone.isnot(None))
-        query = query.filter(Reservation.phone != '')
-
-        results = query.all()
-        logger.info(f"Found {len(results)} targets for tag '{tag}' date='{date}'")
-
-        return results
-
-    async def send_campaign(
-        self,
-        tag: str,
-        template_key: str,
-        variables: Optional[Dict[str, Any]] = None,
-        sms_type: str = 'room',
-        date: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        Execute tag-based SMS campaign
-
-        Args:
-            tag: Tag to target
-            template_key: Message template key
-            variables: Template variables (optional)
-            sms_type: Type of SMS campaign
-
-        Returns:
-            dict with sent_count, failed_count, target_count
-
-        Ported from: stable-clasp-main/01_sns.js:62-124 (sendSmsAndMark)
-        """
-        sent_count = 0
-        failed_count = 0
-        target_count = 0
-
-        try:
-            # Get targets
-            targets = self.get_targets_by_tag(tag, exclude_sent=True, sms_type=sms_type, date=date, template_key=template_key)
-            target_count = len(targets)
-
-            if not targets:
-                logger.warning(f"No targets found for tag '{tag}'")
-                log_activity(
-                    self.db,
-                    type="sms_template",
-                    title=f"태그 SMS 발송 ({tag})",
-                    target_count=0,
-                    success_count=0,
-                    failed_count=0,
-                )
-                self.db.commit()
-                return {"sent_count": 0, "failed_count": 0, "target_count": 0}
-
-            # Prepare messages
-            messages = []
-
-            from app.db.models import RoomAssignment
-            from app.templates.renderer import TemplateRenderer
-            from app.templates.variables import calculate_template_variables
-
-            renderer = TemplateRenderer(self.db)
-
-            for reservation in targets:
-                ra = self.db.query(RoomAssignment).filter(
-                    RoomAssignment.reservation_id == reservation.id,
-                    RoomAssignment.date == date,
-                ).first()
-
-                message_vars = calculate_template_variables(
-                    reservation=reservation,
-                    db=self.db,
-                    date=date,
-                    room_assignment=ra,
-                    custom_vars=variables,
-                )
-
-                message = renderer.render(template_key, message_vars)
-
-                messages.append({
-                    'to': reservation.phone,
-                    'message': message
-                })
-
-            # Send bulk SMS (from line 86-124)
-            logger.info(f"Sending {len(messages)} SMS messages for campaign '{tag}'")
-
-            result = await self.sms_provider.send_bulk(messages)
-
-            if result.get('success'):
-                sent_count = len(messages)
-
-                # Record sent via ReservationSmsAssignment
-                for reservation in targets:
-                    record_sms_sent(self.db, reservation.id, template_key, tag)
-
-                logger.info(f"Campaign successful: {sent_count} messages sent")
-
-            else:
-                failed_count = len(messages)
-                error_msg = result.get('error', 'Unknown error')
-                logger.error(f"Campaign failed: {error_msg}")
-
-            log_activity(
-                self.db,
-                type="sms_template",
-                title=f"태그 SMS 발송 ({tag})",
-                target_count=target_count,
-                success_count=sent_count,
-                failed_count=failed_count,
-            )
-            self.db.commit()
-
-            return {"sent_count": sent_count, "failed_count": failed_count, "target_count": target_count}
-
-        except Exception as e:
-            logger.error(f"Error executing campaign: {e}")
-            log_activity(
-                self.db,
-                type="sms_template",
-                title=f"태그 SMS 발송 ({tag}) - 오류",
-                target_count=target_count,
-                success_count=sent_count,
-                failed_count=failed_count,
-                status="failed",
-            )
-            self.db.commit()
-            raise
 
     async def send_by_assignment(
         self,
@@ -302,9 +140,11 @@ class SmsSender:
             Reservation, ReservationSmsAssignment.reservation_id == Reservation.id
         ).filter(
             ReservationSmsAssignment.template_key == template_key,
+            ReservationSmsAssignment.date == date,
             ReservationSmsAssignment.sent_at.is_(None),
-            Reservation.check_in_date == date,
-            Reservation.status == 'confirmed',
+            Reservation.check_in_date <= date,
+            or_(Reservation.check_out_date > date, Reservation.check_out_date.is_(None)),
+            Reservation.status == ReservationStatus.CONFIRMED,
         ).all()
 
         if not assignments:

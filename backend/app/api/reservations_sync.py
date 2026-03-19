@@ -91,20 +91,22 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
 
     db.commit()
 
-    # 새 예약이 추가되었으면 자동 배정 실행 (미배정 예약자만 대상)
+    # 새 예약이 추가되었으면 자동 배정 실행 (내일 이후 날짜만, 오늘은 미배정 유지)
     if added_count > 0:
         try:
-            # 모든 미배정 예약자에 대해 자동 배정 (날짜 제한 없음)
+            from zoneinfo import ZoneInfo
+            today = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d")
             dates = set()
             for res_data in reservations:
                 d = res_data.get("date")
-                if d:
+                if d and d > today:
                     dates.add(d)
             assigned_total = 0
             for d in sorted(dates):
                 result = auto_assign_rooms(db, d)
                 assigned_total += result.get("assigned", 0)
-            logger.info(f"Auto-assigned {assigned_total} rooms after sync")
+            if dates:
+                logger.info(f"Auto-assigned {assigned_total} rooms after sync (skipped today {today})")
         except Exception as e:
             logger.error(f"Auto-assign after sync failed: {e}")
 

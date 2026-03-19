@@ -103,51 +103,6 @@ class TemplateRenderer:
             logger.error(f"Error generating password for {room_number}: {e}")
             return "0000"
 
-    def render_room_guide(self, reservation: Any, room_assignment: Any = None) -> str:
-        """
-        Render room guide message
-
-        Args:
-            reservation: Reservation object
-            room_assignment: Optional RoomAssignment object for per-date room data.
-                             Falls back to reservation.room_number if not provided.
-
-        Returns:
-            Room guide message
-
-        Ported from: stable-clasp-main/00_main.js:178-188
-        """
-        # Use per-date assignment if provided, otherwise fall back to denormalized fields
-        room_number = (room_assignment.room_number if room_assignment else None) or reservation.room_number
-        room_password = (room_assignment.room_password if room_assignment else None) or reservation.room_password
-
-        if not room_number:
-            logger.warning(f"No room number for reservation {reservation.id}")
-            return "[Room number not assigned]"
-
-        # Generate password if not set
-        if not room_password:
-            room_password = self.generate_room_password(room_number)
-
-        # Extract building and room number
-        building = room_number[0]
-        room_num = room_number[1:]
-
-        # Build message (from line 178-188)
-        message = f"""
-금일 객실은 스테이블 {building}동 {room_num}호 - {reservation.naver_room_type or ''}룸입니다.(비밀번호: {room_password}*)
-
-무인 체크인이라서 바로 입실하시면 됩니다.
-객실내에서(발코니포함) 음주, 흡연, 취식, 혼숙 절대 금지입니다.(적발시 벌금 10만원 또는 퇴실)
-
-파티 참여 시 저녁 8시에 B동 1층 포차로 내려와 주시면 되세요.
-
-차량번호 회신 반드시 해주시고, 주차는 아래 자주묻는질문 링크를 참고하여 타차량 통행 가능하도록 해주세요.
-자주묻는질문: https://bit.ly/3Ej6P9A
-""".strip()
-
-        return message
-
     def get_template(self, template_key: str) -> Optional[MessageTemplate]:
         """Get template by key"""
         return self.db.query(MessageTemplate).filter_by(

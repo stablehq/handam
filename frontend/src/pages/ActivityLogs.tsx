@@ -446,14 +446,16 @@ const ActivityLogs = () => {
                                       <tr className="border-b border-[#E5E8EB] dark:border-gray-700 bg-[#F8F9FA] dark:bg-[#1E1E24]">
                                         <th className="px-3 py-1.5 text-left font-medium text-[#8B95A1]">이름</th>
                                         <th className="px-3 py-1.5 text-left font-medium text-[#8B95A1]">전화번호</th>
+                                        <th className="px-3 py-1.5 text-left font-medium text-[#8B95A1]">객실</th>
                                         <th className="px-3 py-1.5 text-left font-medium text-[#8B95A1]">결과</th>
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      {(parsedDetail!.targets as Array<{name: string; phone: string; status: string; error?: string; message_id?: string}>).map((t, i) => (
+                                      {(parsedDetail!.targets as Array<{name: string; phone: string; status: string; error?: string; message_id?: string; template_detail?: string}>).map((t, i) => (
                                         <tr key={i} className="border-b last:border-b-0 border-[#F2F4F6] dark:border-gray-800">
                                           <td className="px-3 py-1.5 text-[#191F28] dark:text-gray-200">{t.name}</td>
                                           <td className="px-3 py-1.5 tabular-nums text-[#4E5968] dark:text-gray-400">{t.phone}</td>
+                                          <td className="px-3 py-1.5 text-[#4E5968] dark:text-gray-400">{t.template_detail || '-'}</td>
                                           <td className="px-3 py-1.5">
                                             {t.status === 'success' ? (
                                               <span className="text-[#00C9A7]">성공</span>

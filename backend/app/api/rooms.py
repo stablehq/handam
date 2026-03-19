@@ -326,11 +326,10 @@ async def trigger_auto_assign(
     current_user: User = Depends(get_current_user),
 ):
     """
-    수동 트리거: 객실 자동 배정.
-    수동 배정(assigned_by='manual')은 유지하고,
-    자동 배정된 객실만 초기화 후 재배정.
+    수동 트리거: 미배정 예약자만 빈 객실에 배정.
+    기존 배정(수동/자동)은 유지하고, 미배정자만 추가 배정.
     """
-    from datetime import datetime as dt, timedelta
+    from datetime import datetime as dt
     from zoneinfo import ZoneInfo as _ZI
 
     if not date:
@@ -338,14 +337,7 @@ async def trigger_auto_assign(
 
     today = date
 
-    # 기존 자동 배정만 삭제 (수동 배정 유지)
-    db.query(RoomAssignment).filter(
-        RoomAssignment.date == today,
-        RoomAssignment.assigned_by == "auto",
-    ).delete(synchronize_session="fetch")
-    db.commit()
-
-    # 재배정 (오늘만)
+    # 미배정자만 추가 배정 (기존 배정 유지)
     result_today = auto_assign_rooms(db, today)
 
     total_assigned = result_today.get("assigned", 0)

@@ -62,6 +62,38 @@ async def load_template_schedules():
         db.close()
 
 
+async def sync_status_log_job():
+    """
+    6시간 단위 동기화 상태 활동 로그.
+    00:00, 06:00, 12:00, 18:00에 실행.
+    """
+    from zoneinfo import ZoneInfo
+    from app.services.activity_logger import log_activity
+
+    now = datetime.now(ZoneInfo("Asia/Seoul"))
+    current_hour = now.hour
+    # 이전 6시간 구간 계산
+    period_start = f"{(current_hour - 6) % 24:02d}:00"
+    period_end = f"{current_hour:02d}:00"
+
+    db = SessionLocal()
+    try:
+        log_activity(
+            db,
+            type="sync_status",
+            title=f"네이버 동기화 정상 운영 ({period_start}~{period_end})",
+            detail={"period_start": period_start, "period_end": period_end},
+            created_by="scheduler",
+        )
+        db.commit()
+        logger.info(f"Sync status log recorded: {period_start}~{period_end}")
+    except Exception as e:
+        logger.error(f"Error logging sync status: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 async def daily_room_assign_job():
     """
     Daily room auto-assignment for today and tomorrow.
@@ -85,14 +117,13 @@ def setup_scheduler():
     Setup all scheduled jobs
 
     Schedule based on stable-clasp-main/03_trigger.js:
-    - Naver sync: Every 5 min, 10:00-21:59
+    - Naver sync: Every 5 min, 24h
     - Template schedules: Loaded dynamically from DB
     """
-    # Naver reservations sync - every 5 minutes from 10:00 to 21:59
+    # Naver reservations sync - every 5 minutes, 24h
     scheduler.add_job(
         sync_naver_reservations_job,
         trigger=CronTrigger(
-            hour='10-21',
             minute='*/5',
             timezone='Asia/Seoul'
         ),
@@ -107,6 +138,15 @@ def setup_scheduler():
         trigger=CronTrigger(hour=10, minute=0, timezone='Asia/Seoul'),
         id='daily_room_assign',
         name='객실 자동 배정 (오전 10시)',
+        replace_existing=True,
+    )
+
+    # Sync status log - every 6 hours (00, 06, 12, 18)
+    scheduler.add_job(
+        sync_status_log_job,
+        trigger=CronTrigger(hour='0,6,12,18', minute=0, timezone='Asia/Seoul'),
+        id='sync_status_log',
+        name='동기화 상태 로그 (6시간)',
         replace_existing=True,
     )
 

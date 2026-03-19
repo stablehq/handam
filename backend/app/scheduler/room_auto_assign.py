@@ -126,19 +126,20 @@ def _assign_all_rooms(
         if not candidate_rooms:
             continue
 
+        people_count = res.party_size or res.booking_count or 1
+
         for room in candidate_rooms:
             if room.is_dormitory:
-                # Check capacity
+                # Check capacity with actual party size
                 if not room_assignment.check_capacity_all_dates(
                     db, room.room_number, target_date, res.check_out_date,
-                    people_count=1, exclude_reservation_id=res.id
+                    people_count=people_count, exclude_reservation_id=res.id
                 ):
                     continue
 
-                # Gender lock: check existing occupants' gender
+                # Gender lock: check ALL existing occupants' gender
                 existing = (
                     db.query(RoomAssignment)
-                    .join(Reservation, Reservation.id == RoomAssignment.reservation_id)
                     .filter(
                         RoomAssignment.room_number == room.room_number,
                         RoomAssignment.date == target_date,
@@ -146,16 +147,18 @@ def _assign_all_rooms(
                     .all()
                 )
                 if existing:
-                    # Get gender of existing occupants
-                    existing_res = db.query(Reservation).filter(
+                    existing_reservations = db.query(Reservation).filter(
                         Reservation.id.in_([e.reservation_id for e in existing])
-                    ).first()
-                    if existing_res:
+                    ).all()
+                    res_gender = (res.gender or "").strip()
+                    gender_conflict = False
+                    for existing_res in existing_reservations:
                         existing_gender = (existing_res.gender or "").strip()
-                        res_gender = (res.gender or "").strip()
-                        # If existing has a gender and it doesn't match, skip this room
                         if existing_gender and res_gender and existing_gender != res_gender:
-                            continue
+                            gender_conflict = True
+                            break
+                    if gender_conflict:
+                        continue
 
                 # Assign
                 room_assignment.assign_room(
@@ -185,12 +188,23 @@ def _assign_all_rooms(
 def daily_assign_rooms(db: Session):
     """
     Daily job: auto-assign rooms for today and tomorrow.
-    Only fills in missing assignments, never overwrites manual ones.
+    Clears all auto-assigned rooms first, then re-assigns from scratch.
+    Manual assignments (assigned_by='manual') are preserved.
     """
     today = datetime.now(KST).strftime("%Y-%m-%d")
     tomorrow = (datetime.now(KST) + timedelta(days=1)).strftime("%Y-%m-%d")
 
     logger.info(f"Running daily room assignment for {today} and {tomorrow}")
+
+    # Clear existing auto assignments before re-assigning
+    for target_date in [today, tomorrow]:
+        deleted = db.query(RoomAssignment).filter(
+            RoomAssignment.date == target_date,
+            RoomAssignment.assigned_by == "auto",
+        ).delete(synchronize_session="fetch")
+        if deleted:
+            logger.info(f"Cleared {deleted} auto-assignments for {target_date}")
+    db.flush()
 
     result_today = auto_assign_rooms(db, today)
     result_tomorrow = auto_assign_rooms(db, tomorrow)

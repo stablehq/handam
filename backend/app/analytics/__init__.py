@@ -1,7 +1,3 @@
 """
-Analytics module for gender statistics and party planning
+Analytics module (legacy - GenderAnalyzer removed, stats now calculated inline)
 """
-
-from .gender_analyzer import GenderAnalyzer
-
-__all__ = ["GenderAnalyzer"]

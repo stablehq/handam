@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case
 from app.db.database import get_db
-from app.db.models import Message, Reservation, ActivityLog, GenderStat, MessageDirection, ReservationStatus, User
+from app.db.models import Message, Reservation, ActivityLog, MessageDirection, ReservationStatus, User
 from app.auth.dependencies import get_current_user
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -73,9 +73,17 @@ async def get_dashboard_stats(db: Session = Depends(get_db), current_user: User 
     total_campaigns = db.query(ActivityLog).filter(ActivityLog.activity_type == "sms_template").count()
     total_campaign_sent = db.query(func.sum(ActivityLog.success_count)).filter(ActivityLog.activity_type == "sms_template").scalar() or 0
 
-    # Gender stats (today)
+    # Gender stats (today) — 실시간 SUM 계산
     today_str = datetime.now(KST).strftime("%Y-%m-%d")
-    today_gender = db.query(GenderStat).filter(GenderStat.date == today_str).first()
+    gender_result = db.query(
+        func.coalesce(func.sum(Reservation.male_count), 0).label("total_male"),
+        func.coalesce(func.sum(Reservation.female_count), 0).label("total_female"),
+    ).filter(
+        Reservation.check_in_date == today_str,
+        Reservation.status.in_([ReservationStatus.CONFIRMED, ReservationStatus.COMPLETED]),
+    ).first()
+    total_male = int(gender_result.total_male)
+    total_female = int(gender_result.total_female)
 
     return {
         "totals": {
@@ -97,9 +105,9 @@ async def get_dashboard_stats(db: Session = Depends(get_db), current_user: User 
             "total_sent": int(total_campaign_sent),
         },
         "gender_stats": {
-            "male_count": today_gender.male_count if today_gender else 0,
-            "female_count": today_gender.female_count if today_gender else 0,
-            "participant_count": today_gender.participant_count if today_gender else 0,
+            "male_count": total_male,
+            "female_count": total_female,
+            "participant_count": total_male + total_female,
         },
         "recent_reservations": [
             {

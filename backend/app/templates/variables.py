@@ -5,9 +5,10 @@ Defines all available template variables and provides functions to calculate the
 """
 from typing import Dict, Any, Optional
 from datetime import datetime
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.db.models import Reservation
+from app.db.models import Reservation, ReservationStatus
 
 
 # 사용 가능한 템플릿 변수 정의
@@ -60,6 +61,35 @@ AVAILABLE_VARIABLES = {
 }
 
 
+def get_or_create_snapshot(db: Session, target_date: str) -> 'ParticipantSnapshot':
+    """Get existing snapshot for date, or create one from current DB state."""
+    from app.db.models import ParticipantSnapshot
+
+    existing = db.query(ParticipantSnapshot).filter(
+        ParticipantSnapshot.date == target_date
+    ).first()
+    if existing:
+        return existing
+
+    # Calculate from current confirmed reservations
+    result = db.query(
+        func.coalesce(func.sum(Reservation.male_count), 0).label("total_male"),
+        func.coalesce(func.sum(Reservation.female_count), 0).label("total_female"),
+    ).filter(
+        Reservation.check_in_date == target_date,
+        Reservation.status.in_([ReservationStatus.CONFIRMED, ReservationStatus.COMPLETED]),
+    ).first()
+
+    snapshot = ParticipantSnapshot(
+        date=target_date,
+        male_count=int(result.total_male),
+        female_count=int(result.total_female),
+    )
+    db.add(snapshot)
+    db.flush()
+    return snapshot
+
+
 def calculate_template_variables(
     reservation: Reservation,
     db: Session,
@@ -110,33 +140,27 @@ def calculate_template_variables(
         variables['building'] = ''
         variables['room_num'] = ''
 
-    # 참여자 통계 (해당 날짜 확정 예약 기준)
+    # 참여자 통계 — use snapshot for consistency across the day
     target_date = date or reservation.check_in_date
     if target_date:
-        total_count = db.query(Reservation).filter(
-            Reservation.check_in_date == target_date,
-            Reservation.status.in_(['confirmed', 'completed'])
-        ).count()
+        snapshot = get_or_create_snapshot(db, target_date)
+        total_male = snapshot.male_count
+        total_female = snapshot.female_count
 
-        female_count = db.query(Reservation).filter(
-            Reservation.check_in_date == target_date,
-            Reservation.status.in_(['confirmed', 'completed']),
-            Reservation.gender == '여'
-        ).count()
+        # Apply buffer from schedule if provided via custom_vars
+        buffer = int(custom_vars.get('_participant_buffer', 0)) if custom_vars else 0
 
-        male_count = total_count - female_count
-
-        variables['participant_count'] = str(total_count)
-        variables['male_count'] = str(male_count)
-        variables['female_count'] = str(female_count)
+        variables['participant_count'] = str(total_male + total_female + buffer)
+        variables['male_count'] = str(total_male)
+        variables['female_count'] = str(total_female)
     else:
         variables['participant_count'] = '0'
         variables['male_count'] = '0'
         variables['female_count'] = '0'
 
-    # Custom variables override
+    # Custom variables override (excluding internal _prefixed keys)
     if custom_vars:
-        variables.update(custom_vars)
+        variables.update({k: v for k, v in custom_vars.items() if not k.startswith('_')})
 
     return variables
 
