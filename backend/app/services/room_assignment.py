@@ -167,7 +167,7 @@ def assign_room(
             title=f"객실 이동: {old_room} → {room_number}",
             detail={
                 "reservation_id": reservation_id,
-                "guest_name": reservation.guest_name,
+                "guest_name": reservation.customer_name,
                 "old_room": old_room,
                 "new_room": room_number,
                 "dates": dates,
@@ -181,7 +181,7 @@ def assign_room(
             title=f"객실 배정: {room_number}",
             detail={
                 "reservation_id": reservation_id,
-                "guest_name": reservation.guest_name,
+                "guest_name": reservation.customer_name,
                 "old_room": None,
                 "new_room": room_number,
                 "dates": dates,
@@ -251,7 +251,7 @@ def unassign_room(
             title=f"객실 해제: {old_room}",
             detail={
                 "reservation_id": reservation_id,
-                "guest_name": reservation.guest_name,
+                "guest_name": reservation.customer_name,
                 "old_room": old_room,
                 "new_room": None,
                 "dates": [a.date for a in old_assignments],
