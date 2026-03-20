@@ -2,7 +2,7 @@
 set -e
 
 echo "Running database migrations..."
-alembic upgrade head 2>/dev/null || echo "Alembic migration skipped (not initialized or no migrations)"
+alembic upgrade head || echo "WARNING: Alembic migration failed"
 
 echo "Starting gunicorn..."
 exec gunicorn app.main:app \
