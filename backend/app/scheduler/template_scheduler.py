@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, func
 
 from app.db.models import TemplateSchedule, Reservation, RoomAssignment, ReservationSmsAssignment, Room, ReservationStatus, ReservationDailyInfo
-from app.factory import get_sms_provider, get_sms_provider_for_tenant
+from app.factory import get_sms_provider_for_tenant
 from app.templates.renderer import TemplateRenderer
 from app.templates.variables import calculate_template_variables
 from app.services.room_assignment import get_schedule_dates

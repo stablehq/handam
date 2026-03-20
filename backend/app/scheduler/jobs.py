@@ -10,7 +10,7 @@ import logging
 from app.db.database import SessionLocal
 from app.db.models import Tenant
 from app.db.tenant_context import current_tenant_id, bypass_tenant_filter
-from app.factory import get_reservation_provider, get_sms_provider, get_reservation_provider_for_tenant
+from app.factory import get_reservation_provider_for_tenant
 from app.scheduler.room_auto_assign import daily_assign_rooms
 
 logger = logging.getLogger(__name__)
