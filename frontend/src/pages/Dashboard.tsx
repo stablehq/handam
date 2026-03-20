@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  Badge,
   Card,
-  Progress,
   Spinner,
   Table,
   TableBody,
@@ -15,10 +13,8 @@ import {
   CalendarRange,
   Send,
   Users,
-  CheckCircle,
   Clock,
-  XCircle,
-  Activity,
+  RefreshCw,
 } from 'lucide-react'
 import { dashboardAPI } from '@/services/api'
 
@@ -27,16 +23,6 @@ const STATUS_LABELS: Record<string, string> = {
   confirmed: '확정',
   cancelled: '취소',
   completed: '완료',
-}
-
-function statusBadgeColor(status: string): 'success' | 'warning' | 'failure' | 'info' | 'gray' {
-  switch (status) {
-    case 'confirmed': return 'success'
-    case 'pending':   return 'warning'
-    case 'cancelled': return 'failure'
-    case 'completed': return 'info'
-    default:          return 'gray'
-  }
 }
 
 function LoadingSkeleton() {
@@ -74,149 +60,77 @@ function MetricCard({ title, value, subtitle, icon, iconBg }: MetricCardProps) {
   )
 }
 
-interface GenderBarProps {
-  maleCount: number
-  femaleCount: number
-}
+function GenderWeekly({ daily }: { daily: { date: string; male: number; female: number }[] }) {
+  const totalMale = daily.reduce((s, d) => s + d.male, 0)
+  const totalFemale = daily.reduce((s, d) => s + d.female, 0)
+  const total = totalMale + totalFemale
 
-function GenderBar({ maleCount, femaleCount }: GenderBarProps) {
-  const total = maleCount + femaleCount
-  const malePct = total === 0 ? 50 : Math.round((maleCount / total) * 100)
-  const femalePct = 100 - malePct
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr + 'T00:00:00')
+    const days = ['일', '월', '화', '수', '목', '금', '토']
+    return `${d.getMonth() + 1}/${d.getDate()}(${days[d.getDay()]})`
+  }
+
+  const isToday = (dateStr: string) => {
+    const today = new Date()
+    return dateStr === `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  }
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-around">
-        <div className="text-center">
-          <p className="text-caption font-medium text-gray-500">남성</p>
-          <p className="mt-1 text-title font-bold text-[#3182F6]">{maleCount}</p>
-          <p className="text-caption text-gray-400">{malePct}%</p>
-        </div>
-        <div className="h-12 w-px bg-[#F2F4F6] dark:bg-gray-800" />
-        <div className="text-center">
-          <p className="text-caption font-medium text-gray-500">여성</p>
-          <p className="mt-1 text-title font-bold text-[#F04452] dark:text-red-400">{femaleCount}</p>
-          <p className="text-caption text-gray-400">{femalePct}%</p>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <div>
-          <div className="mb-1 flex items-center justify-between text-caption">
-            <span className="font-medium text-gray-600 dark:text-gray-300">남성</span>
-            <span className="text-gray-400">{maleCount}명</span>
+    <div className="grid grid-cols-7 gap-2">
+      {daily.map((d) => {
+        const dayTotal = d.male + d.female
+        const today = isToday(d.date)
+        const ratio = d.female === 0 ? (d.male > 0 ? 99 : 0) : d.male / d.female
+        const riskBg = dayTotal === 0 ? 'bg-[#F8F9FA] dark:bg-[#1E1E24]'
+          : ratio <= 2 ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/15'
+          : ratio <= 3 ? 'bg-[#FFF8E1] dark:bg-[#FF9F00]/15'
+          : 'bg-[#FFEBEE] dark:bg-[#F04452]/15'
+        const dayOfWeek = new Date(d.date + 'T00:00:00').getDay()
+        return (
+          <div
+            key={d.date}
+            className={`rounded-xl p-3 text-center ${riskBg}`}
+          >
+            <div className="flex items-center justify-center gap-1">
+              {today ? (
+                <span className="rounded-full bg-[#3182F6] px-1.5 py-0.5 text-[9px] font-bold leading-none text-white">TODAY</span>
+              ) : (
+                <span className={`text-overline font-semibold ${
+                  dayOfWeek === 0 ? 'text-[#F04452]'
+                  : dayOfWeek === 6 ? 'text-[#3182F6]'
+                  : 'text-gray-500'
+                }`}>
+                  {formatDate(d.date)}
+                </span>
+              )}
+            </div>
+            <p className="mt-1.5 text-heading font-bold tabular-nums text-[#191F28] dark:text-white">
+              {d.female === 0 ? `${d.male}:0` : `${(d.male / d.female).toFixed(1)}:1`}
+            </p>
+            <div className="mt-1.5 flex items-center justify-center gap-2">
+              <span className="tabular-nums text-tiny text-[#3182F6]">남{d.male}</span>
+              <span className="tabular-nums text-tiny text-[#F04452] dark:text-red-400">여{d.female}</span>
+            </div>
           </div>
-          <Progress progress={total === 0 ? 0 : malePct} color="blue" size="sm" />
-        </div>
-        <div>
-          <div className="mb-1 flex items-center justify-between text-caption">
-            <span className="font-medium text-gray-600 dark:text-gray-300">여성</span>
-            <span className="text-gray-400">{femaleCount}명</span>
-          </div>
-          <Progress progress={total === 0 ? 0 : femalePct} color="pink" size="sm" />
-        </div>
-      </div>
-
-      <div className="flex items-center justify-center gap-4 text-caption text-gray-400">
-        <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-[#3182F6]" /> 남성
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-[#F04452]" /> 여성
-        </span>
-        <span>총 {total}명</span>
-      </div>
+        )
+      })}
     </div>
   )
 }
 
-interface StatusBreakdownProps {
-  pending: number
-  confirmed: number
-  cancelled: number
-  completed: number
-}
-
-function StatusBreakdown({ pending, confirmed, cancelled, completed }: StatusBreakdownProps) {
-  const total = pending + confirmed + cancelled + completed
-
-  const items = [
-    {
-      key: 'pending',
-      label: '대기중',
-      count: pending,
-      icon: <Clock size={16} />,
-      color: 'text-[#FF9F00] dark:text-amber-400',
-      bg: 'bg-[#FFF5E6] dark:bg-[#FF9F00]/10',
-    },
-    {
-      key: 'confirmed',
-      label: '확정',
-      count: confirmed,
-      icon: <CheckCircle size={16} />,
-      color: 'text-[#00C9A7] dark:text-emerald-400',
-      bg: 'bg-[#E8FAF5] dark:bg-[#00C9A7]/10',
-    },
-    {
-      key: 'cancelled',
-      label: '취소',
-      count: cancelled,
-      icon: <XCircle size={16} />,
-      color: 'text-[#F04452] dark:text-red-400',
-      bg: 'bg-[#FFEBEE] dark:bg-[#F04452]/10',
-    },
-    {
-      key: 'completed',
-      label: '완료',
-      count: completed,
-      icon: <Activity size={16} />,
-      color: 'text-[#3182F6]',
-      bg: 'bg-[#E8F3FF] dark:bg-[#3182F6]/10',
-    },
-  ]
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2">
-        {items.map((item) => (
-          <div key={item.key} className={`flex items-center gap-2.5 rounded-xl ${item.bg} p-3`}>
-            <span className={item.color}>{item.icon}</span>
-            <div>
-              <p className="text-heading font-bold text-[#191F28] dark:text-white">{item.count}</p>
-              <p className="text-overline font-medium text-gray-500">{item.label}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="space-y-2.5">
-        {items.map((item) => {
-          const pct = total === 0 ? 0 : Math.round((item.count / total) * 100)
-          return (
-            <div key={item.key}>
-              <div className="mb-1 flex items-center justify-between text-caption">
-                <span className="font-medium text-gray-600 dark:text-gray-300">{item.label}</span>
-                <span className="text-gray-400">{pct}%</span>
-              </div>
-              <Progress progress={pct} color="blue" size="sm" />
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="pt-2 text-center text-caption text-gray-400">
-        전체 <span className="font-semibold text-gray-600 dark:text-gray-300">{total}</span> 건
-      </div>
-    </div>
-  )
-}
 
 const Dashboard = () => {
   const [stats, setStats] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [schedules, setSchedules] = useState<any[]>([])
 
   useEffect(() => {
     loadStats()
+  }, [])
+
+  useEffect(() => {
+    dashboardAPI.getTodaySchedules().then(res => setSchedules(res.data)).catch(() => {})
   }, [])
 
   const loadStats = async () => {
@@ -242,10 +156,7 @@ const Dashboard = () => {
     )
   }
 
-  const campaignSent = stats.campaigns?.total_sent ?? 0
-  const maleCount = stats.gender_stats?.male_count ?? 0
-  const femaleCount = stats.gender_stats?.female_count ?? 0
-  const byStatus = stats.reservations_by_status ?? {}
+  const todayCampaigns = stats.campaigns?.today_campaigns ?? 0
 
   return (
     <div className="space-y-6">
@@ -255,48 +166,94 @@ const Dashboard = () => {
       </div>
 
       {/* Metric cards */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <MetricCard
-          title="전체 예약"
-          value={stats.totals.reservations.toLocaleString()}
-          subtitle="누적 예약 건수"
+          title="오늘 예약"
+          value={stats.totals.today_reservations?.toLocaleString() ?? '0'}
+          subtitle="오늘 새로 들어온 예약"
           icon={<CalendarRange size={20} />}
           iconBg="bg-[#E8F3FF] text-[#3182F6] dark:bg-[#3182F6]/15 dark:text-[#3182F6]"
         />
         <MetricCard
-          title="캠페인 발송"
-          value={campaignSent.toLocaleString()}
-          subtitle="누적 발송 건수"
+          title="오늘 발송"
+          value={todayCampaigns.toLocaleString()}
+          subtitle="오늘 템플릿 발송 횟수"
           icon={<Send size={20} />}
           iconBg="bg-[#FFF5E6] text-[#FF9F00] dark:bg-[#FF9F00]/15 dark:text-[#FF9F00]"
         />
+        <MetricCard
+          title="네이버 동기화"
+          value={stats.naver_sync?.status === 'success' ? '실행중' : stats.naver_sync?.status === 'failed' ? '오류' : '-'}
+          subtitle={stats.naver_sync?.last_sync_at
+            ? `${new Date(stats.naver_sync.last_sync_at).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' })} · 다음 ${new Date(stats.naver_sync.next_sync_at).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`
+            : '스케줄러 미실행'}
+          icon={<RefreshCw size={20} />}
+          iconBg={stats.naver_sync?.status === 'failed'
+            ? 'bg-[#FFEBEE] text-[#F04452] dark:bg-[#F04452]/15 dark:text-[#F04452]'
+            : 'bg-[#E8FAF5] text-[#00C9A7] dark:bg-[#00C9A7]/15 dark:text-[#00C9A7]'}
+        />
       </div>
 
-      {/* Insight cards */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <Card>
-          <div className="flex items-center gap-2">
-            <Users size={18} className="text-gray-400" />
-            <h3 className="text-body font-semibold text-[#191F28] dark:text-white">성별 현황</h3>
-          </div>
-          <GenderBar maleCount={maleCount} femaleCount={femaleCount} />
-        </Card>
+      {/* Gender weekly - full width */}
+      <Card>
+        <div className="flex items-center gap-2">
+          <Users size={18} className="text-gray-400" />
+          <h3 className="text-body font-semibold text-[#191F28] dark:text-white">7일간 성별 현황</h3>
+        </div>
+        <GenderWeekly daily={stats.gender_stats?.daily ?? []} />
+      </Card>
 
-        <Card>
+      {/* Two-column: timeline + recent reservations */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <div className="section-card">
+        <div className="section-header">
           <div className="flex items-center gap-2">
-            <CalendarRange size={18} className="text-gray-400" />
-            <h3 className="text-body font-semibold text-[#191F28] dark:text-white">예약 상태</h3>
+            <Clock size={18} className="text-gray-400" />
+            <h3 className="text-body font-semibold text-[#191F28] dark:text-white">오늘 자동발송 일정표</h3>
           </div>
-          <StatusBreakdown
-            pending={byStatus.pending ?? 0}
-            confirmed={byStatus.confirmed ?? 0}
-            cancelled={byStatus.cancelled ?? 0}
-            completed={byStatus.completed ?? 0}
-          />
-        </Card>
+        </div>
+        {schedules.length === 0 ? (
+          <div className="py-8 text-center text-label text-gray-400">등록된 스케줄이 없습니다</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table hoverable striped>
+              <TableHead>
+                <TableRow>
+                  <TableHeadCell>템플릿</TableHeadCell>
+                  <TableHeadCell>발송 시간</TableHeadCell>
+                  <TableHeadCell className="text-center">상태</TableHeadCell>
+                  <TableHeadCell className="text-center">결과</TableHeadCell>
+                </TableRow>
+              </TableHead>
+              <TableBody className="divide-y">
+                {schedules.map((s: any, idx: number) => (
+                  <TableRow key={idx}>
+                    <TableCell>
+                      <span className="font-medium text-gray-900 dark:text-white">{s.template_name}</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="tabular-nums text-gray-500">{s.time}</span>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <span className={`text-body font-medium ${
+                        s.status === '완료' ? 'text-[#00C9A7]'
+                        : s.status === '진행중' ? 'text-[#3182F6]'
+                        : s.status === '미발송' ? 'text-[#F04452]'
+                        : 'text-[#FF9F00]'
+                      }`}>{s.status}</span>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <span className="text-caption text-gray-500">{s.result}</span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
       </div>
 
-      {/* Recent reservations */}
+      {/* Recent reservations (right column) */}
       <div className="section-card">
         <div className="section-header">
           <div className="flex items-center gap-2">
@@ -311,7 +268,7 @@ const Dashboard = () => {
                 <TableHeadCell>고객명</TableHeadCell>
                 <TableHeadCell>전화번호</TableHeadCell>
                 <TableHeadCell>일시</TableHeadCell>
-                <TableHeadCell>상태</TableHeadCell>
+                <TableHeadCell className="text-center">상태</TableHeadCell>
               </TableRow>
             </TableHead>
             <TableBody className="divide-y">
@@ -335,10 +292,13 @@ const Dashboard = () => {
                     <TableCell>
                       <span className="text-gray-500">{r.check_in_date ?? ''} {r.check_in_time ?? ''}</span>
                     </TableCell>
-                    <TableCell>
-                      <Badge color={statusBadgeColor(r.status)} size="sm">
-                        {STATUS_LABELS[r.status] ?? r.status}
-                      </Badge>
+                    <TableCell className="text-center">
+                      <span className={`text-body font-medium ${
+                        r.status === 'confirmed' ? 'text-[#00C9A7]'
+                        : r.status === 'pending' ? 'text-[#FF9F00]'
+                        : r.status === 'cancelled' ? 'text-[#F04452]'
+                        : 'text-[#3182F6]'
+                      }`}>{STATUS_LABELS[r.status] ?? r.status}</span>
                     </TableCell>
                   </TableRow>
                 ))
@@ -346,6 +306,7 @@ const Dashboard = () => {
             </TableBody>
           </Table>
         </div>
+      </div>
       </div>
     </div>
   )

@@ -157,6 +157,7 @@ export const autoResponseAPI = {
 // Dashboard API
 export const dashboardAPI = {
   getStats: () => api.get('/api/dashboard/stats'),
+  getTodaySchedules: () => api.get('/api/dashboard/today-schedules'),
 };
 
 // Scheduler API
