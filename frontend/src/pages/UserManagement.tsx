@@ -114,7 +114,8 @@ export default function UserManagement() {
       setCreateOpen(false)
       fetchUsers()
     } catch (err: any) {
-      setCreateError(err?.response?.data?.detail || '생성에 실패했습니다.')
+      const detail = err?.response?.data?.detail
+      setCreateError(typeof detail === 'string' ? detail : Array.isArray(detail) ? detail.map((d: any) => d.msg).join(', ') : '생성에 실패했습니다.')
     } finally {
       setCreateLoading(false)
     }
@@ -139,7 +140,8 @@ export default function UserManagement() {
       setEditOpen(false)
       fetchUsers()
     } catch (err: any) {
-      setEditError(err?.response?.data?.detail || '수정에 실패했습니다.')
+      const editDetail = err?.response?.data?.detail
+      setEditError(typeof editDetail === 'string' ? editDetail : Array.isArray(editDetail) ? editDetail.map((d: any) => d.msg).join(', ') : '수정에 실패했습니다.')
     } finally {
       setEditLoading(false)
     }
