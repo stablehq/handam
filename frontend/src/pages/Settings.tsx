@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Wifi, WifiOff, RefreshCw, Copy, Trash2, BookmarkPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { settingsAPI } from '@/services/api';
+import { useTenantStore } from '@/stores/tenant-store';
 import {
   Button,
   Badge,
@@ -27,6 +28,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [cookieInput, setCookieInput] = useState('');
   const [showBookmarklet, setShowBookmarklet] = useState(false);
+  const { tenants, currentTenantId } = useTenantStore();
 
   const fetchStatus = async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -243,6 +245,25 @@ export default function Settings() {
           </div>
         )}
       </Card>
+
+      {/* Tenant switch */}
+      {tenants.length > 1 && (
+        <div className="flex items-center gap-3">
+          {tenants.map((t) => (
+            <Button
+              key={t.id}
+              color={String(t.id) === currentTenantId ? 'blue' : 'light'}
+              size="sm"
+              onClick={() => {
+                localStorage.setItem('sms-tenant-id', String(t.id))
+                window.location.reload()
+              }}
+            >
+              {t.slug === 'stable' ? 'CANCEL' : t.name}
+            </Button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -197,25 +197,7 @@ function DesktopSidebar({
           )}
         </div>
 
-        {/* Tenant selector - only shown when multiple tenants exist and sidebar is expanded */}
-        {!collapsed && tenants.length > 1 && (
-          <div className="px-3 pb-2">
-            <select
-              value={currentTenantId || ''}
-              onChange={(e) => {
-                localStorage.setItem('sms-tenant-id', e.target.value)
-                window.location.reload()
-              }}
-              className="w-full rounded-lg border border-[#E5E8EB] bg-white px-3 py-2 text-body dark:border-gray-600 dark:bg-[#2C2C34] dark:text-white"
-            >
-              {tenants.map((t) => (
-                <option key={t.id} value={String(t.id)}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        {/* Tenant selector hidden — switch via ?tenant=ID query param */}
 
         <SidebarItems className="mt-1">
           {visibleGroups.map((group, gi) => (
