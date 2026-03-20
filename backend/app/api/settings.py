@@ -37,10 +37,10 @@ async def get_naver_status(
     tenant: Tenant = Depends(get_current_tenant),
 ):
     """Get current Naver cookie status and validate it"""
-    # Prefer tenant DB cookie, fall back to runtime/env
-    cookie = tenant.naver_cookie or get_naver_cookie()
-    business_id = tenant.naver_business_id or settings.NAVER_BUSINESS_ID
-    source = "tenant_db" if tenant.naver_cookie else ("runtime" if _config._runtime_naver_cookie is not None else "env")
+    # Use tenant's own settings only — no fallback to global config
+    cookie = tenant.naver_cookie or ""
+    business_id = tenant.naver_business_id or ""
+    source = "tenant_db" if tenant.naver_cookie else "none"
 
     status = NaverCookieStatus(
         has_cookie=bool(cookie),
