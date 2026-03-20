@@ -52,7 +52,7 @@ class Message(TenantMixin, Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    message_id = Column(String(100), index=True)  # unique constraint is tenant-scoped below
+    message_id = Column(String(100))  # indexed via uq_tenant_message_id (tenant_id, message_id)
     direction = Column(Enum(MessageDirection, name="message_direction", native_enum=False), nullable=False, index=True)
     from_ = Column("from_phone", String(20), nullable=False, index=True)
     to = Column(String(20), nullable=False, index=True)
@@ -78,7 +78,7 @@ class Reservation(TenantMixin, Base):
 
     # Core fields (original)
     id = Column(Integer, primary_key=True, index=True)
-    external_id = Column(String(100), nullable=True, index=True)  # unique constraint is tenant-scoped below
+    external_id = Column(String(100), nullable=True)  # indexed via uq_tenant_external_id (tenant_id, external_id)
     customer_name = Column(String(100), nullable=False)
     phone = Column(String(20), nullable=False, index=True)
     check_in_date = Column("date", String(20), nullable=False, index=True)  # YYYY-MM-DD  # TODO: PostgreSQL 전환 시 Date 타입으로 변경
@@ -169,7 +169,7 @@ class MessageTemplate(TenantMixin, Base):
     __tablename__ = "message_templates"
 
     id = Column(Integer, primary_key=True, index=True)
-    template_key = Column("key", String(100), nullable=False, index=True)
+    template_key = Column("key", String(100), nullable=False)
     name = Column(String(200), nullable=False)
     short_label = Column(String(10), nullable=True)  # 2-4 char abbreviation for chip display
     content = Column(Text, nullable=False)
@@ -460,7 +460,7 @@ class ParticipantSnapshot(TenantMixin, Base):
     __tablename__ = "participant_snapshots"
 
     id = Column(Integer, primary_key=True, index=True)
-    date = Column(String(20), nullable=False, index=True)  # YYYY-MM-DD
+    date = Column(String(20), nullable=False)  # YYYY-MM-DD, indexed via uq_tenant_snapshot_date (tenant_id, date)
     male_count = Column(Integer, default=0)
     female_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=utc_now)
