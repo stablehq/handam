@@ -1,7 +1,7 @@
 """
 FastAPI dependencies for multi-tenant support.
 """
-from typing import Optional, Generator
+from typing import Optional
 from fastapi import Header, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.db.database import get_db, SessionLocal

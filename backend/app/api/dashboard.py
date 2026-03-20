@@ -3,9 +3,9 @@ Dashboard statistics API
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case
+from sqlalchemy import func
 from app.api.deps import get_tenant_scoped_db
-from app.db.models import Message, Reservation, ActivityLog, MessageDirection, ReservationStatus, User
+from app.db.models import Reservation, ActivityLog, ReservationStatus, User
 from app.db.tenant_context import current_tenant_id
 from app.auth.dependencies import get_current_user
 from datetime import datetime
@@ -22,48 +22,6 @@ async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), curre
 
     tid = current_tenant_id.get()
 
-    # Message stats (single query with CASE WHEN)
-    msg_q = db.query(
-        func.count().label("total"),
-        func.count(case((Message.direction == MessageDirection.INBOUND, 1))).label("inbound"),
-        func.count(case((Message.direction == MessageDirection.OUTBOUND, 1))).label("outbound"),
-        func.count(case((Message.response_source == "rule", 1))).label("rule"),
-        func.count(case((Message.response_source == "llm", 1))).label("llm"),
-        func.count(case((Message.response_source == "manual", 1))).label("manual"),
-        func.count(case((Message.needs_review == True, 1))).label("needs_review"),
-    ).select_from(Message)
-    if tid is not None:
-        msg_q = msg_q.filter(Message.tenant_id == tid)
-    msg_stats = msg_q.one()
-
-    total_messages = msg_stats.total
-    inbound_messages = msg_stats.inbound
-    outbound_messages = msg_stats.outbound
-    rule_responses = msg_stats.rule
-    llm_responses = msg_stats.llm
-    manual_responses = msg_stats.manual
-    needs_review = msg_stats.needs_review
-
-    # Auto-response rate
-    auto_responses = rule_responses + llm_responses
-    auto_response_rate = (
-        (auto_responses / inbound_messages * 100) if inbound_messages > 0 else 0
-    )
-
-    # Reservation stats (single query with CASE WHEN)
-    res_q = db.query(
-        func.count().label("total"),
-        func.count(case((Reservation.status == ReservationStatus.PENDING, 1))).label("pending"),
-        func.count(case((Reservation.status == ReservationStatus.CONFIRMED, 1))).label("confirmed"),
-        func.count(case((Reservation.status == ReservationStatus.CANCELLED, 1))).label("cancelled"),
-        func.count(case((Reservation.status == ReservationStatus.COMPLETED, 1))).label("completed"),
-    ).select_from(Reservation)
-    if tid is not None:
-        res_q = res_q.filter(Reservation.tenant_id == tid)
-    res_stats = res_q.one()
-
-    total_reservations = res_stats.total
-
     # Today's new reservations (created today)
     today_start = datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0)
     today_res_q = db.query(func.count()).select_from(Reservation).filter(
@@ -73,20 +31,10 @@ async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), curre
         today_res_q = today_res_q.filter(Reservation.tenant_id == tid)
     today_reservations = today_res_q.scalar() or 0
 
-    reservations_by_status = {
-        ReservationStatus.PENDING.value: res_stats.pending,
-        ReservationStatus.CONFIRMED.value: res_stats.confirmed,
-        ReservationStatus.CANCELLED.value: res_stats.cancelled,
-        ReservationStatus.COMPLETED.value: res_stats.completed,
-    }
-
     # Recent reservations (last 5)
     recent_reservations = (
         db.query(Reservation).order_by(Reservation.created_at.desc()).limit(5).all()
     )
-
-    # Recent messages (last 5)
-    recent_messages = db.query(Message).order_by(Message.created_at.desc()).limit(5).all()
 
     # Campaign stats — today's sends (from ActivityLog)
     today_campaign_q = db.query(func.count()).select_from(ActivityLog).filter(
@@ -148,19 +96,7 @@ async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), curre
 
     return {
         "totals": {
-            "reservations": total_reservations,
             "today_reservations": today_reservations,
-            "messages": total_messages,
-            "inbound_messages": inbound_messages,
-            "outbound_messages": outbound_messages,
-        },
-        "reservations_by_status": reservations_by_status,
-        "auto_response": {
-            "rule_responses": rule_responses,
-            "llm_responses": llm_responses,
-            "manual_responses": manual_responses,
-            "auto_response_rate": round(auto_response_rate, 1),
-            "needs_review": needs_review,
         },
         "campaigns": {
             "today_campaigns": today_campaigns,
@@ -180,16 +116,6 @@ async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), curre
                 "status": res.status.value,
             }
             for res in recent_reservations
-        ],
-        "recent_messages": [
-            {
-                "id": msg.id,
-                "direction": msg.direction.value,
-                "from_": msg.from_,
-                "content": msg.content[:50] + "..." if len(msg.content) > 50 else msg.content,
-                "created_at": msg.created_at.isoformat(),
-            }
-            for msg in recent_messages
         ],
     }
 

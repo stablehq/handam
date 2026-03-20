@@ -61,10 +61,6 @@ function MetricCard({ title, value, subtitle, icon, iconBg }: MetricCardProps) {
 }
 
 function GenderWeekly({ daily }: { daily: { date: string; male: number; female: number }[] }) {
-  const totalMale = daily.reduce((s, d) => s + d.male, 0)
-  const totalFemale = daily.reduce((s, d) => s + d.female, 0)
-  const total = totalMale + totalFemale
-
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr + 'T00:00:00')
     const days = ['일', '월', '화', '수', '목', '금', '토']
