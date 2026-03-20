@@ -112,7 +112,12 @@ def get_template_labels(
     current_user: User = Depends(get_current_user),
 ):
     """Get template labels for chip display"""
-    templates = db.query(MessageTemplate).filter(MessageTemplate.is_active == True).order_by(MessageTemplate.template_key).all()
+    PRIORITY_KEYS = ["party_info", "room_info", "sub_room_info"]
+    templates = db.query(MessageTemplate).filter(MessageTemplate.is_active == True).all()
+    templates.sort(key=lambda t: (
+        PRIORITY_KEYS.index(t.template_key) if t.template_key in PRIORITY_KEYS else len(PRIORITY_KEYS),
+        t.template_key,
+    ))
     return [
         {
             "template_key": t.template_key,
