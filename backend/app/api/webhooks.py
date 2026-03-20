@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from app.api.deps import get_tenant_scoped_db
 from app.db.models import Message, MessageDirection, MessageStatus, User
 from app.auth.dependencies import get_current_user
-from app.factory import get_sms_provider
+from app.factory import get_sms_provider_for_tenant
 from app.router.message_router import message_router
 from datetime import datetime, timezone
 import logging
@@ -28,7 +28,8 @@ async def receive_sms(request: SMSReceiveRequest, db: Session = Depends(get_tena
     Webhook for receiving SMS (simulated in demo mode).
     Saves inbound message, runs auto-response pipeline, and auto-sends if confident.
     """
-    sms_provider = get_sms_provider()
+    # TODO: determine tenant from incoming message (currently uses None — no global fallback)
+    sms_provider = get_sms_provider_for_tenant(None)
 
     # Simulate SMS reception
     result = await sms_provider.simulate_receive(

@@ -6,11 +6,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from pydantic import BaseModel
 from typing import List, Optional
-from app.api.deps import get_tenant_scoped_db
-from app.db.models import Message, MessageDirection, MessageStatus, Reservation, User
+from app.api.deps import get_tenant_scoped_db, get_current_tenant
+from app.db.models import Message, MessageDirection, MessageStatus, Reservation, User, Tenant
 from app.auth.dependencies import get_current_user
-from app.factory import get_sms_provider
-from app.config import settings
+from app.factory import get_sms_provider_for_tenant
 from app.services.activity_logger import log_activity
 from datetime import datetime
 
@@ -56,10 +55,10 @@ class ContactResponse(BaseModel):
 
 # IMPORTANT: /contacts must be defined BEFORE /review-queue for correct route matching
 @router.get("/contacts", response_model=List[ContactResponse])
-async def get_contacts(db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
+async def get_contacts(db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user), tenant: Tenant = Depends(get_current_tenant)):
     """Get unique contact list with last message preview"""
     # Get all messages, find unique phone numbers (excluding our own number)
-    our_number = settings.ALIGO_SENDER
+    our_number = tenant.aligo_sender or ''
 
     messages = (
         db.query(Message)
@@ -155,16 +154,16 @@ async def get_messages(
 
 
 @router.post("/send")
-async def send_sms(request: SendSMSRequest, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
+async def send_sms(request: SendSMSRequest, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user), tenant: Tenant = Depends(get_current_tenant)):
     """Send SMS manually"""
-    sms_provider = get_sms_provider()
+    sms_provider = get_sms_provider_for_tenant(tenant)
     result = await sms_provider.send_sms(to=request.to, message=request.content)
 
     # Save to DB
     msg = Message(
         message_id=result["message_id"],
         direction=MessageDirection.OUTBOUND,
-        from_=settings.ALIGO_SENDER,
+        from_=tenant.aligo_sender or '',
         to=request.to,
         content=request.content,
         status=MessageStatus.SENT,

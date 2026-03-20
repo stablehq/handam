@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from typing import List, Optional, Dict
-from app.api.deps import get_tenant_scoped_db
-from app.db.models import Room, NaverBizItem, User, RoomAssignment, RoomBizItemLink, Building
-from app.factory import get_reservation_provider
+from app.api.deps import get_tenant_scoped_db, get_current_tenant
+from app.db.models import Room, NaverBizItem, User, Tenant, RoomAssignment, RoomBizItemLink, Building
+from app.factory import get_reservation_provider_for_tenant
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.rate_limit import limiter
 from datetime import datetime, timezone
@@ -202,9 +202,9 @@ async def get_naver_biz_items(db: Session = Depends(get_tenant_scoped_db), curre
 
 @router.post("/naver/biz-items/sync")
 @limiter.limit("5/minute")
-async def sync_naver_biz_items(request: Request, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
+async def sync_naver_biz_items(request: Request, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above), tenant: Tenant = Depends(get_current_tenant)):
     """Sync biz items from Naver Smart Place API"""
-    provider = get_reservation_provider()
+    provider = get_reservation_provider_for_tenant(tenant)
     items = await provider.fetch_biz_items()
 
     added = 0

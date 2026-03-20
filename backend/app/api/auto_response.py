@@ -4,11 +4,11 @@ Auto-response API endpoints
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from app.api.deps import get_tenant_scoped_db
-from app.db.models import Message, MessageDirection, MessageStatus, User
+from app.api.deps import get_tenant_scoped_db, get_current_tenant
+from app.db.models import Message, MessageDirection, MessageStatus, User, Tenant
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.router.message_router import message_router
-from app.factory import get_sms_provider
+from app.factory import get_sms_provider_for_tenant
 
 router = APIRouter(prefix="/api/auto-response", tags=["auto-response"])
 
@@ -22,7 +22,7 @@ class GenerateResponseFromTextRequest(BaseModel):
 
 
 @router.post("/generate")
-async def generate_auto_response(request: GenerateResponseRequest, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
+async def generate_auto_response(request: GenerateResponseRequest, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user), tenant: Tenant = Depends(get_current_tenant)):
     """Generate auto-response for a message by ID"""
     # Get message from DB
     msg = db.query(Message).filter(Message.id == request.message_id).first()
@@ -44,7 +44,7 @@ async def generate_auto_response(request: GenerateResponseRequest, db: Session =
 
     # Auto-send if confidence is high enough
     if not result["needs_review"]:
-        sms_provider = get_sms_provider()
+        sms_provider = get_sms_provider_for_tenant(tenant)
         await sms_provider.send_sms(to=msg.from_, message=result["response"])
 
         # Create outbound message record

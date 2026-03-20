@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import app.config as _config
-from app.config import settings, get_naver_cookie, set_naver_cookie
+from app.config import get_naver_cookie, set_naver_cookie
 from app.real.reservation import RealReservationProvider
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.api.deps import get_current_tenant, get_tenant_scoped_db
@@ -80,7 +80,7 @@ async def update_naver_cookie(
         return {"success": False, "message": "Cookie cannot be empty"}
 
     cookie = req.cookie.strip()
-    business_id = tenant.naver_business_id or settings.NAVER_BUSINESS_ID
+    business_id = tenant.naver_business_id or ''
 
     # Save to Tenant table (persistent across restarts)
     tenant.naver_cookie = cookie
