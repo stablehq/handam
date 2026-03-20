@@ -548,7 +548,9 @@ const RoomAssignment = () => {
 
   // SSE: 스케줄 발송 완료 시 예약 목록 자동 새로고침
   useEffect(() => {
-    const es = new EventSource('/api/events/stream');
+    const token = localStorage.getItem('sms-token') || '';
+    const tenantId = localStorage.getItem('sms-tenant-id') || '';
+    const es = new EventSource(`/api/events/stream?token=${encodeURIComponent(token)}&tenant_id=${tenantId}`);
     es.onmessage = (e) => {
       try {
         const { event } = JSON.parse(e.data);
