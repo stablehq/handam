@@ -157,24 +157,6 @@ def detect_and_link_consecutive_stays(db: Session) -> dict:
     return result
 
 
-def get_stay_group(db: Session, reservation_id: int) -> List[Reservation]:
-    """
-    Get all reservations in the same stay group, ordered by stay_group_order.
-
-    Returns a single-element list if the reservation has no group.
-    """
-    res = db.query(Reservation).filter(Reservation.id == reservation_id).first()
-    if not res or not res.stay_group_id:
-        return [res] if res else []
-
-    return (
-        db.query(Reservation)
-        .filter(Reservation.stay_group_id == res.stay_group_id)
-        .order_by(Reservation.stay_group_order)
-        .all()
-    )
-
-
 def unlink_from_group(db: Session, reservation_id: int) -> bool:
     """
     Remove a reservation from its stay group.

@@ -48,7 +48,7 @@ import app.db.tenant_context  # noqa: F401 — registers before_flush event
 
 def init_db():
     """Initialize database tables and ensure default admin exists"""
-    from app.db.models import Base, User, UserRole, Room, RoomBizItemLink, Building, TemplateSchedule
+    from app.db.models import Base, User, UserRole, Room, RoomBizItemLink
     from app.auth.utils import hash_password
     from sqlalchemy import inspect as sa_inspect, text
     import json

@@ -285,61 +285,6 @@ def unassign_room(
     return count
 
 
-def get_room_for_date(
-    db: Session, reservation_id: int, date: str
-) -> Tuple[Optional[str], Optional[str]]:
-    """Returns (room_number, room_password) for a specific date, or (None, None)."""
-    assignment = (
-        db.query(RoomAssignment)
-        .filter(
-            RoomAssignment.reservation_id == reservation_id,
-            RoomAssignment.date == date,
-        )
-        .first()
-    )
-    if assignment:
-        return (assignment.room_number, assignment.room_password)
-    return (None, None)
-
-
-def get_occupancy(db: Session, date: str, room_number: str) -> int:
-    """
-    Get occupancy count for a room on a specific date.
-    For non-dormitory rooms: count of assignments (should be 0 or 1).
-    For dormitory rooms: sum of party_size/booking_count from reservations.
-    """
-    is_dorm = _is_dormitory_room(db, room_number)
-
-    if not is_dorm:
-        return (
-            db.query(RoomAssignment)
-            .filter(
-                RoomAssignment.date == date,
-                RoomAssignment.room_number == room_number,
-            )
-            .count()
-        )
-
-    # Dormitory: sum people from associated reservations via single JOIN + aggregate
-    total = (
-        db.query(
-            func.coalesce(
-                func.sum(
-                    func.coalesce(Reservation.party_size, Reservation.booking_count, 1)
-                ),
-                0,
-            )
-        )
-        .join(RoomAssignment, and_(RoomAssignment.reservation_id == Reservation.id, RoomAssignment.tenant_id == Reservation.tenant_id))
-        .filter(
-            RoomAssignment.date == date,
-            RoomAssignment.room_number == room_number,
-        )
-        .scalar()
-    ) or 0
-    return total
-
-
 def clear_all_for_reservation(db: Session, reservation_id: int) -> int:
     """Delete ALL RoomAssignment records for a reservation and clear denormalized fields."""
     reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()

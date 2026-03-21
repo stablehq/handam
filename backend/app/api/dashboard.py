@@ -34,11 +34,11 @@ async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), curre
     # Campaign stats — today's sends (from ActivityLog)
     # tenant_id 필터는 before_compile hook이 select_from(ActivityLog)에서 자동 적용
     today_campaigns = db.query(func.count()).select_from(ActivityLog).filter(
-        ActivityLog.activity_type == "sms_template",
+        ActivityLog.activity_type == "sms_send",
         ActivityLog.created_at >= today_start,
     ).scalar() or 0
     today_campaign_sent = int(db.query(func.coalesce(func.sum(ActivityLog.success_count), 0)).select_from(ActivityLog).filter(
-        ActivityLog.activity_type == "sms_template",
+        ActivityLog.activity_type == "sms_send",
         ActivityLog.created_at >= today_start,
     ).scalar() or 0)
 
@@ -132,7 +132,7 @@ async def get_today_schedules(db: Session = Depends(get_tenant_scoped_db), curre
             m = s.minute or 0
             done = (current_hour > h) or (current_hour == h and current_minute >= m)
             sent_log = db.query(ActivityLog).filter(
-                ActivityLog.activity_type == "sms_template",
+                ActivityLog.activity_type == "sms_send",
                 ActivityLog.created_at >= today_start,
                 ActivityLog.title.contains(s.schedule_name),
             ).first()
@@ -154,7 +154,7 @@ async def get_today_schedules(db: Session = Depends(get_tenant_scoped_db), curre
             done = current_hour >= end_h
             in_progress = start_h <= current_hour < end_h
             sent_count = db.query(ActivityLog).filter(
-                ActivityLog.activity_type == "sms_template",
+                ActivityLog.activity_type == "sms_send",
                 ActivityLog.created_at >= today_start,
                 ActivityLog.title.contains(s.schedule_name),
             ).count()
@@ -176,7 +176,7 @@ async def get_today_schedules(db: Session = Depends(get_tenant_scoped_db), curre
             done = current_hour >= end_h
             in_progress = start_h <= current_hour < end_h
             sent_count = db.query(ActivityLog).filter(
-                ActivityLog.activity_type == "sms_template",
+                ActivityLog.activity_type == "sms_send",
                 ActivityLog.created_at >= today_start,
                 ActivityLog.title.contains(s.schedule_name),
             ).count()

@@ -15,7 +15,7 @@ def get_sms_provider_for_tenant(tenant=None) -> SMSProvider:
     """Tenant-aware SMS provider. Always Real; testmode controlled by tenant DB setting."""
     from app.real.sms import RealSMSProvider
     sender = tenant.aligo_sender if tenant and tenant.aligo_sender else ''
-    testmode = tenant.aligo_testmode if tenant and hasattr(tenant, 'aligo_testmode') else True
+    testmode = tenant.aligo_testmode if tenant else True
     if not testmode and not settings.ALIGO_API_KEY:
         logger.warning("[SMS] testmode=False but ALIGO_API_KEY is empty — SMS will fail")
     return RealSMSProvider(

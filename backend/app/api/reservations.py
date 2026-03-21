@@ -4,7 +4,7 @@ Reservations API endpoints
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 from typing import List, Optional
 from app.api.deps import get_tenant_scoped_db, get_current_tenant
 from app.db.models import Reservation, ReservationStatus, User, Tenant, ReservationSmsAssignment, RoomAssignment, ReservationDailyInfo

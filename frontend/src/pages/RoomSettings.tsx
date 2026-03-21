@@ -21,7 +21,6 @@ import {
   TableRow,
   TableCell,
   Select,
-  Textarea,
 } from 'flowbite-react';
 
 // ── Types ─────────────────────────────────────────────
@@ -31,11 +30,6 @@ interface Building {
   name: string;
   description?: string | null;
   room_count?: number;
-}
-
-interface BuildingForm {
-  name: string;
-  description: string;
 }
 
 // Building manage modal: local editable row
@@ -93,8 +87,6 @@ interface NaverBizItem {
   biz_item_type?: string | null;
   exposed?: boolean;
   active: boolean;
-  dormitory: boolean;
-  bed_capacity?: number | null;
 }
 
 // ── Constants ─────────────────────────────────────────
@@ -129,8 +121,6 @@ const RoomSettings = () => {
   const [deleteTarget, setDeleteTarget] = useState<Room | null>(null);
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [bizItems, setBizItems] = useState<NaverBizItem[]>([]);
-  const [syncingBizItems, setSyncingBizItems] = useState(false);
-
   // ── Buildings state ──
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [buildingsLoading, setBuildingsLoading] = useState(false);
@@ -201,20 +191,6 @@ const RoomSettings = () => {
     }
   };
 
-
-  // ── Naver sync ──
-  const handleSyncBizItems = async () => {
-    setSyncingBizItems(true);
-    try {
-      const res = await roomsAPI.syncBizItems();
-      toast.success(`네이버 상품 동기화 완료 (${res.data.added}건 추가, ${res.data.updated}건 갱신)`);
-      loadBizItems();
-    } catch {
-      toast.error('상품 동기화 실패');
-    } finally {
-      setSyncingBizItems(false);
-    }
-  };
 
   // ── Biz item settings modal ──
   const loadBizItemSettings = useCallback(async () => {

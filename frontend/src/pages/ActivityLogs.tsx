@@ -33,11 +33,9 @@ import { activityLogsAPI } from '@/services/api'
 type ActivityType =
   | 'room_assign'
   | 'room_move'
-  | 'sms_template'
   | 'sms_manual'
   | 'sms_send'
   | 'naver_sync'
-  | 'sync_status'
 
 type ActivityStatus = 'success' | 'failed' | 'partial'
 
@@ -66,21 +64,17 @@ interface ActivityStats {
 const TYPE_LABELS: Record<ActivityType, string> = {
   room_assign: '객실 배정',
   room_move: '객실 이동',
-  sms_template: 'SMS 발송',
   sms_manual: 'SMS 발송',
   sms_send: 'SMS 발송',
   naver_sync: '네이버 동기화',
-  sync_status: '동기화 상태',
 }
 
 const TYPE_BADGE_COLOR: Record<ActivityType, string> = {
   room_assign: 'info',
   room_move: 'info',
-  sms_template: 'success',
   sms_manual: 'success',
   sms_send: 'success',
   naver_sync: 'warning',
-  sync_status: 'gray',
 }
 
 const STATUS_LABELS: Record<ActivityStatus, string> = {

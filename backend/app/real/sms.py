@@ -60,7 +60,7 @@ class RealSMSProvider:
             **kwargs:
                 msg_type (str): "SMS" | "LMS" — 미지정 시 바이트 길이로 자동 판단
                 title (str): LMS 제목 (LMS일 때만 사용)
-                testmode_yn (str): "Y" | "N" — 미지정 시 settings.ALIGO_TESTMODE 사용
+                testmode_yn (str): "Y" | "N" — 미지정 시 self.testmode (tenant.aligo_testmode) 사용
 
         Returns:
             SMSProvider Protocol 표준 반환값
