@@ -118,7 +118,7 @@ class ReservationResponse(BaseModel):
 def _to_response(res: Reservation, override_room: Optional[str] = None, override_password: Optional[str] = None, override_assigned_by: Optional[str] = None, override_party_type: Optional[str] = None, db: Session = None, filter_date: Optional[str] = None) -> ReservationResponse:
     assignments = []
     if db is not None and hasattr(res, 'sms_assignments'):
-        source = res.sms_assignments
+        source = [a for a in res.sms_assignments if a.assigned_by != 'excluded']
         if filter_date is not None:
             # once 모드 template_key 조회 (과거 발송완료 칩은 once만 표시)
             from app.db.models import TemplateSchedule
@@ -385,12 +385,14 @@ async def delete_reservation(reservation_id: int, db: Session = Depends(get_tena
     if not db_reservation:
         raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다")
 
-    # 연관 레코드 먼저 삭제 (FK 제약)
+    # 연관 레코드 먼저 삭제 (FK 제약, 현재 테넌트만)
     from app.db.models import PartyCheckin, ReservationDailyInfo
-    db.query(RoomAssignment).filter(RoomAssignment.reservation_id == reservation_id).delete()
-    db.query(ReservationSmsAssignment).filter(ReservationSmsAssignment.reservation_id == reservation_id).delete()
-    db.query(ReservationDailyInfo).filter(ReservationDailyInfo.reservation_id == reservation_id).delete()
-    db.query(PartyCheckin).filter(PartyCheckin.reservation_id == reservation_id).delete()
+    from app.db.tenant_context import current_tenant_id
+    tid = current_tenant_id.get()
+    db.query(RoomAssignment).filter(RoomAssignment.reservation_id == reservation_id, RoomAssignment.tenant_id == tid).delete()
+    db.query(ReservationSmsAssignment).filter(ReservationSmsAssignment.reservation_id == reservation_id, ReservationSmsAssignment.tenant_id == tid).delete()
+    db.query(ReservationDailyInfo).filter(ReservationDailyInfo.reservation_id == reservation_id, ReservationDailyInfo.tenant_id == tid).delete()
+    db.query(PartyCheckin).filter(PartyCheckin.reservation_id == reservation_id, PartyCheckin.tenant_id == tid).delete()
 
     db.delete(db_reservation)
     db.commit()
@@ -564,7 +566,9 @@ async def unassign_sms_template(
     if not assignment:
         raise HTTPException(status_code=404, detail="배정을 찾을 수 없습니다")
 
-    db.delete(assignment)
+    # 삭제 대신 excluded로 표시 — sync_sms_tags가 재생성하지 않도록
+    assignment.assigned_by = 'excluded'
+    assignment.sent_at = None
     db.commit()
     return {"success": True}
 

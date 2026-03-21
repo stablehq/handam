@@ -66,16 +66,14 @@ async def get_current_tenant_id(
 
 
 async def get_current_tenant(
-    x_tenant_id: Optional[int] = Header(None, alias="X-Tenant-Id"),
+    tenant_id: int = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
-    """Get full Tenant object for endpoints that need tenant settings (e.g., Naver sync)."""
-    if x_tenant_id is None:
-        raise HTTPException(status_code=400, detail="X-Tenant-Id 헤더가 필요합니다")
-
+    """Get full Tenant object for endpoints that need tenant settings (e.g., Naver sync).
+    Depends on get_current_tenant_id to reuse user-tenant access verification."""
     from app.db.models import Tenant
     tenant = db.query(Tenant).filter(
-        Tenant.id == x_tenant_id,
+        Tenant.id == tenant_id,
         Tenant.is_active == True,
     ).first()
     if not tenant:

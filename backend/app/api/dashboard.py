@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.api.deps import get_tenant_scoped_db
 from app.db.models import Reservation, ActivityLog, ReservationStatus, User
-from app.db.tenant_context import current_tenant_id
 from app.auth.dependencies import get_current_user
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -20,16 +19,12 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Get dashboard statistics"""
 
-    tid = current_tenant_id.get()
-
     # Today's new reservations (created today)
+    # tenant_id 필터는 before_compile hook이 select_from(Reservation)에서 자동 적용
     today_start = datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0)
-    today_res_q = db.query(func.count()).select_from(Reservation).filter(
+    today_reservations = db.query(func.count()).select_from(Reservation).filter(
         Reservation.created_at >= today_start,
-    )
-    if tid is not None:
-        today_res_q = today_res_q.filter(Reservation.tenant_id == tid)
-    today_reservations = today_res_q.scalar() or 0
+    ).scalar() or 0
 
     # Recent reservations (last 5)
     recent_reservations = (
@@ -37,20 +32,15 @@ async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), curre
     )
 
     # Campaign stats — today's sends (from ActivityLog)
-    today_campaign_q = db.query(func.count()).select_from(ActivityLog).filter(
+    # tenant_id 필터는 before_compile hook이 select_from(ActivityLog)에서 자동 적용
+    today_campaigns = db.query(func.count()).select_from(ActivityLog).filter(
         ActivityLog.activity_type == "sms_template",
         ActivityLog.created_at >= today_start,
-    )
-    if tid is not None:
-        today_campaign_q = today_campaign_q.filter(ActivityLog.tenant_id == tid)
-    today_campaigns = today_campaign_q.scalar() or 0
-    today_sent_q = db.query(func.coalesce(func.sum(ActivityLog.success_count), 0)).select_from(ActivityLog).filter(
+    ).scalar() or 0
+    today_campaign_sent = int(db.query(func.coalesce(func.sum(ActivityLog.success_count), 0)).select_from(ActivityLog).filter(
         ActivityLog.activity_type == "sms_template",
         ActivityLog.created_at >= today_start,
-    )
-    if tid is not None:
-        today_sent_q = today_sent_q.filter(ActivityLog.tenant_id == tid)
-    today_campaign_sent = int(today_sent_q.scalar() or 0)
+    ).scalar() or 0)
 
     # Gender stats (7 days: today + 6 days forward) — 일별 SUM
     from datetime import timedelta
@@ -59,16 +49,14 @@ async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), curre
     for i in range(7):
         d = today + timedelta(days=i)
         d_str = d.strftime("%Y-%m-%d")
-        gq = db.query(
+        # tenant_id 필터는 before_compile hook이 select_from(Reservation)에서 자동 적용
+        row = db.query(
             func.coalesce(func.sum(Reservation.male_count), 0).label("male"),
             func.coalesce(func.sum(Reservation.female_count), 0).label("female"),
         ).select_from(Reservation).filter(
             Reservation.check_in_date == d_str,
             Reservation.status.in_([ReservationStatus.CONFIRMED, ReservationStatus.COMPLETED]),
-        )
-        if tid is not None:
-            gq = gq.filter(Reservation.tenant_id == tid)
-        row = gq.first()
+        ).first()
         gender_daily.append({
             "date": d_str,
             "male": int(row.male),

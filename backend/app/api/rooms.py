@@ -233,10 +233,16 @@ async def sync_naver_biz_items(request: Request, db: Session = Depends(get_tenan
             db.add(new_item)
             added += 1
 
-    # 동기화에 없는 기존 상품은 비활성화
+    # 동기화에 없는 기존 상품은 비활성화 (현재 테넌트만)
+    from app.db.tenant_context import current_tenant_id
+    tid = current_tenant_id.get()
     deactivated = (
         db.query(NaverBizItem)
-        .filter(NaverBizItem.biz_item_id.notin_(synced_biz_ids), NaverBizItem.is_active == True)
+        .filter(
+            NaverBizItem.biz_item_id.notin_(synced_biz_ids),
+            NaverBizItem.is_active == True,
+            NaverBizItem.tenant_id == tid,
+        )
         .update({"is_active": False}, synchronize_session="fetch")
     )
 

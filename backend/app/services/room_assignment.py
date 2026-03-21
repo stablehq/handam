@@ -10,6 +10,7 @@ from sqlalchemy import and_, func
 import logging
 
 from app.db.models import RoomAssignment, Reservation, Room, ReservationSmsAssignment, TemplateSchedule
+from app.db.tenant_context import current_tenant_id
 from app.services.activity_logger import log_activity
 from app.templates.renderer import TemplateRenderer
 
@@ -48,9 +49,10 @@ def sync_sms_tags(db: Session, reservation_id: int, schedules=None) -> None:
 
     existing_pairs = {(a.template_key, a.date) for a in existing}
 
-    # Add missing (template_key, date) pairs
+    # Add missing (template_key, date) pairs — excluded는 사용자가 의도적으로 해제한 것이므로 재생성하지 않음
+    excluded_pairs = {(a.template_key, a.date) for a in existing if a.assigned_by == 'excluded'}
     for (key, d) in expected_pairs:
-        if (key, d) not in existing_pairs:
+        if (key, d) not in existing_pairs and (key, d) not in excluded_pairs:
             db.add(ReservationSmsAssignment(
                 reservation_id=reservation_id,
                 template_key=key,
@@ -59,9 +61,9 @@ def sync_sms_tags(db: Session, reservation_id: int, schedules=None) -> None:
                 sent_at=None,
             ))
 
-    # Remove obsolete tags (only unsent, non-manual)
+    # Remove obsolete tags (only unsent, non-manual, non-excluded)
     for a in existing:
-        if (a.template_key, a.date) not in expected_pairs and a.sent_at is None and a.assigned_by != 'manual':
+        if (a.template_key, a.date) not in expected_pairs and a.sent_at is None and a.assigned_by not in ('manual', 'excluded'):
             db.delete(a)
 
 
@@ -154,10 +156,12 @@ def assign_room(
     )
     old_room = old_assignments[0].room_number if old_assignments else None
 
-    # Delete existing assignments for this reservation in the date range
+    # Delete existing assignments for this reservation in the date range (현재 테넌트만)
+    tid = current_tenant_id.get()
     db.query(RoomAssignment).filter(
         RoomAssignment.reservation_id == reservation_id,
         RoomAssignment.date.in_(dates),
+        RoomAssignment.tenant_id == tid,
     ).delete(synchronize_session="fetch")
 
     # Log room move/assignment (skip when caller will log in bulk)
@@ -262,9 +266,11 @@ def unassign_room(
             created_by="system" if old_assigned_by == "auto" else old_assigned_by,
         )
 
-    # Re-query since .all() consumed the query
+    # Re-query since .all() consumed the query (현재 테넌트만)
+    tid = current_tenant_id.get()
     query = db.query(RoomAssignment).filter(
-        RoomAssignment.reservation_id == reservation_id
+        RoomAssignment.reservation_id == reservation_id,
+        RoomAssignment.tenant_id == tid,
     )
     if from_date:
         query = query.filter(RoomAssignment.date.in_(dates))
@@ -337,9 +343,10 @@ def get_occupancy(db: Session, date: str, room_number: str) -> int:
 def clear_all_for_reservation(db: Session, reservation_id: int) -> int:
     """Delete ALL RoomAssignment records for a reservation and clear denormalized fields."""
     reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
+    tid = current_tenant_id.get()
     count = (
         db.query(RoomAssignment)
-        .filter(RoomAssignment.reservation_id == reservation_id)
+        .filter(RoomAssignment.reservation_id == reservation_id, RoomAssignment.tenant_id == tid)
         .delete(synchronize_session="fetch")
     )
     if reservation:
@@ -391,11 +398,16 @@ def reconcile_dates(db: Session, reservation: Reservation):
     """
     valid_dates = set(_date_range(reservation.check_in_date, reservation.check_out_date))
 
+    if not valid_dates:
+        # check_in_date가 없는 비정상 데이터 — 삭제하지 않고 스킵
+        logger.warning(f"reconcile_dates: reservation {reservation.id} has no valid dates, skipping")
+        return
+
     orphaned = (
         db.query(RoomAssignment)
         .filter(
             RoomAssignment.reservation_id == reservation.id,
-            ~RoomAssignment.date.in_(valid_dates) if valid_dates else True,
+            ~RoomAssignment.date.in_(valid_dates),
         )
         .all()
     )
