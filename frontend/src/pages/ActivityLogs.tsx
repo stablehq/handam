@@ -453,7 +453,7 @@ const ActivityLogs = () => {
                       {/* Detail row — 2-column layout */}
                       {isExpanded && hasDetail && (() => {
                         const d = parsedDetail!
-                        const targets = Array.isArray(d.targets) ? d.targets as Array<{name: string; phone: string; status: string; error?: string; message_id?: string; template_detail?: string; message?: string}> : []
+                        const targets = Array.isArray(d.targets) ? d.targets as Array<{name: string; phone: string; status: string; error?: string; message_id?: string; template_detail?: string; message?: string; guest_name?: string; room_number?: string; reservation_id?: number}> : []
                         const metaKeys = Object.keys(d).filter(k => k !== 'message' && k !== 'targets')
                         // 단건 발송이면 message가 detail에 직접 있고, 배치면 targets[0].message
                         const messageContent = d.message ? String(d.message) : (targets.length > 0 && targets[0].message ? String(targets[0].message) : '')
@@ -552,24 +552,36 @@ const ActivityLogs = () => {
                                         <thead>
                                           <tr className="border-b border-[#E5E8EB] dark:border-gray-700 bg-[#F8F9FA] dark:bg-[#1E1E24]">
                                             <th className="px-3 py-1.5 text-left font-medium text-[#8B95A1]">이름</th>
-                                            <th className="px-3 py-1.5 text-left font-medium text-[#8B95A1]">전화번호</th>
-                                            <th className="px-3 py-1.5 text-left font-medium text-[#8B95A1]">객실</th>
-                                            <th className="px-3 py-1.5 text-left font-medium text-[#8B95A1]">결과</th>
+                                            {log.type === 'room_assign' ? (
+                                              <th className="px-3 py-1.5 text-left font-medium text-[#8B95A1]">배정 객실</th>
+                                            ) : (
+                                              <>
+                                                <th className="px-3 py-1.5 text-left font-medium text-[#8B95A1]">전화번호</th>
+                                                <th className="px-3 py-1.5 text-left font-medium text-[#8B95A1]">객실</th>
+                                                <th className="px-3 py-1.5 text-left font-medium text-[#8B95A1]">결과</th>
+                                              </>
+                                            )}
                                           </tr>
                                         </thead>
                                         <tbody>
                                           {targets.map((t, i) => (
                                             <tr key={i} className="border-b last:border-b-0 border-[#F2F4F6] dark:border-gray-800">
-                                              <td className="px-3 py-1.5 text-[#191F28] dark:text-gray-200">{t.name}</td>
-                                              <td className="px-3 py-1.5 tabular-nums text-[#4E5968] dark:text-gray-400">{t.phone}</td>
-                                              <td className="px-3 py-1.5 text-[#4E5968] dark:text-gray-400">{t.template_detail || '-'}</td>
-                                              <td className="px-3 py-1.5">
-                                                {t.status === 'success' ? (
-                                                  <span className="text-[#00C9A7]">성공</span>
-                                                ) : (
-                                                  <span className="text-[#F04452]">{t.error || '실패'}</span>
-                                                )}
-                                              </td>
+                                              <td className="px-3 py-1.5 text-[#191F28] dark:text-gray-200">{t.guest_name || t.name || '-'}</td>
+                                              {log.type === 'room_assign' ? (
+                                                <td className="px-3 py-1.5 text-[#4E5968] dark:text-gray-400">{t.room_number || '-'}</td>
+                                              ) : (
+                                                <>
+                                                  <td className="px-3 py-1.5 tabular-nums text-[#4E5968] dark:text-gray-400">{t.phone || '-'}</td>
+                                                  <td className="px-3 py-1.5 text-[#4E5968] dark:text-gray-400">{t.template_detail || '-'}</td>
+                                                  <td className="px-3 py-1.5">
+                                                    {t.status === 'success' ? (
+                                                      <span className="text-[#00C9A7]">성공</span>
+                                                    ) : (
+                                                      <span className="text-[#F04452]">{t.error || '실패'}</span>
+                                                    )}
+                                                  </td>
+                                                </>
+                                              )}
                                             </tr>
                                           ))}
                                         </tbody>
