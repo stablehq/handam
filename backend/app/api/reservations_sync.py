@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 import logging
 
-from app.db.models import Reservation, ReservationStatus
+from app.db.models import Reservation, ReservationStatus, NaverBizItem, RoomBizItemLink, Room
 from app.services import room_assignment
 from app.scheduler.room_auto_assign import auto_assign_rooms
 
@@ -38,6 +38,19 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
 
     raw_reservations = await reservation_provider.sync_reservations(target_date, from_date=from_date)
 
+    # Build lookup maps from DB (NaverBizItem + Room)
+    biz_items = db.query(NaverBizItem).all()
+    biz_name_map = {b.biz_item_id: b.name for b in biz_items}
+    biz_section_map = {b.biz_item_id: b.section_hint for b in biz_items}
+    biz_capacity_map = {b.biz_item_id: b.default_capacity for b in biz_items if b.default_capacity}
+
+    # Fallback: capacity from Room.base_capacity via RoomBizItemLink
+    if not biz_capacity_map:
+        links = db.query(RoomBizItemLink).join(Room).all()
+        for link in links:
+            if link.biz_item_id not in biz_capacity_map:
+                biz_capacity_map[link.biz_item_id] = link.room.base_capacity
+
     # Deduplicate by external_id (monthly chunks can overlap)
     seen_ids = {}
     for r in raw_reservations:
@@ -49,6 +62,21 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
     reservations = list(seen_ids.values())
     if len(reservations) != len(raw_reservations):
         logger.info(f"Deduplicated: {len(raw_reservations)} → {len(reservations)}")
+
+    # Enrich res_data with DB-based names and capacity
+    for res_data in reservations:
+        bid = res_data.get("naver_biz_item_id", "")
+        # 이름 enrichment (DB에 없으면 biz_item_id 그대로)
+        name = biz_name_map.get(bid, bid)
+        res_data["room_type"] = name
+        res_data["biz_item_name"] = name
+        # 인원 enrichment (네이버 API가 1 이하일 때 DB capacity로 보정)
+        if res_data.get("people_count", 1) <= 1:
+            cap = biz_capacity_map.get(bid, 1)
+            if cap and cap > res_data.get("people_count", 1):
+                res_data["people_count"] = cap
+        # section_hint enrichment (res_data에 저장해서 _create_reservation에서 사용)
+        res_data["_section_hint"] = biz_section_map.get(bid)
 
     # Bulk-fetch existing reservations by external_id/naver_booking_id in one query
     all_ext_ids = [
@@ -143,7 +171,8 @@ def _create_reservation(res_data: Dict[str, Any]) -> Reservation:
     male_count, female_count = _init_gender_counts(res_data)
 
     naver_room_type = res_data.get("room_type", "")
-    section = 'party' if naver_room_type and '파티만' in naver_room_type else 'unassigned'
+    section_hint = res_data.get("_section_hint")
+    section = section_hint if section_hint in ('party', 'room') else 'unassigned'
 
     return Reservation(
         external_id=res_data.get("external_id"),

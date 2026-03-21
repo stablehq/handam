@@ -11,51 +11,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Room type mapping (bizItemId -> display name)
-ROOM_TYPES = {
-    "7358349": "파티만",
-    "4341604": "트윈룸",
-    "2579095": "남성 4인실",
-    "5053141": "여성 4인실",
-    "10913": "남성 8인캡슐룸",
-    "4206780": "남성 2인캡슐룸",
-    "4133363": "여성 2인캡슐룸",
-    "7093674": "별관 더블룸",
-    "6960578": "별관 남성 더블룸",
-    "4368589": "3인실",
-    "5314854": "여성 4인캡슐룸",
-    "2792572": "여성 4인캡슐룸",
-    "3441558": "여성 파티만",
-    "5501758": "여성용 트윈룸",
-}
-
-# Default capacity per room type (used when Naver doesn't provide people count)
-# Dormitory = 1 (per bed), private rooms = actual capacity
-DEFAULT_CAPACITY = {
-    "7358349": 1,   # 파티만
-    "4341604": 2,   # 트윈룸
-    "2579095": 1,   # 남성 4인실 (도미토리, 침대 단위)
-    "5053141": 1,   # 여성 4인실 (도미토리, 침대 단위)
-    "10913": 1,     # 남성 8인캡슐룸 (도미토리)
-    "4206780": 1,   # 남성 2인캡슐룸 (도미토리)
-    "4133363": 1,   # 여성 2인캡슐룸 (도미토리)
-    "7093674": 2,   # 별관 더블룸
-    "6960578": 2,   # 별관 남성 더블룸
-    "4368589": 3,   # 3인실
-    "5314854": 1,   # 여성 4인캡슐룸 (도미토리)
-    "2792572": 1,   # 여성 4인캡슐룸 (도미토리)
-    "3441558": 1,   # 여성 파티만
-    "5501758": 2,   # 여성용 트윈룸
-}
-
-# Dormitory/shared room bizItemIds (gender determined by room, not user info)
-# Note: bizItemId from Naver API may be int or string; use string sets for safe comparison
-DORMITORY_IDS = {"2579095", "5053141", "10913", "4206780", "4133363", "5314854", "2792572"}
-
-# Female room bizItemIds (for gender auto-detection)
-FEMALE_ROOM_IDS = {"5053141", "4133363", "5314854", "2792572", "3441558", "5501758"}
-MALE_ROOM_IDS = {"2579095", "10913", "4206780", "6960578"}
-
 
 class RealReservationProvider:
     """Real reservation provider using Naver Smart Place API"""
@@ -305,12 +260,6 @@ class RealReservationProvider:
         if booking_options:
             people_count = booking_options[0].get('bookingCount', booking_count)
 
-        # If people_count is still default (1), use room type default capacity
-        if people_count <= 1:
-            default_cap = DEFAULT_CAPACITY.get(str(biz_item_id), 1)
-            if default_cap > people_count:
-                people_count = default_cap
-
         return {
             'external_id': str(item.get('bookingId', '')),
             'naver_booking_id': str(item.get('bookingId', '')),
@@ -325,8 +274,8 @@ class RealReservationProvider:
             'time': item.get('startTime', ''),
             'status': 'confirmed',
             'source': 'naver',
-            'room_type': ROOM_TYPES.get(str(biz_item_id), f'unknown_{biz_item_id}'),
-            'biz_item_name': ROOM_TYPES.get(str(biz_item_id), f'unknown_{biz_item_id}'),
+            'room_type': str(biz_item_id or ''),
+            'biz_item_name': str(biz_item_id or ''),
             'booking_count': booking_count,
             'people_count': people_count,
             'booking_options': json.dumps(booking_options, ensure_ascii=False) if booking_options else None,
@@ -335,7 +284,6 @@ class RealReservationProvider:
             'confirmed_at': item.get('confirmedDateTime', ''),
             'cancelled_at': item.get('cancelledDateTime', ''),
             'is_multi_booking': item.get('bookingId') in multi_booking_ids,
-            'is_dormitory': str(biz_item_id) in DORMITORY_IDS,
             'raw_data': item,
         }
 
@@ -381,8 +329,3 @@ class RealReservationProvider:
         except Exception as e:
             logger.error(f"Error fetching biz items: {e}")
             return []
-
-    @staticmethod
-    def get_room_name(biz_item_id: str) -> str:
-        """Map bizItemId to room name"""
-        return ROOM_TYPES.get(str(biz_item_id), f'방타입{biz_item_id}')

@@ -343,6 +343,8 @@ class NaverBizItem(TenantMixin, Base):
     biz_item_type = Column(String(50), nullable=True)  # STANDARD etc.
     is_exposed = Column(Boolean, default=True)  # 네이버 노출 상태
     is_active = Column(Boolean, default=True)
+    default_capacity = Column(Integer, default=1, nullable=True)  # 예약 단위 기본 인원 (도미토리=1, 개인실=2~3)
+    section_hint = Column(String(20), nullable=True)  # 'party' | 'room' | null(=unassigned)
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 

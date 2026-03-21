@@ -72,6 +72,18 @@ def init_db():
                 conn.execute(text("ALTER TABLE tenants ADD COLUMN aligo_testmode BOOLEAN DEFAULT FALSE"))
                 print("AUTO-MIGRATE: Added aligo_testmode column to tenants table")
 
+        # naver_biz_items.default_capacity + section_hint
+        if "naver_biz_items" in inspector.get_table_names():
+            existing_cols = [c["name"] for c in inspector.get_columns("naver_biz_items")]
+            if "default_capacity" not in existing_cols:
+                conn.execute(text("ALTER TABLE naver_biz_items ADD COLUMN default_capacity INTEGER DEFAULT 1"))
+                print("AUTO-MIGRATE: Added default_capacity column to naver_biz_items table")
+            if "section_hint" not in existing_cols:
+                conn.execute(text("ALTER TABLE naver_biz_items ADD COLUMN section_hint VARCHAR(20)"))
+                print("AUTO-MIGRATE: Added section_hint column to naver_biz_items table")
+                # Backfill section_hint for existing '파티만' products
+                conn.execute(text("UPDATE naver_biz_items SET section_hint = 'party' WHERE name LIKE '%파티만%' AND section_hint IS NULL"))
+
         # template_schedules.filters
         if "template_schedules" in inspector.get_table_names():
             existing_cols = [c["name"] for c in inspector.get_columns("template_schedules")]
