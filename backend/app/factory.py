@@ -16,11 +16,12 @@ def get_sms_provider_for_tenant(tenant=None) -> SMSProvider:
         return MockSMSProvider()
     from app.real.sms import RealSMSProvider
     sender = tenant.aligo_sender if tenant and tenant.aligo_sender else ''
+    testmode = settings.ALIGO_TESTMODE or (tenant.aligo_testmode if tenant and hasattr(tenant, 'aligo_testmode') else False)
     return RealSMSProvider(
         api_key=settings.ALIGO_API_KEY,
         user_id=settings.ALIGO_USER_ID,
         sender=sender,
-        testmode=settings.ALIGO_TESTMODE,
+        testmode=testmode,
     )
 
 

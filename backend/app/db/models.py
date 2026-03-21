@@ -487,6 +487,7 @@ class Tenant(Base):
     naver_email = Column(String(200), nullable=True)
     naver_password = Column(String(200), nullable=True)
     aligo_sender = Column(String(20), nullable=True)  # 펜션별 발신번호
+    aligo_testmode = Column(Boolean, default=False)  # True=테스트모드(실제 미발송)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)

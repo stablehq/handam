@@ -65,6 +65,13 @@ def init_db():
                 conn.execute(text("ALTER TABLE rooms ADD COLUMN building_id INTEGER"))
                 print("AUTO-MIGRATE: Added building_id column to rooms table")
 
+        # tenants.aligo_testmode
+        if "tenants" in inspector.get_table_names():
+            existing_cols = [c["name"] for c in inspector.get_columns("tenants")]
+            if "aligo_testmode" not in existing_cols:
+                conn.execute(text("ALTER TABLE tenants ADD COLUMN aligo_testmode BOOLEAN DEFAULT FALSE"))
+                print("AUTO-MIGRATE: Added aligo_testmode column to tenants table")
+
         # template_schedules.filters
         if "template_schedules" in inspector.get_table_names():
             existing_cols = [c["name"] for c in inspector.get_columns("template_schedules")]
