@@ -37,8 +37,12 @@ class RealReservationProvider:
             'Cookie': self.cookie,
         }
 
-    async def _fetch_page(self, client: httpx.AsyncClient, start_date: datetime, end_date: datetime, page: int = 0, size: int = 200) -> List[Dict]:
-        """Fetch a single page of reservations from Naver API"""
+    async def _fetch_page(self, client: httpx.AsyncClient, start_date: datetime, end_date: datetime, page: int = 0, size: int = 200, date_filter: str = "REGDATE") -> List[Dict]:
+        """Fetch a single page of reservations from Naver API.
+
+        Args:
+            date_filter: 'REGDATE' (등록일 기준) or 'STARTDATE' (체크인일 기준)
+        """
         now = datetime.now()
         start_str = start_date.strftime("%Y-%m-%dT00%%3A00%%3A00.000Z")
         end_str = end_date.strftime("%Y-%m-%dT23%%3A59%%3A59.999Z")
@@ -48,7 +52,7 @@ class RealReservationProvider:
             f"?bizItemTypes=STANDARD"
             f"&bookingStatusCodes="
             f"&dateDropdownType=CUSTOM"
-            f"&dateFilter=REGDATE"
+            f"&dateFilter={date_filter}"
             f"&endDateTime={end_str}"
             f"&maxDays=31"
             f"&nPayChargedStatusCodes="
@@ -110,6 +114,14 @@ class RealReservationProvider:
                 logger.info(f"Fetched {len(data)} reservations from Naver API (last 1 day)")
 
         # 공통 처리: 필터링 → 유저정보 → 변환
+        return await self._process_raw_data(data)
+
+    async def _process_raw_data(self, data: List[Dict]) -> List[Dict[str, Any]]:
+        """Raw API 응답을 표준 예약 데이터로 변환.
+
+        필터링(확정/취소) → 유저정보 조회 → 표준 형식 변환.
+        sync_reservations()와 fetch_by_checkin_date() 공통 사용.
+        """
         try:
             # Filter confirmed (RC03)
             confirmed = [
@@ -178,10 +190,43 @@ class RealReservationProvider:
             return reservations
 
         except httpx.HTTPError as e:
-            logger.error(f"HTTP error fetching reservations: {e}")
+            logger.error(f"HTTP error processing reservations: {e}")
             return []
         except Exception as e:
-            logger.error(f"Error fetching reservations: {e}")
+            logger.error(f"Error processing reservations: {e}")
+            return []
+
+    async def fetch_by_checkin_date(self, target_date: str) -> List[Dict[str, Any]]:
+        """체크인 날짜(STARTDATE) 기준으로 예약 조회. Reconciliation용.
+
+        Args:
+            target_date: 'YYYY-MM-DD' 형식의 체크인 날짜
+        """
+        dt = datetime.strptime(target_date, "%Y-%m-%d")
+        logger.info(f"Fetching reservations by check-in date: {target_date}")
+
+        try:
+            async with httpx.AsyncClient() as client:
+                all_data = []
+                page = 0
+                while True:
+                    data = await self._fetch_page(client, dt, dt, date_filter="STARTDATE", page=page)
+                    logger.info(f"Reconcile fetch: {len(data)} reservations for {target_date} (page {page})")
+                    all_data.extend(data)
+                    if len(data) < 200:
+                        break
+                    page += 1
+
+            if not all_data:
+                logger.warning(f"STARTDATE fetch returned 0 results for {target_date}")
+
+            return await self._process_raw_data(all_data)
+
+        except httpx.HTTPError as e:
+            logger.error(f"HTTP error fetching by check-in date {target_date}: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching by check-in date {target_date}: {e}")
             return []
 
     async def get_user_info(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -317,16 +362,14 @@ class RealReservationProvider:
 
                 items = []
                 for item in data:
-                    # 판매중(노출중)인 상품만 가져오기
-                    if not item.get('isImp', False):
-                        continue
                     items.append({
                         'biz_item_id': str(item.get('bizItemId', '')),
                         'name': item.get('name', ''),
                         'biz_item_type': item.get('bizItemType', ''),
-                        'is_exposed': True,
+                        'is_exposed': bool(item.get('isImp', False)),
                     })
-                logger.info(f"Fetched {len(items)} exposed biz items (total: {len(data)})")
+                exposed_count = sum(1 for i in items if i['is_exposed'])
+                logger.info(f"Fetched {len(items)} biz items ({exposed_count} exposed, {len(items) - exposed_count} hidden)")
                 return items
         except Exception as e:
             logger.error(f"Error fetching biz items: {e}")

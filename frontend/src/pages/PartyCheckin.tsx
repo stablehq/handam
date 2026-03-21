@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Button, Modal, ModalHeader, ModalBody, Spinner } from 'flowbite-react'
-import { Users, AlertTriangle } from 'lucide-react'
+import { Users, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { partyCheckinAPI } from '@/services/api'
 import { toast } from 'sonner'
 
@@ -15,6 +15,9 @@ interface PartyGuest {
   checked_in: boolean
   checked_in_at: string | null
   room_number: string | null
+  stay_group_id?: string | null
+  stay_group_order?: number | null
+  is_consecutive_stay?: boolean
 }
 
 function getTodayStr(): string {
@@ -118,50 +121,65 @@ export default function PartyCheckin() {
 
   return (
     <div className="mx-auto max-w-lg space-y-5">
-      {/* 날짜 + 카운터 한 줄 */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="page-title">파티 입장 체크</h1>
-        <input
-          type="date"
-          value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
-          className="rounded-lg border border-[#E5E8EB] bg-white px-3 py-2 text-body text-[#191F28] focus:border-[#3182F6] focus:outline-none dark:border-gray-600 dark:bg-[#1E1E24] dark:text-white"
-        />
+      {/* 날짜 선택 — Toss style */}
+      <div className="flex flex-col items-center pt-2">
+        {(() => {
+          const d = new Date(selectedDate + 'T00:00:00');
+          const days = ['일', '월', '화', '수', '목', '금', '토'];
+          const isToday = selectedDate === getTodayStr();
+          return (
+            <>
+              <span className="text-label text-[#8B95A1]">
+                {`${days[d.getDay()]}요일`}
+                {isToday && <span className="ml-1.5 text-[#3182F6] font-medium">오늘</span>}
+              </span>
+              <div className="mt-1 flex items-center gap-5">
+                <button
+                  onClick={() => {
+                    const prev = new Date(selectedDate + 'T00:00:00');
+                    prev.setDate(prev.getDate() - 1);
+                    setSelectedDate(`${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`);
+                  }}
+                  className="flex h-10 w-10 items-center justify-center rounded-full text-[#B0B8C1] transition-all hover:bg-[#F2F4F6] hover:text-[#4E5968] active:scale-95 dark:hover:bg-[#2C2C34] dark:hover:text-gray-300"
+                >
+                  <ChevronLeft size={22} strokeWidth={1.5} />
+                </button>
+                <label className="relative cursor-pointer select-none">
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                  />
+                  <span className="text-[36px] font-bold leading-none tracking-tight text-[#191F28] dark:text-white">
+                    {`${d.getMonth() + 1}월 ${d.getDate()}일`}
+                  </span>
+                </label>
+                <button
+                  onClick={() => {
+                    const next = new Date(selectedDate + 'T00:00:00');
+                    next.setDate(next.getDate() + 1);
+                    setSelectedDate(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`);
+                  }}
+                  className="flex h-10 w-10 items-center justify-center rounded-full text-[#B0B8C1] transition-all hover:bg-[#F2F4F6] hover:text-[#4E5968] active:scale-95 dark:hover:bg-[#2C2C34] dark:hover:text-gray-300"
+                >
+                  <ChevronRight size={22} strokeWidth={1.5} />
+                </button>
+              </div>
+            </>
+          );
+        })()}
       </div>
 
-      {/* 통합 카운터 카드 */}
-      <div className="section-card px-5 py-4">
-        <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#E8F3FF] dark:bg-[#3182F6]/15">
-            <Users size={18} className="text-[#3182F6]" />
-          </div>
-          <span className="text-body tabular-nums text-[#191F28] dark:text-white">
-            전체{' '}
-            <span className="font-bold">{totalPeople}</span>
-            <span className="text-label text-[#B0B8C1]">명</span>
-            <span className="mx-2 text-[#E5E8EB] dark:text-gray-700">·</span>
-            입장{' '}
-            <span className="font-bold text-[#00C9A7]">{checkedInPeople}</span>
-            <span className="text-label text-[#B0B8C1]">명</span>
-            <span className="mx-2 text-[#E5E8EB] dark:text-gray-700">·</span>
-            미입장{' '}
-            <span className="font-bold text-[#FF9F00]">{notCheckedInPeople}</span>
-            <span className="text-label text-[#B0B8C1]">명</span>
-          </span>
-        </div>
+      {/* 카운터 */}
+      <div className="flex items-center justify-center gap-[15px] text-body tabular-nums">
+        <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-[5px] rounded-full bg-[#191F28] dark:bg-white" /><span>전체 <span className="font-bold text-[#191F28] dark:text-white">{totalPeople}</span><span className="text-[#B0B8C1]">명</span></span></span>
+        <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-[5px] rounded-full bg-[#00C9A7]" /><span>입장 <span className="font-bold text-[#00C9A7]">{checkedInPeople}</span><span className="text-[#B0B8C1]">명</span></span></span>
+        <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-[5px] rounded-full bg-[#FF9F00]" /><span>미입장 <span className="font-bold text-[#FF9F00]">{notCheckedInPeople}</span><span className="text-[#B0B8C1]">명</span></span></span>
       </div>
 
       {/* 테이블 */}
       <div className="section-card overflow-hidden">
-        <div className="section-header border-b border-[#E5E8EB] dark:border-gray-800">
-          <span className="text-heading font-semibold text-[#191F28] dark:text-white">
-            파티 예약자 목록
-          </span>
-          <span className="text-label text-[#8B95A1]">
-            {guests.length}건
-          </span>
-        </div>
-
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <Spinner size="lg" />
@@ -175,17 +193,17 @@ export default function PartyCheckin() {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-[#E5E8EB] bg-[#F8F9FA] dark:border-gray-800 dark:bg-[#1E1E24]">
-                  <th className="px-4 py-3 text-left text-caption font-semibold uppercase tracking-wide text-[#8B95A1]">
+                <tr className="border-b border-[#E5E8EB] dark:border-gray-800">
+                  <th className="px-4 py-2.5 text-left text-caption font-medium text-[#8B95A1]">
                     이름
                   </th>
-                  <th className="px-4 py-3 text-center text-caption font-semibold uppercase tracking-wide text-[#8B95A1]">
+                  <th className="px-4 py-2.5 text-center text-caption font-medium text-[#8B95A1]">
                     성별
                   </th>
-                  <th className="px-4 py-3 text-center text-caption font-semibold uppercase tracking-wide text-[#8B95A1]">
+                  <th className="px-4 py-2.5 text-center text-caption font-medium text-[#8B95A1]">
                     파티
                   </th>
-                  <th className="px-4 py-3 text-center text-caption font-semibold uppercase tracking-wide text-[#8B95A1]">
+                  <th className="px-4 py-2.5 text-center text-caption font-medium text-[#8B95A1]">
                     구분
                   </th>
                 </tr>
@@ -216,6 +234,7 @@ export default function PartyCheckin() {
                         >
                           {guest.customer_name}
                         </span>
+                        {guest.is_consecutive_stay && <span className="text-caption text-[#8B95A1] ml-1">연박 {(guest.stay_group_order ?? 0) + 1}일차</span>}
                       </div>
                     </td>
 

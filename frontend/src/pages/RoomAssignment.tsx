@@ -59,6 +59,9 @@ interface Reservation {
   check_out_date: string | null;
   booking_source?: string;
   sms_assignments: SmsAssignment[];
+  stay_group_id?: string | null;
+  stay_group_order?: number | null;
+  is_consecutive_stay?: boolean;
 }
 
 function isMultiNight(res: Reservation): boolean {
@@ -1140,7 +1143,7 @@ const RoomAssignment = () => {
         >
           <div className="overflow-hidden px-1.5">
             <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className="font-medium text-[#191F28] dark:text-white" placeholder="이름" />
-
+            {res.is_consecutive_stay && <Badge size="xs" color="purple" className="ml-1">연박</Badge>}
           </div>
           <div className="overflow-hidden px-1.5">
             <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-[#8B95A1] tabular-nums" placeholder="연락처" />
@@ -1411,7 +1414,7 @@ const RoomAssignment = () => {
     const bothGuests = partyGuests.filter((r) => r.party_type === '2');
     const bothTotal = bothGuests.reduce((sum, r) => sum + (r.male_count || 0) + (r.female_count || 0), 0);
     const conversionRate = firstTotal > 0 ? Math.round((bothTotal / firstTotal) * 100) : 0;
-    const genderRatio = partyFemale > 0 ? `${(partyMale / partyFemale).toFixed(1)}:1` : partyMale > 0 ? `${partyMale}:0` : '-';
+    const genderRatio = firstFemale > 0 ? `${(firstMale / firstFemale).toFixed(1)}:1` : firstMale > 0 ? `${firstMale}:0` : '-';
 
     return {
       roomTotal, roomMale, roomFemale,

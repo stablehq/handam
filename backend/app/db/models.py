@@ -117,6 +117,10 @@ class Reservation(TenantMixin, Base):
     # Multi-booking flag
     is_multi_booking = Column(Boolean, default=False)
 
+    # Consecutive stay (연박) linking
+    stay_group_id = Column(String(36), nullable=True, index=True)   # UUID — same value for all reservations in a consecutive stay group
+    stay_group_order = Column(Integer, nullable=True)                # Order within group (0, 1, 2...)
+
     # Extended Naver booking data
     check_out_date = Column("end_date", String(20), nullable=True)  # checkout date YYYY-MM-DD  # TODO: PostgreSQL 전환 시 Date 타입으로 변경
     biz_item_name = Column(String(200), nullable=True)  # product/room name from Naver
@@ -391,6 +395,7 @@ class TemplateSchedule(TenantMixin, Base):
     next_run_at = Column(DateTime, nullable=True)
 
     target_mode = Column(String(20), default='once')  # 'once' (체크인 당일만) or 'daily' (매일, 연박 포함)
+    once_per_stay = Column("is_once_per_stay", Boolean, default=False)  # True: 연박 그룹 내 최초 체크인에만 발송
 
     # Relationship
     template = relationship("MessageTemplate", backref="schedules")

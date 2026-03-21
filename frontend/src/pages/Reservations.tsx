@@ -59,6 +59,9 @@ interface Reservation {
   cancelled_at?: string | null;
   notes?: string | null;
   created_at?: string | null;
+  stay_group_id?: string | null;
+  stay_group_order?: number | null;
+  is_consecutive_stay?: boolean;
 }
 
 interface FormState {
@@ -527,6 +530,7 @@ export default function Reservations() {
                           <span className="font-medium text-gray-900 dark:text-white">
                             {r.customer_name}
                           </span>
+                          {r.is_consecutive_stay && <Badge size="xs" color="purple" className="ml-1">연박</Badge>}
                           {r.visitor_name && r.visitor_name !== r.customer_name && (
                             <p className="text-caption text-gray-400">{r.visitor_name}</p>
                           )}

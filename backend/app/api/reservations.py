@@ -107,6 +107,9 @@ class ReservationResponse(BaseModel):
     confirmed_at: Optional[str] = None
     cancelled_at: Optional[str] = None
     section: Optional[str] = None  # 'room', 'unassigned', 'party'
+    stay_group_id: Optional[str] = None
+    stay_group_order: Optional[int] = None
+    is_consecutive_stay: bool = False
     created_at: datetime
     updated_at: datetime
     sms_assignments: List[SmsAssignmentResponse] = []
@@ -168,6 +171,9 @@ def _to_response(res: Reservation, override_room: Optional[str] = None, override
         confirmed_at=res.confirmed_at,
         cancelled_at=res.cancelled_at,
         section=res.section or 'unassigned',
+        stay_group_id=res.stay_group_id,
+        stay_group_order=res.stay_group_order,
+        is_consecutive_stay=bool(res.stay_group_id),
         created_at=res.created_at,
         updated_at=res.updated_at,
         sms_assignments=assignments,
@@ -686,3 +692,64 @@ async def send_sms_by_tag(
     db.commit()
 
     return {"success": True, **result}
+
+
+# ---------------------------------------------------------------------------
+# Consecutive stay (연박) endpoints
+# ---------------------------------------------------------------------------
+
+class StayGroupLinkRequest(BaseModel):
+    reservation_ids: List[int]
+
+
+@router.post("/detect-consecutive", response_model=ActionResponse)
+async def detect_consecutive_stays(
+    db: Session = Depends(get_tenant_scoped_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Manually trigger consecutive stay detection for the current tenant."""
+    from app.services.consecutive_stay import detect_and_link_consecutive_stays
+
+    result = detect_and_link_consecutive_stays(db)
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"연박 감지 완료: {result['groups']}개 그룹, {result['linked']}건 링크, {result['unlinked']}건 해제",
+    }
+
+
+@router.post("/{reservation_id}/stay-group/link", response_model=ActionResponse)
+async def link_stay_group(
+    reservation_id: int,
+    request: StayGroupLinkRequest,
+    db: Session = Depends(get_tenant_scoped_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Manually link reservations into a consecutive stay group."""
+    from app.services.consecutive_stay import link_reservations
+
+    all_ids = list(set([reservation_id] + request.reservation_ids))
+    group_id = link_reservations(db, all_ids)
+    if not group_id:
+        raise HTTPException(status_code=400, detail="최소 2개 이상의 유효한 예약이 필요합니다")
+
+    db.commit()
+    return {"success": True, "message": f"연박 그룹 생성: {group_id}"}
+
+
+@router.delete("/{reservation_id}/stay-group/unlink", response_model=ActionResponse)
+async def unlink_stay_group(
+    reservation_id: int,
+    db: Session = Depends(get_tenant_scoped_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove a reservation from its consecutive stay group."""
+    from app.services.consecutive_stay import unlink_from_group
+
+    unlinked = unlink_from_group(db, reservation_id)
+    if not unlinked:
+        raise HTTPException(status_code=404, detail="연박 그룹에 속하지 않은 예약입니다")
+
+    db.commit()
+    return {"success": True, "message": "연박 그룹에서 해제되었습니다"}

@@ -153,7 +153,8 @@ const RoomSettings = () => {
     display_name: string;
     default_capacity: number;
     section_hint: string;
-    is_active: boolean;
+    active: boolean;
+    exposed?: boolean;
   }>>([]);
   const [bizItemEdits, setBizItemEdits] = useState<Record<string, {display_name?: string; default_capacity?: number; section_hint?: string}>>({});
   const [bizItemSaving, setBizItemSaving] = useState(false);
@@ -1153,12 +1154,12 @@ const RoomSettings = () => {
       </Modal>
 
       {/* ── Biz item settings modal ── */}
-      <Modal size="lg" show={bizItemModalOpen} onClose={() => setBizItemModalOpen(false)}>
+      <Modal size="fit" show={bizItemModalOpen} onClose={() => setBizItemModalOpen(false)} className="[&>div>div]:w-fit [&>div>div]:max-w-[90vw] [&>div>div]:mx-auto">
         <ModalHeader>네이버 상품 설정</ModalHeader>
         <ModalBody>
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-label text-[#8B95A1]">네이버에서 상품 목록을 가져옵니다.</p>
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-label text-[#8B95A1] whitespace-nowrap">네이버에서 상품 목록을 가져옵니다.</p>
               <Button color="light" size="sm" onClick={handleBizItemSync} disabled={bizItemSyncing}>
                 {bizItemSyncing ? (
                   <><Spinner size="sm" className="mr-1.5" />동기화 중...</>
@@ -1169,8 +1170,8 @@ const RoomSettings = () => {
             </div>
 
             {bizItemSettingsList.length > 0 ? (
-              <div className="rounded-lg border border-[#E5E8EB] dark:border-gray-700 overflow-hidden">
-                <Table>
+              <div className="rounded-lg border border-[#E5E8EB] dark:border-gray-700">
+                <Table className="whitespace-nowrap">
                   <TableHead>
                     <TableRow>
                       <TableHeadCell className="text-caption">상품명 (네이버)</TableHeadCell>
@@ -1185,11 +1186,15 @@ const RoomSettings = () => {
                       return (
                         <TableRow key={item.biz_item_id}>
                           <TableCell>
-                            <span className="text-caption text-[#8B95A1]">{item.name}</span>
+                            <span className="flex items-center gap-1.5 text-caption text-[#8B95A1]">
+                              <span className={`inline-block h-[7px] w-[7px] rounded-full flex-shrink-0 ${item.exposed !== false ? 'bg-[#00C9A7]' : 'bg-[#B0B8C1]'}`} />
+                              {item.name}
+                            </span>
                           </TableCell>
                           <TableCell>
                             <TextInput
                               sizing="sm"
+                              className="min-w-[160px]"
                               placeholder={item.name}
                               value={edits.display_name ?? item.display_name ?? ''}
                               onChange={e => handleBizItemEdit(item.biz_item_id, 'display_name', e.target.value)}

@@ -70,6 +70,10 @@ class ReservationProvider(Protocol):
         """Get detailed reservation info"""
         ...
 
+    async def fetch_by_checkin_date(self, target_date: str) -> List[Dict[str, Any]]:
+        """Fetch reservations by check-in date for reconciliation"""
+        ...
+
 
 class LLMProvider(Protocol):
     """LLM (Claude) abstraction for auto-response generation"""

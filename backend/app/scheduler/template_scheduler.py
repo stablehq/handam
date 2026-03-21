@@ -472,7 +472,38 @@ class TemplateScheduleExecutor:
                 sent_conditions = sent_conditions & (ReservationSmsAssignment.date == target_date)
             query = query.filter(~exists().where(sent_conditions))
 
-        return query.all()
+        results = query.all()
+
+        # once_per_stay: 연박 그룹 내 가장 빠른 체크인 예약에만 발송
+        if schedule.once_per_stay and results:
+            from sqlalchemy import exists as sa_exists
+            filtered = []
+            seen_groups: set[str] = set()
+            # Sort by check_in_date to ensure earliest first
+            results.sort(key=lambda r: r.check_in_date)
+            for res in results:
+                if res.stay_group_id:
+                    if res.stay_group_id in seen_groups:
+                        continue  # Skip: group already has a target
+                    # Check if an earlier group member already received this template
+                    earlier_sent = self.db.query(sa_exists().where(
+                        (ReservationSmsAssignment.template_key == schedule.template.template_key) &
+                        (ReservationSmsAssignment.sent_at.isnot(None)) &
+                        (ReservationSmsAssignment.reservation_id.in_(
+                            self.db.query(Reservation.id).filter(
+                                Reservation.stay_group_id == res.stay_group_id,
+                                Reservation.id != res.id,
+                            )
+                        ))
+                    )).scalar()
+                    if earlier_sent:
+                        seen_groups.add(res.stay_group_id)
+                        continue  # Skip: another group member already sent
+                    seen_groups.add(res.stay_group_id)
+                filtered.append(res)
+            results = filtered
+
+        return results
 
     def auto_assign_for_schedule(self, schedule: TemplateSchedule) -> int:
         """

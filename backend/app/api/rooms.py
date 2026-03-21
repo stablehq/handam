@@ -212,7 +212,7 @@ def _biz_item_to_response(item: NaverBizItem) -> NaverBizItemResponse:
 @router.get("/naver/biz-items", response_model=List[NaverBizItemResponse])
 async def get_naver_biz_items(db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Get stored Naver biz items"""
-    items = db.query(NaverBizItem).filter(NaverBizItem.is_active == True).order_by(NaverBizItem.name).all()
+    items = db.query(NaverBizItem).order_by(NaverBizItem.is_exposed.desc(), NaverBizItem.updated_at.desc()).all()
     return [_biz_item_to_response(i) for i in items]
 
 

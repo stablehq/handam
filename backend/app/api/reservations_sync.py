@@ -25,18 +25,23 @@ def _parse_datetime(value: str | None) -> datetime | None:
         return None
 
 
-async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, from_date: str = None) -> Dict[str, Any]:
+async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, from_date: str = None, reconcile_date: str = None) -> Dict[str, Any]:
     """
     Fetch reservations from Naver and upsert into DB.
 
     Args:
         from_date: Optional start date (YYYY-MM-DD) for historical sync.
+        reconcile_date: Optional check-in date (YYYY-MM-DD) for reconciliation.
+                        Uses STARTDATE filter instead of REGDATE.
 
     Returns summary dict with synced/added/updated counts.
     """
-    logger.info(f"Starting Naver reservation sync...{f' (from {from_date})' if from_date else ''}")
-
-    raw_reservations = await reservation_provider.sync_reservations(target_date, from_date=from_date)
+    if reconcile_date:
+        logger.info(f"Starting Naver reconciliation for check-in date: {reconcile_date}")
+        raw_reservations = await reservation_provider.fetch_by_checkin_date(reconcile_date)
+    else:
+        logger.info(f"Starting Naver reservation sync...{f' (from {from_date})' if from_date else ''}")
+        raw_reservations = await reservation_provider.sync_reservations(target_date, from_date=from_date)
 
     # Build lookup maps from DB (NaverBizItem + Room)
     biz_items = db.query(NaverBizItem).all()
@@ -120,7 +125,21 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
 
     db.commit()
 
-    # 새 예약이 추가되었으면 자동 배정 실행 (내일 이후 날짜만, 오늘은 미배정 유지)
+    # 연박 감지: 새/갱신 예약에 대해 연속 투숙 링크
+    if added_count > 0 or updated_count > 0:
+        try:
+            from app.services.consecutive_stay import detect_and_link_consecutive_stays
+            stay_result = detect_and_link_consecutive_stays(db)
+            db.commit()
+            if stay_result["linked"] > 0 or stay_result["unlinked"] > 0:
+                logger.info(f"Consecutive stay detection after sync: {stay_result}")
+        except Exception as e:
+            logger.error(f"Consecutive stay detection failed: {e}")
+            db.rollback()
+
+    # 새 예약이 추가되었으면 자동 배정 실행
+    # reconcile 경로: 오늘 포함 (reconciliation은 오늘 체크인 누락분 보완 목적)
+    # 일반 sync 경로: 내일 이후만 (오늘은 수동 배정 유지)
     if added_count > 0:
         try:
             from zoneinfo import ZoneInfo
@@ -128,14 +147,18 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
             dates = set()
             for res_data in reservations:
                 d = res_data.get("date")
-                if d and d > today:
-                    dates.add(d)
+                if reconcile_date:
+                    if d and d >= today:  # reconcile: 오늘 포함
+                        dates.add(d)
+                else:
+                    if d and d > today:   # 일반 sync: 오늘 제외
+                        dates.add(d)
             assigned_total = 0
             for d in sorted(dates):
-                result = auto_assign_rooms(db, d)
+                result = auto_assign_rooms(db, d, created_by="reconcile" if reconcile_date else "sync")
                 assigned_total += result.get("assigned", 0)
             if dates:
-                logger.info(f"Auto-assigned {assigned_total} rooms after sync (skipped today {today})")
+                logger.info(f"Auto-assigned {assigned_total} rooms after {'reconcile' if reconcile_date else 'sync'} (dates: {sorted(dates)})")
         except Exception as e:
             logger.error(f"Auto-assign after sync failed: {e}")
 
@@ -242,6 +265,10 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
         existing.status = ReservationStatus.CANCELLED
         # Auto-unassign room on cancellation
         room_assignment.clear_all_for_reservation(db, existing.id)
+        # Remove from consecutive stay group on cancellation
+        if existing.stay_group_id:
+            from app.services.consecutive_stay import unlink_from_group
+            unlink_from_group(db, existing.id)
 
     # Reconcile room assignments if dates changed
     if existing.check_in_date != old_date or existing.check_out_date != old_end_date:

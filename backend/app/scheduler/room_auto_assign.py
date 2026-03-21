@@ -79,7 +79,10 @@ def auto_assign_rooms(db: Session, target_date: str = None, created_by: str = "s
         log_activity(
             db,
             type="room_assign",
-            title=f"객실 자동 배정 : {'스케줄' if created_by == 'system' else '수동 버튼'} ({target_date})",
+            title="객실 자동 배정 : {} ({})".format(
+                {'scheduler': '10시 스케줄러', 'sync': '신규 예약자 자동 배정', 'reconcile': '예약 대사 후 배정'}.get(created_by, '수동 버튼'),
+                target_date,
+            ),
             detail={
                 "target_date": target_date,
                 "targets": assigned_details,
@@ -107,6 +110,7 @@ def _get_unassigned_reservations(db: Session, target_date: str) -> List[Reservat
         .filter(
             Reservation.naver_biz_item_id.isnot(None),
             Reservation.status == ReservationStatus.CONFIRMED,
+            Reservation.section != 'party',
             Reservation.check_in_date <= target_date,
         )
         .filter(
@@ -167,11 +171,44 @@ def _assign_all_rooms(
     # Sort candidates: females first, then males, then unknown gender
     candidates = sorted(candidates, key=_gender_sort_key)
 
+    # Build stay_group → existing room map for consecutive stay same-room preference
+    stay_group_room_map: Dict[str, str] = {}
+    group_ids = {r.stay_group_id for r in candidates if r.stay_group_id}
+    if group_ids:
+        # Find existing assignments for any member of these groups
+        # Check target_date AND adjacent dates (previous day) to seed from prior night
+        from datetime import datetime as _dt, timedelta as _td
+        try:
+            prev_date = (_dt.strptime(target_date, "%Y-%m-%d") - _td(days=1)).strftime("%Y-%m-%d")
+            check_dates = [target_date, prev_date]
+        except ValueError:
+            check_dates = [target_date]
+
+        group_members = (
+            db.query(Reservation.stay_group_id, RoomAssignment.room_number)
+            .join(RoomAssignment, RoomAssignment.reservation_id == Reservation.id)
+            .filter(
+                Reservation.stay_group_id.in_(group_ids),
+                RoomAssignment.date.in_(check_dates),
+            )
+            .all()
+        )
+        for gid, rn in group_members:
+            if gid and rn:
+                stay_group_room_map[gid] = rn
+
     for res in candidates:
         candidate_rooms = biz_to_rooms.get(res.naver_biz_item_id, [])
         # Sort rooms by gender-specific priority
         res_gender = (res.gender or "").strip()
         candidate_rooms = _sort_candidate_rooms(candidate_rooms, res.naver_biz_item_id, res_gender)
+
+        # Consecutive stay: prepend the group's existing room to candidates
+        if res.stay_group_id and res.stay_group_id in stay_group_room_map:
+            preferred_room_number = stay_group_room_map[res.stay_group_id]
+            preferred = [r for r in candidate_rooms if r.room_number == preferred_room_number]
+            if preferred:
+                candidate_rooms = preferred + [r for r in candidate_rooms if r.room_number != preferred_room_number]
         if not candidate_rooms:
             continue
 
@@ -216,6 +253,9 @@ def _assign_all_rooms(
                 )
                 db.flush()
                 assigned_results.append({"reservation_id": res.id, "guest_name": res.customer_name, "room_number": room.room_number})
+                # Update group room map so next group member prefers same room
+                if res.stay_group_id:
+                    stay_group_room_map[res.stay_group_id] = room.room_number
                 break
             else:
                 # Regular room: one per room
@@ -229,6 +269,9 @@ def _assign_all_rooms(
                     )
                     db.flush()
                     assigned_results.append({"reservation_id": res.id, "guest_name": res.customer_name, "room_number": room.room_number})
+                    # Update group room map so next group member prefers same room
+                    if res.stay_group_id:
+                        stay_group_room_map[res.stay_group_id] = room.room_number
                     break
 
     return assigned_results
@@ -257,8 +300,8 @@ def daily_assign_rooms(db: Session):
             logger.info(f"Cleared {deleted} auto-assignments for {target_date}")
     db.flush()
 
-    result_today = auto_assign_rooms(db, today)
-    result_tomorrow = auto_assign_rooms(db, tomorrow)
+    result_today = auto_assign_rooms(db, today, created_by="scheduler")
+    result_tomorrow = auto_assign_rooms(db, tomorrow, created_by="scheduler")
 
     return {
         "today": result_today,

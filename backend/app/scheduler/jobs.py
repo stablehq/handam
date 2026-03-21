@@ -131,6 +131,84 @@ async def sync_status_log_job():
     _for_each_tenant(_log_status)
 
 
+async def detect_consecutive_stays_job():
+    """
+    Detect and link consecutive stays (연박) for all active tenants.
+    Runs 4 times daily (9, 10, 11, 12 KST) as a safety net.
+    Primary detection happens inline after each Naver sync.
+    """
+    logger.info("Running consecutive stay detection job (all tenants)")
+
+    from app.services.consecutive_stay import detect_and_link_consecutive_stays
+
+    def _detect(db, tenant):
+        result = detect_and_link_consecutive_stays(db)
+        if result["linked"] > 0 or result["unlinked"] > 0:
+            logger.info(f"[{tenant.slug}] Consecutive stay detection: {result}")
+
+    _for_each_tenant(_detect)
+
+
+async def reconcile_today_reservations_job():
+    """
+    Daily reconciliation: fetch today+tomorrow check-in reservations by STARTDATE filter.
+    Catches any reservations missed by the regular 5-min REGDATE sync.
+    Runs at 09:55 KST, before daily room assignment at 10:00.
+    """
+    from zoneinfo import ZoneInfo
+    from app.api.reservations_sync import sync_naver_to_db
+    from app.services.activity_logger import log_activity
+
+    KST = ZoneInfo("Asia/Seoul")
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    from datetime import timedelta as _td
+    tomorrow = (datetime.now(KST) + _td(days=1)).strftime("%Y-%m-%d")
+
+    logger.info(f"Running daily reconciliation for {today} and {tomorrow} (all tenants)")
+
+    token_bypass = bypass_tenant_filter.set(True)
+    db = SessionLocal()
+    try:
+        tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
+    finally:
+        db.close()
+        bypass_tenant_filter.reset(token_bypass)
+
+    for tenant in tenants:
+        token = current_tenant_id.set(tenant.id)
+        db = SessionLocal()
+        try:
+            reservation_provider = get_reservation_provider_for_tenant(tenant)
+            total_added = 0
+            for target_date in [today, tomorrow]:
+                result = await sync_naver_to_db(reservation_provider, db, reconcile_date=target_date)
+                added = result.get("added", 0)
+                total_added += added
+                if added > 0:
+                    logger.info(f"[{tenant.slug}] Reconcile {target_date}: +{added} reservations")
+
+            if total_added > 0:
+                log_activity(
+                    db,
+                    type="naver_reconcile",
+                    title=f"네이버 예약 대사 : 스케줄 ({today}~{tomorrow})",
+                    detail={"today": today, "tomorrow": tomorrow, "added": total_added},
+                    target_count=total_added,
+                    success_count=total_added,
+                    created_by="scheduler",
+                )
+                db.commit()
+                logger.info(f"[{tenant.slug}] Reconciliation complete: {total_added} added")
+            else:
+                logger.info(f"[{tenant.slug}] Reconciliation: no missing reservations")
+        except Exception as e:
+            logger.error(f"[{tenant.slug}] Reconciliation error: {e}")
+            db.rollback()
+        finally:
+            db.close()
+            current_tenant_id.reset(token)
+
+
 async def daily_room_assign_job():
     """
     Daily room auto-assignment for today and tomorrow.
@@ -172,6 +250,24 @@ def setup_scheduler():
         trigger=CronTrigger(hour=10, minute=0, timezone='Asia/Seoul'),
         id='daily_room_assign',
         name='객실 자동 배정 (오전 10시)',
+        replace_existing=True,
+    )
+
+    # Daily reconciliation - 09:55 KST (before room assignment at 10:00)
+    scheduler.add_job(
+        reconcile_today_reservations_job,
+        trigger=CronTrigger(hour=9, minute=55, timezone='Asia/Seoul'),
+        id='reconcile_today_reservations',
+        name='네이버 예약 대사 (오전 9:55)',
+        replace_existing=True,
+    )
+
+    # Consecutive stay detection - 4 times daily (09, 10, 11, 12 KST)
+    scheduler.add_job(
+        detect_consecutive_stays_job,
+        trigger=CronTrigger(hour='9,10,11,12', minute=0, timezone='Asia/Seoul'),
+        id='detect_consecutive_stays',
+        name='연박 감지 (하루 4회)',
         replace_existing=True,
     )
 
