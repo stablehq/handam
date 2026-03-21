@@ -247,7 +247,7 @@ class RoomBizItemLink(TenantMixin, Base):
 
     id = Column(Integer, primary_key=True, index=True)
     room_id = Column(Integer, ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
-    biz_item_id = Column(String(100), ForeignKey("naver_biz_items.biz_item_id"), nullable=False)
+    biz_item_id = Column(String(100), nullable=False, index=True)
     male_priority = Column(Integer, default=0)      # 남성 배정 순서 (낮을수록 먼저, 0=미설정)
     female_priority = Column(Integer, default=0)     # 여성 배정 순서 (낮을수록 먼저, 0=미설정)
     created_at = Column(DateTime, default=utc_now)
@@ -258,7 +258,12 @@ class RoomBizItemLink(TenantMixin, Base):
 
     # Relationships
     room = relationship("Room", back_populates="biz_item_links")
-    biz_item = relationship("NaverBizItem", lazy="joined")
+    biz_item = relationship(
+        "NaverBizItem",
+        primaryjoin="and_(foreign(RoomBizItemLink.biz_item_id) == NaverBizItem.biz_item_id, foreign(RoomBizItemLink.tenant_id) == NaverBizItem.tenant_id)",
+        lazy="joined",
+        viewonly=True,
+    )
 
 
 class Building(TenantMixin, Base):

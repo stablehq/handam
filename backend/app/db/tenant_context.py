@@ -3,7 +3,7 @@ Tenant context management for multi-tenant isolation.
 Uses ContextVar to store current tenant_id per-request.
 """
 from contextvars import ContextVar
-from typing import Optional, Generator
+from typing import Optional
 from sqlalchemy.orm import Session, Query
 from sqlalchemy import event
 
@@ -12,26 +12,6 @@ current_tenant_id: ContextVar[Optional[int]] = ContextVar("current_tenant_id", d
 
 # Explicit bypass flag for scheduler/migration contexts
 bypass_tenant_filter: ContextVar[bool] = ContextVar("bypass_tenant_filter", default=False)
-
-
-def tenant_query(db: Session, model):
-    """
-    Create a tenant-scoped query. Use this instead of db.query(Model) for tenant models.
-
-    Usage:
-        # Before: db.query(Reservation).filter(...)
-        # After:  tenant_query(db, Reservation).filter(...)
-    """
-    tid = current_tenant_id.get()
-    if tid is None and not bypass_tenant_filter.get():
-        raise RuntimeError(
-            f"tenant_query({model.__name__}): tenant context not set. "
-            "Use get_tenant_scoped_db() or set bypass_tenant_filter for scheduler."
-        )
-    query = db.query(model)
-    if tid is not None:
-        query = query.filter(model.tenant_id == tid)
-    return query
 
 
 def tenant_filter(db: Session, model, base_query=None):
@@ -117,6 +97,16 @@ def _apply_tenant_filter_on_select(query):
             if expr is not None:
                 model = _resolve_model_from_expr(expr)
                 if model is not None and model in TENANT_MODELS and model not in filtered_models:
+                    query = query.enable_assertions(False).filter(model.tenant_id == tid)
+                    filtered_models.add(model)
+
+    # Fallback: check select_from() tables for bare func expressions
+    # e.g., db.query(func.count()).select_from(Reservation)
+    # column_descriptions won't resolve the model, but froms will
+    if hasattr(query, 'selectable') and hasattr(query.selectable, 'froms'):
+        for from_clause in query.selectable.froms:
+            for model in TENANT_MODELS:
+                if hasattr(model, '__table__') and model.__table__ is from_clause and model not in filtered_models:
                     query = query.enable_assertions(False).filter(model.tenant_id == tid)
                     filtered_models.add(model)
 

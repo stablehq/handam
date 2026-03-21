@@ -1,5 +1,6 @@
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
+from typing import Optional
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import User, UserRole, Tenant, UserTenantRole
@@ -110,19 +111,30 @@ async def get_me(current_user: User = Depends(get_current_user), db: Session = D
 async def list_users(
     current_user: User = Depends(require_admin_or_above),
     db: Session = Depends(get_db),
-    x_tenant_id: int = None,
+    x_tenant_id: Optional[int] = Header(None, alias="X-Tenant-Id"),
 ):
     query = db.query(User)
     if current_user.role == UserRole.ADMIN:
+        # ADMIN: tenant_id required, must verify membership
+        if not x_tenant_id:
+            raise HTTPException(status_code=400, detail="X-Tenant-Id 헤더가 필요합니다")
+        admin_mapping = db.query(UserTenantRole).filter(
+            UserTenantRole.user_id == current_user.id,
+            UserTenantRole.tenant_id == x_tenant_id,
+        ).first()
+        if not admin_mapping:
+            raise HTTPException(status_code=403, detail="해당 펜션에 대한 접근 권한이 없습니다")
         query = query.filter(User.role == UserRole.STAFF)
-    else:
-        query = query.filter(User.role != UserRole.SUPERADMIN)
-
-    # ADMIN은 자기 테넌트 소속 유저만 조회 (SUPERADMIN은 전체)
-    if current_user.role != UserRole.SUPERADMIN and x_tenant_id:
         query = query.join(UserTenantRole, UserTenantRole.user_id == User.id).filter(
             UserTenantRole.tenant_id == x_tenant_id
         )
+    else:
+        # SUPERADMIN: optional tenant filter
+        query = query.filter(User.role != UserRole.SUPERADMIN)
+        if x_tenant_id:
+            query = query.join(UserTenantRole, UserTenantRole.user_id == User.id).filter(
+                UserTenantRole.tenant_id == x_tenant_id
+            )
 
     users = query.order_by(User.created_at.desc()).all()
     return [
@@ -139,7 +151,7 @@ async def create_user(
     request: UserCreate,
     current_user: User = Depends(require_admin_or_above),
     db: Session = Depends(get_db),
-    x_tenant_id: int = None,
+    x_tenant_id: Optional[int] = Header(None, alias="X-Tenant-Id"),
 ):
     target_role = UserRole(request.role)
 
@@ -150,6 +162,17 @@ async def create_user(
 
     if db.query(User).filter(User.username == request.username).first():
         raise HTTPException(status_code=400, detail="이미 존재하는 아이디입니다")
+
+    # ADMIN must have access to the target tenant
+    if current_user.role == UserRole.ADMIN:
+        if not x_tenant_id:
+            raise HTTPException(status_code=400, detail="X-Tenant-Id 헤더가 필요합니다")
+        admin_mapping = db.query(UserTenantRole).filter(
+            UserTenantRole.user_id == current_user.id,
+            UserTenantRole.tenant_id == x_tenant_id,
+        ).first()
+        if not admin_mapping:
+            raise HTTPException(status_code=403, detail="해당 펜션에 대한 접근 권한이 없습니다")
 
     user = User(
         username=request.username,
@@ -180,14 +203,24 @@ async def update_user(
     request: UserUpdate,
     current_user: User = Depends(require_admin_or_above),
     db: Session = Depends(get_db),
-    x_tenant_id: int = None,
+    x_tenant_id: Optional[int] = Header(None, alias="X-Tenant-Id"),
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
 
     # ADMIN은 같은 테넌트 소속 유저만 수정 가능
-    if current_user.role != UserRole.SUPERADMIN and x_tenant_id:
+    if current_user.role == UserRole.ADMIN:
+        if not x_tenant_id:
+            raise HTTPException(status_code=400, detail="X-Tenant-Id 헤더가 필요합니다")
+        # Verify ADMIN belongs to this tenant
+        admin_mapping = db.query(UserTenantRole).filter(
+            UserTenantRole.user_id == current_user.id,
+            UserTenantRole.tenant_id == x_tenant_id,
+        ).first()
+        if not admin_mapping:
+            raise HTTPException(status_code=403, detail="해당 펜션에 대한 접근 권한이 없습니다")
+        # Verify target user belongs to this tenant
         mapping = db.query(UserTenantRole).filter(
             UserTenantRole.user_id == user_id,
             UserTenantRole.tenant_id == x_tenant_id,
@@ -232,23 +265,31 @@ async def delete_user(
     user_id: int,
     current_user: User = Depends(require_admin_or_above),
     db: Session = Depends(get_db),
-    x_tenant_id: int = None,
+    x_tenant_id: Optional[int] = Header(None, alias="X-Tenant-Id"),
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
 
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="자기 자신을 삭제할 수 없습니다")
+
     # ADMIN은 같은 테넌트 소속 유저만 삭제 가능
-    if current_user.role != UserRole.SUPERADMIN and x_tenant_id:
+    if current_user.role == UserRole.ADMIN:
+        if not x_tenant_id:
+            raise HTTPException(status_code=400, detail="X-Tenant-Id 헤더가 필요합니다")
+        admin_mapping = db.query(UserTenantRole).filter(
+            UserTenantRole.user_id == current_user.id,
+            UserTenantRole.tenant_id == x_tenant_id,
+        ).first()
+        if not admin_mapping:
+            raise HTTPException(status_code=403, detail="해당 펜션에 대한 접근 권한이 없습니다")
         mapping = db.query(UserTenantRole).filter(
             UserTenantRole.user_id == user_id,
             UserTenantRole.tenant_id == x_tenant_id,
         ).first()
         if not mapping:
             raise HTTPException(status_code=403, detail="해당 펜션 소속이 아닌 사용자입니다")
-
-    if user.id == current_user.id:
-        raise HTTPException(status_code=400, detail="자기 자신을 삭제할 수 없습니다")
 
     if ROLE_HIERARCHY.get(user.role, 0) >= ROLE_HIERARCHY.get(current_user.role, 0):
         raise HTTPException(status_code=403, detail="같거나 상위 권한의 사용자를 삭제할 수 없습니다")

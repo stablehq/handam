@@ -12,7 +12,6 @@ import {
 } from 'flowbite-react'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useAuthStore } from '@/stores/auth-store'
-import { useTenantStore } from '@/stores/tenant-store'
 import {
   LayoutDashboard,
   CalendarRange,
@@ -166,7 +165,6 @@ function DesktopSidebar({
   const navigate = useNavigate()
   const location = useLocation()
   const user = useAuthStore((s) => s.user)
-  const { tenants, currentTenantId } = useTenantStore()
 
   const isActive = (path: string) => location.pathname === path
 

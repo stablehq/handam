@@ -133,6 +133,17 @@ def _room_to_response(room: Room) -> dict:
 def _sync_biz_item_links(db: Session, room: Room, biz_item_ids: List[str],
                           priorities: Optional[Dict[str, dict]] = None):
     """Upsert biz_item_links: preserve existing priority, add new, remove stale."""
+    # Validate all biz_item_ids belong to current tenant's NaverBizItem
+    if biz_item_ids:
+        valid_biz_ids = {
+            item.biz_item_id for item in db.query(NaverBizItem).filter(
+                NaverBizItem.biz_item_id.in_(biz_item_ids)
+            ).all()
+        }  # auto-filtered by tenant via before_compile
+        invalid = set(biz_item_ids) - valid_biz_ids
+        if invalid:
+            raise HTTPException(status_code=400, detail=f"유효하지 않은 상품 ID: {', '.join(invalid)}")
+
     existing = {link.biz_item_id: link for link in room.biz_item_links}
     target_ids = set(biz_item_ids)
 

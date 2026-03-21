@@ -5,7 +5,6 @@ Handles Naver cookie updates, connection status checks, etc.
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-import app.config as _config
 from app.real.reservation import RealReservationProvider
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.api.deps import get_current_tenant, get_tenant_scoped_db
