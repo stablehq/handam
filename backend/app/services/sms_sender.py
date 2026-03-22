@@ -189,7 +189,13 @@ class SmsSender:
                     template_key=template_key,
                     date=date,
                     created_by="schedule",
-                    custom_vars={'_participant_buffer': template.participant_buffer or 0},
+                    custom_vars={
+                        '_participant_buffer': template.participant_buffer or 0,
+                        '_male_buffer': template.male_buffer or 0,
+                        '_female_buffer': template.female_buffer or 0,
+                        '_gender_ratio_buffers': template.gender_ratio_buffers,
+                        '_round_unit': template.round_unit or 0,
+                    },
                 )
                 if result.get("success"):
                     sent_count += 1

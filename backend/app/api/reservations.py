@@ -636,7 +636,13 @@ async def toggle_sms_sent(
             # Look up template buffer for participant_count
             from app.db.models import MessageTemplate
             tpl = db.query(MessageTemplate).filter(MessageTemplate.template_key == template_key).first()
-            custom_vars = {'_participant_buffer': tpl.participant_buffer or 0} if tpl else None
+            custom_vars = {
+                '_participant_buffer': tpl.participant_buffer or 0,
+                '_male_buffer': tpl.male_buffer or 0,
+                '_female_buffer': tpl.female_buffer or 0,
+                '_gender_ratio_buffers': tpl.gender_ratio_buffers,
+                '_round_unit': tpl.round_unit or 0,
+            } if tpl else None
 
             result = await send_single_sms(
                 db=db,

@@ -171,6 +171,35 @@ def init_db():
                 conn.execute(text("ALTER TABLE template_schedules ADD COLUMN is_once_per_stay BOOLEAN DEFAULT FALSE"))
                 print("AUTO-MIGRATE: Added is_once_per_stay column to template_schedules table")
 
+        # message_templates: male_buffer, female_buffer, gender_ratio_buffers, round_unit
+        if "message_templates" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("message_templates")]
+            if "male_buffer" not in cols:
+                conn.execute(text("ALTER TABLE message_templates ADD COLUMN male_buffer INTEGER DEFAULT 0"))
+                print("AUTO-MIGRATE: Added male_buffer column to message_templates table")
+            if "female_buffer" not in cols:
+                conn.execute(text("ALTER TABLE message_templates ADD COLUMN female_buffer INTEGER DEFAULT 0"))
+                print("AUTO-MIGRATE: Added female_buffer column to message_templates table")
+            if "gender_ratio_buffers" not in cols:
+                conn.execute(text("ALTER TABLE message_templates ADD COLUMN gender_ratio_buffers TEXT"))
+                print("AUTO-MIGRATE: Added gender_ratio_buffers column to message_templates table")
+            if "round_unit" not in cols:
+                conn.execute(text("ALTER TABLE message_templates ADD COLUMN round_unit INTEGER DEFAULT 0"))
+                print("AUTO-MIGRATE: Added round_unit column to message_templates table")
+
+        # template_schedules: date_mode, consecutive_stay_filter, next_stay_filter
+        if "template_schedules" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("template_schedules")]
+            if "date_mode" not in cols:
+                conn.execute(text("ALTER TABLE template_schedules ADD COLUMN date_mode VARCHAR(20) DEFAULT 'checkin'"))
+                print("AUTO-MIGRATE: Added date_mode column to template_schedules table")
+            if "consecutive_stay_filter" not in cols:
+                conn.execute(text("ALTER TABLE template_schedules ADD COLUMN consecutive_stay_filter VARCHAR(20)"))
+                print("AUTO-MIGRATE: Added consecutive_stay_filter column to template_schedules table")
+            if "next_stay_filter" not in cols:
+                conn.execute(text("ALTER TABLE template_schedules ADD COLUMN next_stay_filter VARCHAR(20)"))
+                print("AUTO-MIGRATE: Added next_stay_filter column to template_schedules table")
+
     # Task 1.5: admin 기본 비밀번호 환경변수화
     db = SessionLocal()
     try:

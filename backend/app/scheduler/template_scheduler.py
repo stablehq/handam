@@ -267,7 +267,13 @@ class TemplateScheduleExecutor:
 
             template_key = schedule.template.template_key
 
-            schedule_custom_vars = {'_participant_buffer': schedule.template.participant_buffer or 0}
+            schedule_custom_vars = {
+                '_participant_buffer': schedule.template.participant_buffer or 0,
+                '_male_buffer': schedule.template.male_buffer or 0,
+                '_female_buffer': schedule.template.female_buffer or 0,
+                '_gender_ratio_buffers': schedule.template.gender_ratio_buffers,
+                '_round_unit': schedule.template.round_unit or 0,
+            }
 
             for reservation in targets:
                 try:
@@ -393,9 +399,17 @@ class TemplateScheduleExecutor:
             Reservation.status == ReservationStatus.CONFIRMED
         )
 
+        date_mode = getattr(schedule, 'date_mode', 'checkin')
+
         # Safety guard: never send to reservations more than 1 day out
         max_date = (date.today() + timedelta(days=1)).strftime('%Y-%m-%d')
-        query = query.filter(Reservation.check_in_date <= max_date)
+        if date_mode == 'checkout':
+            query = query.filter(
+                Reservation.check_out_date.isnot(None),
+                Reservation.check_out_date <= max_date,
+            )
+        else:
+            query = query.filter(Reservation.check_in_date <= max_date)
 
         # Apply date filter
         target_date = None
@@ -403,6 +417,7 @@ class TemplateScheduleExecutor:
             target_date = self._parse_date_filter(schedule.date_filter)
             if target_date:
                 if schedule.target_mode == 'daily':
+                    # daily mode always uses check_in/check_out range (ignore date_mode)
                     query = query.filter(
                         or_(
                             # 연박: 체크인 <= 오늘 < 체크아웃
@@ -418,7 +433,10 @@ class TemplateScheduleExecutor:
                         )
                     )
                 else:
-                    query = query.filter(Reservation.check_in_date == target_date)
+                    if date_mode == 'checkout':
+                        query = query.filter(Reservation.check_out_date == target_date)
+                    else:
+                        query = query.filter(Reservation.check_in_date == target_date)
 
         # Default target_date for filters that need it
         if not target_date:
@@ -502,6 +520,44 @@ class TemplateScheduleExecutor:
                     seen_groups.add(res.stay_group_id)
                 filtered.append(res)
             results = filtered
+
+        # consecutive_stay_filter: 연박자 필터 (stay_group_id 유무)
+        csf = getattr(schedule, 'consecutive_stay_filter', None)
+        if csf and results:
+            if csf == 'exclude':
+                results = [r for r in results if not r.stay_group_id]
+            elif csf == 'only':
+                results = [r for r in results if r.stay_group_id]
+
+        # next_stay_filter: 다음 예약 존재 여부 필터
+        nsf = getattr(schedule, 'next_stay_filter', None)
+        if nsf and results:
+            # Collect stay_group_ids from results that have one
+            group_res = [(r.id, r.stay_group_id, r.check_out_date) for r in results if r.stay_group_id and r.check_out_date]
+
+            has_next_ids = set()
+            if group_res:
+                group_ids = {sg for _, sg, _ in group_res}
+                # Single batch query: find all reservations that are "next" in a stay group
+                next_checkins = self.db.query(Reservation.stay_group_id, Reservation.check_in_date).filter(
+                    Reservation.stay_group_id.in_(group_ids),
+                    Reservation.tenant_id == schedule.tenant_id,
+                ).all()
+
+                # Build lookup: stay_group_id -> set of check_in_dates
+                next_lookup = {}
+                for sg, ci in next_checkins:
+                    next_lookup.setdefault(sg, set()).add(ci)
+
+                # Check each result: does the group have a reservation checking in on this one's checkout?
+                for rid, sg, co in group_res:
+                    if co in next_lookup.get(sg, set()):
+                        has_next_ids.add(rid)
+
+            if nsf == 'exclude':
+                results = [r for r in results if r.id not in has_next_ids]
+            elif nsf == 'only':
+                results = [r for r in results if r.id in has_next_ids]
 
         return results
 

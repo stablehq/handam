@@ -181,6 +181,10 @@ class MessageTemplate(TenantMixin, Base):
     category = Column(String(50), nullable=True)  # 'room_guide', 'party_guide', etc.
     is_active = Column(Boolean, default=True)
     participant_buffer = Column(Integer, default=0)  # 참여인원 버퍼 (+N명)
+    male_buffer = Column(Integer, default=0)           # 남성 인원 버퍼 (+N명)
+    female_buffer = Column(Integer, default=0)          # 여성 인원 버퍼 (+N명)
+    gender_ratio_buffers = Column(Text, nullable=True)  # JSON: {"male_high": {"m": 2, "f": 6}, "female_high": {"m": 6, "f": 6}}
+    round_unit = Column(Integer, default=0)             # 반올림 단위 (0=미사용, 10=10명 단위 올림)
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
@@ -396,6 +400,9 @@ class TemplateSchedule(TenantMixin, Base):
 
     target_mode = Column(String(20), default='once')  # 'once' (체크인 당일만) or 'daily' (매일, 연박 포함)
     once_per_stay = Column("is_once_per_stay", Boolean, default=False)  # True: 연박 그룹 내 최초 체크인에만 발송
+    date_mode = Column(String(20), default='checkin')             # 'checkin' | 'checkout' — 대상 필터링 기준 날짜
+    consecutive_stay_filter = Column(String(20), nullable=True)   # null(전체) | 'exclude'(연박제외) | 'only'(연박만)
+    next_stay_filter = Column(String(20), nullable=True)          # null(전체) | 'exclude'(연장자제외) | 'only'(연장자만)
 
     # Relationship
     template = relationship("MessageTemplate", backref="schedules")

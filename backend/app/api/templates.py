@@ -27,6 +27,10 @@ class TemplateCreate(BaseModel):
     active: bool = True
     short_label: Optional[str] = None
     participant_buffer: Optional[int] = 0
+    male_buffer: Optional[int] = 0
+    female_buffer: Optional[int] = 0
+    gender_ratio_buffers: Optional[str] = None
+    round_unit: Optional[int] = 0
 
 
 class TemplateUpdate(BaseModel):
@@ -38,6 +42,10 @@ class TemplateUpdate(BaseModel):
     active: Optional[bool] = None
     short_label: Optional[str] = None
     participant_buffer: Optional[int] = None
+    male_buffer: Optional[int] = None
+    female_buffer: Optional[int] = None
+    gender_ratio_buffers: Optional[str] = None
+    round_unit: Optional[int] = None
 
 
 class TemplateResponse(BaseModel):
@@ -53,6 +61,10 @@ class TemplateResponse(BaseModel):
     schedule_count: int = 0
     short_label: Optional[str] = None
     participant_buffer: Optional[int] = 0
+    male_buffer: Optional[int] = 0
+    female_buffer: Optional[int] = 0
+    gender_ratio_buffers: Optional[str] = None
+    round_unit: Optional[int] = 0
 
     class Config:
         from_attributes = True
@@ -100,6 +112,10 @@ def get_templates(
             "schedule_count": len(template.schedules) if hasattr(template, 'schedules') else 0,
             "short_label": template.short_label,
             "participant_buffer": template.participant_buffer or 0,
+            "male_buffer": template.male_buffer or 0,
+            "female_buffer": template.female_buffer or 0,
+            "gender_ratio_buffers": template.gender_ratio_buffers,
+            "round_unit": template.round_unit or 0,
         }
         result.append(template_dict)
 
@@ -149,6 +165,10 @@ def get_template(template_id: int, db: Session = Depends(get_tenant_scoped_db), 
         "schedule_count": len(template.schedules) if hasattr(template, 'schedules') else 0,
         "short_label": template.short_label,
         "participant_buffer": template.participant_buffer or 0,
+        "male_buffer": template.male_buffer or 0,
+        "female_buffer": template.female_buffer or 0,
+        "gender_ratio_buffers": template.gender_ratio_buffers,
+        "round_unit": template.round_unit or 0,
     }
 
 
@@ -170,6 +190,10 @@ def create_template(template: TemplateCreate, db: Session = Depends(get_tenant_s
         is_active=template.active,
         short_label=template.short_label,
         participant_buffer=template.participant_buffer or 0,
+        male_buffer=template.male_buffer or 0,
+        female_buffer=template.female_buffer or 0,
+        gender_ratio_buffers=template.gender_ratio_buffers,
+        round_unit=template.round_unit or 0,
     )
 
     db.add(db_template)
@@ -189,6 +213,10 @@ def create_template(template: TemplateCreate, db: Session = Depends(get_tenant_s
         "schedule_count": 0,
         "short_label": db_template.short_label,
         "participant_buffer": db_template.participant_buffer or 0,
+        "male_buffer": db_template.male_buffer or 0,
+        "female_buffer": db_template.female_buffer or 0,
+        "gender_ratio_buffers": db_template.gender_ratio_buffers,
+        "round_unit": db_template.round_unit or 0,
     }
 
 
@@ -231,6 +259,10 @@ def update_template(template_id: int, template: TemplateUpdate, db: Session = De
         "schedule_count": len(db_template.schedules) if hasattr(db_template, 'schedules') else 0,
         "short_label": db_template.short_label,
         "participant_buffer": db_template.participant_buffer or 0,
+        "male_buffer": db_template.male_buffer or 0,
+        "female_buffer": db_template.female_buffer or 0,
+        "gender_ratio_buffers": db_template.gender_ratio_buffers,
+        "round_unit": db_template.round_unit or 0,
     }
 
 

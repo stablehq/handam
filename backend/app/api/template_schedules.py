@@ -4,7 +4,7 @@ Template Schedules API
 import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
@@ -48,6 +48,10 @@ def _schedule_to_response(schedule: TemplateSchedule) -> dict:
         "target_mode": schedule.target_mode or "once",
         "exclude_sent": schedule.exclude_sent,
         "active": schedule.is_active,
+        "once_per_stay": schedule.once_per_stay or False,
+        "date_mode": schedule.date_mode or "checkin",
+        "consecutive_stay_filter": schedule.consecutive_stay_filter,
+        "next_stay_filter": schedule.next_stay_filter,
         "created_at": schedule.created_at,
         "updated_at": schedule.updated_at,
         "last_run": schedule.last_run_at,
@@ -72,6 +76,10 @@ class TemplateScheduleCreate(BaseModel):
     target_mode: Optional[str] = "once"  # 'once' or 'daily'
     exclude_sent: bool = True
     active: bool = True
+    once_per_stay: Optional[bool] = False
+    date_mode: Optional[Literal['checkin', 'checkout']] = "checkin"
+    consecutive_stay_filter: Optional[Literal['exclude', 'only']] = None
+    next_stay_filter: Optional[Literal['exclude', 'only']] = None
 
 
 class TemplateScheduleUpdate(BaseModel):
@@ -90,6 +98,10 @@ class TemplateScheduleUpdate(BaseModel):
     target_mode: Optional[str] = None  # 'once' or 'daily'
     exclude_sent: Optional[bool] = None
     active: Optional[bool] = None
+    once_per_stay: Optional[bool] = None
+    date_mode: Optional[Literal['checkin', 'checkout']] = None
+    consecutive_stay_filter: Optional[Literal['exclude', 'only']] = None
+    next_stay_filter: Optional[Literal['exclude', 'only']] = None
 
 
 class TemplateScheduleResponse(BaseModel):
@@ -111,6 +123,10 @@ class TemplateScheduleResponse(BaseModel):
     target_mode: Optional[str] = "once"
     exclude_sent: bool
     active: bool
+    once_per_stay: Optional[bool] = False
+    date_mode: Optional[str] = "checkin"
+    consecutive_stay_filter: Optional[str] = None
+    next_stay_filter: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     last_run: Optional[datetime] = None
@@ -204,7 +220,11 @@ def create_schedule(schedule: TemplateScheduleCreate, db: Session = Depends(get_
         date_filter=schedule.date_filter,
         target_mode=schedule.target_mode or "once",
         exclude_sent=schedule.exclude_sent,
-        is_active=schedule.active
+        is_active=schedule.active,
+        once_per_stay=schedule.once_per_stay or False,
+        date_mode=schedule.date_mode or "checkin",
+        consecutive_stay_filter=schedule.consecutive_stay_filter,
+        next_stay_filter=schedule.next_stay_filter,
     )
 
     db.add(db_schedule)

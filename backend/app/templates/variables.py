@@ -4,7 +4,9 @@ Template Variable Definitions and Auto-calculation
 Defines all available template variables and provides functions to calculate them.
 """
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, date
+import math
+import json as _json
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -58,7 +60,58 @@ AVAILABLE_VARIABLES = {
         "example": "12",
         "category": "party"
     },
+    "today_male_count": {"description": "오늘 남성 인원", "example": "13", "category": "party"},
+    "today_female_count": {"description": "오늘 여성 인원", "example": "12", "category": "party"},
+    "today_total_count": {"description": "오늘 총 인원", "example": "25", "category": "party"},
+    "tomorrow_male_count": {"description": "내일 남성 인원", "example": "15", "category": "party"},
+    "tomorrow_female_count": {"description": "내일 여성 인원", "example": "14", "category": "party"},
+    "tomorrow_total_count": {"description": "내일 총 인원", "example": "29", "category": "party"},
+    "yesterday_male_count": {"description": "어제 남성 인원", "example": "10", "category": "party"},
+    "yesterday_female_count": {"description": "어제 여성 인원", "example": "11", "category": "party"},
+    "yesterday_total_count": {"description": "어제 총 인원", "example": "21", "category": "party"},
 }
+
+
+def _apply_buffers(male: int, female: int, custom_vars: dict) -> tuple:
+    """버퍼/반올림을 적용하여 (effective_male, effective_female, total) 반환.
+
+    우선순위: gender_ratio_buffers > male/female_buffer > participant_buffer
+    성비 동점(남 == 여) 시 female_high 적용.
+    round_unit은 total에만 적용.
+    """
+    _participant_buffer = int(custom_vars.get('_participant_buffer', 0))
+    _male_buffer = int(custom_vars.get('_male_buffer', 0))
+    _female_buffer = int(custom_vars.get('_female_buffer', 0))
+    _grb_raw = custom_vars.get('_gender_ratio_buffers')
+    _round_unit = int(custom_vars.get('_round_unit', 0))
+
+    eff_male = male
+    eff_female = female
+    p_buffer = _participant_buffer
+
+    if _grb_raw:
+        try:
+            grb = _json.loads(_grb_raw) if isinstance(_grb_raw, str) else _grb_raw
+            if female >= male:  # 동점 시 female_high
+                cfg = grb.get('female_high', {})
+            else:
+                cfg = grb.get('male_high', {})
+            eff_male = male + int(cfg.get('m', 0))
+            eff_female = female + int(cfg.get('f', 0))
+            p_buffer = 0
+        except (ValueError, TypeError, AttributeError, _json.JSONDecodeError):
+            pass  # 파싱 실패 → fallback
+    elif _male_buffer or _female_buffer:
+        eff_male = male + _male_buffer
+        eff_female = female + _female_buffer
+        p_buffer = 0
+
+    total = eff_male + eff_female + p_buffer
+
+    if _round_unit > 0:
+        total = math.ceil(total / _round_unit) * _round_unit
+
+    return eff_male, eff_female, total
 
 
 def get_or_create_snapshot(db: Session, target_date: str) -> 'ParticipantSnapshot':
@@ -147,16 +200,31 @@ def calculate_template_variables(
         total_male = snapshot.male_count
         total_female = snapshot.female_count
 
-        # Apply buffer from schedule if provided via custom_vars
-        buffer = int(custom_vars.get('_participant_buffer', 0)) if custom_vars else 0
-
-        variables['participant_count'] = str(total_male + total_female + buffer)
-        variables['male_count'] = str(total_male)
-        variables['female_count'] = str(total_female)
+        # 버퍼 적용 (헬퍼 함수 사용)
+        eff_m, eff_f, total = _apply_buffers(total_male, total_female, custom_vars or {})
+        variables['male_count'] = str(eff_m)
+        variables['female_count'] = str(eff_f)
+        variables['participant_count'] = str(total)
     else:
         variables['participant_count'] = '0'
         variables['male_count'] = '0'
         variables['female_count'] = '0'
+
+    # 날짜 프리픽스 변수: today/tomorrow/yesterday (동일 버퍼 적용)
+    # NOTE: get_or_create_snapshot은 check_in_date 기준 집계. date_mode='checkout'이어도 인원 통계는 체크인 기준.
+    from datetime import timedelta as _td
+    try:
+        _base_date = datetime.strptime(target_date, '%Y-%m-%d').date() if isinstance(target_date, str) and target_date else datetime.today().date()
+    except (ValueError, TypeError):
+        _base_date = date.today()
+
+    for _prefix, _delta in [('today', 0), ('tomorrow', 1), ('yesterday', -1)]:
+        _d = (_base_date + _td(days=_delta)).strftime('%Y-%m-%d')
+        _snap = get_or_create_snapshot(db, _d)
+        _pm, _pf, _pt = _apply_buffers(_snap.male_count, _snap.female_count, custom_vars or {})
+        variables[f'{_prefix}_male_count'] = str(_pm)
+        variables[f'{_prefix}_female_count'] = str(_pf)
+        variables[f'{_prefix}_total_count'] = str(_pt)
 
     # Custom variables override (excluding internal _prefixed keys)
     if custom_vars:

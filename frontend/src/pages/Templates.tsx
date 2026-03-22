@@ -11,6 +11,8 @@ import {
   XCircle,
   FileText,
   Clock,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 
 import {
@@ -57,6 +59,10 @@ interface Template {
   updated_at: string;
   schedule_count: number;
   participant_buffer: number;
+  male_buffer: number;
+  female_buffer: number;
+  gender_ratio_buffers: string | null;
+  round_unit: number;
 }
 
 interface TemplateSchedule {
@@ -76,6 +82,9 @@ interface TemplateSchedule {
   filters: string | null;
   date_filter: string | null;
   target_mode: string | null;
+  date_mode: string | null;
+  consecutive_stay_filter: string | null;
+  next_stay_filter: string | null;
   exclude_sent: boolean;
   active: boolean;
   created_at: string;
@@ -355,6 +364,15 @@ const Templates: React.FC = () => {
   const [tActive, setTActive] = useState(true);
   const [tKeyError, setTKeyError] = useState('');
   const [tParticipantBuffer, setTParticipantBuffer] = useState<number>(0);
+  const [tMaleBuffer, setTMaleBuffer] = useState(0);
+  const [tFemaleBuffer, setTFemaleBuffer] = useState(0);
+  const [tGenderRatioEnabled, setTGenderRatioEnabled] = useState(false);
+  const [tGenderRatioBuffers, setTGenderRatioBuffers] = useState<{
+    male_high: { m: number; f: number };
+    female_high: { m: number; f: number };
+  }>({ male_high: { m: 0, f: 0 }, female_high: { m: 0, f: 0 } });
+  const [tRoundUnit, setTRoundUnit] = useState(0);
+  const [participantSettingsOpen, setParticipantSettingsOpen] = useState(false);
 
   // delete template
   const [deleteTemplateTarget, setDeleteTemplateTarget] = useState<Template | null>(null);
@@ -380,6 +398,9 @@ const Templates: React.FC = () => {
   const [sFilters, setSFilters] = useState<ScheduleFilter[]>([]);
   const [sDateFilter, setSDateFilter] = useState('today');
   const [sTargetMode, setSTargetMode] = useState<'once' | 'daily'>('once');
+  const [sDateMode, setSDateMode] = useState<'checkin' | 'checkout'>('checkin');
+  const [sConsecutiveStayFilter, setSConsecutiveStayFilter] = useState<string>('');
+  const [sNextStayFilter, setSNextStayFilter] = useState<string>('');
   const sExcludeSent = true; // 항상 발송 완료 대상 제외
   const [cmColumn, setCmColumn] = useState('party_type');
   const [cmText, setCmText] = useState('');
@@ -473,11 +494,22 @@ const Templates: React.FC = () => {
     }).catch(() => {});
   };
 
+  const PARTICIPANT_VARS = ['participant_count', 'male_count', 'female_count',
+    'today_male_count', 'today_female_count', 'today_total_count',
+    'tomorrow_male_count', 'tomorrow_female_count', 'tomorrow_total_count',
+    'yesterday_male_count', 'yesterday_female_count', 'yesterday_total_count'];
+
   const openCreateTemplate = () => {
     setEditingTemplate(null);
     setTKey(''); setTName(''); setTShortLabel(''); setTContent('');
     setTVariables(''); setTActive(true); setTKeyError('');
     setTParticipantBuffer(0);
+    setTMaleBuffer(0);
+    setTFemaleBuffer(0);
+    setTGenderRatioEnabled(false);
+    setTGenderRatioBuffers({ male_high: { m: 0, f: 0 }, female_high: { m: 0, f: 0 } });
+    setTRoundUnit(0);
+    setParticipantSettingsOpen(false);
     setDetectedVars({ valid: [], invalid: [] });
     loadSampleExamples();
     setTemplateDialogOpen(true);
@@ -489,6 +521,18 @@ const Templates: React.FC = () => {
     setTContent(t.content); setTVariables(t.variables ?? '');
     setTActive(t.active); setTKeyError('');
     setTParticipantBuffer(t.participant_buffer || 0);
+    setTMaleBuffer(t.male_buffer || 0);
+    setTFemaleBuffer(t.female_buffer || 0);
+    setTRoundUnit(t.round_unit || 0);
+    if (t.gender_ratio_buffers) {
+      try {
+        setTGenderRatioBuffers(JSON.parse(t.gender_ratio_buffers));
+        setTGenderRatioEnabled(true);
+      } catch { setTGenderRatioEnabled(false); }
+    } else {
+      setTGenderRatioEnabled(false);
+    }
+    setParticipantSettingsOpen(false);
     setDetectedVars(extractAndValidateVariables(t.content, availableVariables));
     loadSampleExamples();
     setTemplateDialogOpen(true);
@@ -499,6 +543,10 @@ const Templates: React.FC = () => {
     const detected = extractAndValidateVariables(val, availableVariables);
     setDetectedVars(detected);
     setTVariables(detected.valid.join(','));
+    const hasParticipantVars = PARTICIPANT_VARS.some(v => val.includes(`{{${v}}}`));
+    if (hasParticipantVars) {
+      setParticipantSettingsOpen(true);
+    }
   };
 
   const handleSaveTemplate = async () => {
@@ -515,6 +563,10 @@ const Templates: React.FC = () => {
         variables: tVariables || undefined,
         active: tActive,
         participant_buffer: tParticipantBuffer,
+        male_buffer: tMaleBuffer,
+        female_buffer: tFemaleBuffer,
+        gender_ratio_buffers: tGenderRatioEnabled ? JSON.stringify(tGenderRatioBuffers) : null,
+        round_unit: tRoundUnit,
       };
       if (editingTemplate) {
         await templatesAPI.update(editingTemplate.id, data);
@@ -554,6 +606,9 @@ const Templates: React.FC = () => {
     setSIntervalMinutes('10'); setSActiveStartHour(''); setSActiveEndHour('');
     setSFilters([]); setSDateFilter('');
     setSTargetMode('once');
+    setSDateMode('checkin');
+    setSConsecutiveStayFilter('');
+    setSNextStayFilter('');
     setCmColumn('party_type');
     setCmText('');
     setCmOperator('contains');
@@ -580,6 +635,9 @@ const Templates: React.FC = () => {
     setSFilters(parseFilters(s.filters));
     setSDateFilter(s.date_filter || 'today');
     setSTargetMode((s.target_mode === 'daily' ? 'daily' : 'once'));
+    setSDateMode(s.date_mode === 'checkout' ? 'checkout' : 'checkin');
+    setSConsecutiveStayFilter(s.consecutive_stay_filter || '');
+    setSNextStayFilter(s.next_stay_filter || '');
     // sExcludeSent는 항상 true 고정
     setSActive(s.active);
     setScheduleDialogOpen(true);
@@ -602,6 +660,9 @@ const Templates: React.FC = () => {
       filters: sFilters.length > 0 ? sFilters : undefined,
       date_filter: sDateFilter || 'today',
       target_mode: sTargetMode,
+      date_mode: sDateMode,
+      consecutive_stay_filter: sConsecutiveStayFilter || null,
+      next_stay_filter: sNextStayFilter || null,
       exclude_sent: sExcludeSent,
       active: sActive,
     };
@@ -911,7 +972,14 @@ const Templates: React.FC = () => {
                         <span className="text-body text-[#4E5968] dark:text-gray-300">{formatScheduleTime(s)}</span>
                       </TableCell>
                       <TableCell>
-                        {getTargetSummary(s, buildings)}
+                        <div className="flex flex-wrap items-center gap-1">
+                          {getTargetSummary(s, buildings)}
+                          {s.date_mode === 'checkout' && <Badge color="purple" size="sm">체크아웃</Badge>}
+                          {s.consecutive_stay_filter === 'exclude' && <Badge color="warning" size="sm">연박제외</Badge>}
+                          {s.consecutive_stay_filter === 'only' && <Badge color="info" size="sm">연박만</Badge>}
+                          {s.next_stay_filter === 'exclude' && <Badge color="warning" size="sm">연장자제외</Badge>}
+                          {s.next_stay_filter === 'only' && <Badge color="info" size="sm">연장자만</Badge>}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Badge color={isNextRunSoon ? 'warning' : 'gray'} size="sm">{nextRun}</Badge>
@@ -1073,18 +1141,141 @@ const Templates: React.FC = () => {
               );
             })()}
 
-            {/* Participant buffer */}
-            <div className="flex items-center gap-2 px-4 py-3 rounded-2xl border border-[#F2F4F6] dark:border-gray-800">
-              <code className="font-mono text-caption text-[#FF9F00] dark:text-[#fbbf24] shrink-0">{`{{participant_count}}`}</code>
-              <span className="text-body text-[#4E5968] dark:text-gray-300 shrink-0">+</span>
-              <input
-                type="number"
-                min={0}
-                value={tParticipantBuffer}
-                onChange={(e) => setTParticipantBuffer(Number(e.target.value) || 0)}
-                className="w-14 rounded-lg border border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24] text-sm text-center px-2 py-1 focus:border-[#3182F6] focus:ring-[#3182F6] outline-none text-[#191F28] dark:text-white"
-              />
-              <span className="text-body text-[#4E5968] dark:text-gray-300 shrink-0">명 추가</span>
+            {/* 인원 표시 설정 */}
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => setParticipantSettingsOpen(!participantSettingsOpen)}
+                className="flex items-center gap-2 text-label font-medium text-[#4E5968] dark:text-gray-300"
+              >
+                {participantSettingsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                인원 표시 설정
+              </button>
+              {participantSettingsOpen && (
+                <div className="space-y-4 rounded-xl border border-[#E5E8EB] dark:border-gray-700 p-4">
+                  {/* 총합 추가 (기존 participant_buffer) */}
+                  <div>
+                    <label className="text-caption text-[#8B95A1] dark:text-gray-500 mb-1 block">총합 추가</label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-label text-[#4E5968] dark:text-gray-300">{'{{participant_count}}'} +</span>
+                      <TextInput
+                        type="number"
+                        min={0}
+                        value={tParticipantBuffer}
+                        onChange={(e) => setTParticipantBuffer(Number(e.target.value) || 0)}
+                        className="w-20"
+                        sizing="sm"
+                      />
+                      <span className="text-label text-[#8B95A1]">명</span>
+                    </div>
+                  </div>
+
+                  {/* 성별 버퍼 */}
+                  <div>
+                    <label className="text-caption text-[#8B95A1] dark:text-gray-500 mb-1 block">성별 버퍼</label>
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1">
+                        <span className="text-label text-[#4E5968] dark:text-gray-300">남 +</span>
+                        <TextInput
+                          type="number"
+                          min={0}
+                          value={tMaleBuffer}
+                          onChange={(e) => setTMaleBuffer(Number(e.target.value) || 0)}
+                          className="w-20"
+                          sizing="sm"
+                        />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-label text-[#4E5968] dark:text-gray-300">여 +</span>
+                        <TextInput
+                          type="number"
+                          min={0}
+                          value={tFemaleBuffer}
+                          onChange={(e) => setTFemaleBuffer(Number(e.target.value) || 0)}
+                          className="w-20"
+                          sizing="sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 성비 자동 조정 */}
+                  <div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tGenderRatioEnabled}
+                        onChange={(e) => setTGenderRatioEnabled(e.target.checked)}
+                        className="rounded border-gray-300 text-blue-600"
+                      />
+                      <span className="text-label text-[#4E5968] dark:text-gray-300">성비 자동 조정</span>
+                    </label>
+                    {tGenderRatioEnabled && (
+                      <div className="mt-2 ml-6 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-caption text-[#8B95A1] w-24">여 &ge; 남일 때</span>
+                          <span className="text-label text-[#4E5968] dark:text-gray-300">남+</span>
+                          <TextInput
+                            type="number" min={0} className="w-16" sizing="sm"
+                            value={tGenderRatioBuffers.female_high.m}
+                            onChange={(e) => setTGenderRatioBuffers(prev => ({
+                              ...prev, female_high: { ...prev.female_high, m: Number(e.target.value) || 0 }
+                            }))}
+                          />
+                          <span className="text-label text-[#4E5968] dark:text-gray-300">여+</span>
+                          <TextInput
+                            type="number" min={0} className="w-16" sizing="sm"
+                            value={tGenderRatioBuffers.female_high.f}
+                            onChange={(e) => setTGenderRatioBuffers(prev => ({
+                              ...prev, female_high: { ...prev.female_high, f: Number(e.target.value) || 0 }
+                            }))}
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-caption text-[#8B95A1] w-24">남 &gt; 여일 때</span>
+                          <span className="text-label text-[#4E5968] dark:text-gray-300">남+</span>
+                          <TextInput
+                            type="number" min={0} className="w-16" sizing="sm"
+                            value={tGenderRatioBuffers.male_high.m}
+                            onChange={(e) => setTGenderRatioBuffers(prev => ({
+                              ...prev, male_high: { ...prev.male_high, m: Number(e.target.value) || 0 }
+                            }))}
+                          />
+                          <span className="text-label text-[#4E5968] dark:text-gray-300">여+</span>
+                          <TextInput
+                            type="number" min={0} className="w-16" sizing="sm"
+                            value={tGenderRatioBuffers.male_high.f}
+                            onChange={(e) => setTGenderRatioBuffers(prev => ({
+                              ...prev, male_high: { ...prev.male_high, f: Number(e.target.value) || 0 }
+                            }))}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 반올림 */}
+                  <div>
+                    <label className="text-caption text-[#8B95A1] dark:text-gray-500 mb-1 block">반올림</label>
+                    <div className="flex items-center gap-2">
+                      <TextInput
+                        type="number"
+                        min={0}
+                        value={tRoundUnit}
+                        onChange={(e) => setTRoundUnit(Number(e.target.value) || 0)}
+                        className="w-20"
+                        sizing="sm"
+                      />
+                      <span className="text-label text-[#8B95A1]">명 단위 올림 (0=미사용)</span>
+                    </div>
+                  </div>
+
+                  {/* 우선순위 안내 */}
+                  <p className="text-tiny text-[#B0B8C1] dark:text-gray-600">
+                    ⓘ 우선순위: 성비 자동 &gt; 성별 버퍼 &gt; 총합 추가
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Active */}
@@ -1485,7 +1676,31 @@ const Templates: React.FC = () => {
               )}
             </div>
 
-            {/* Row 4: Date */}
+            {/* Row 4: Date mode (checkin / checkout) */}
+            <div>
+              <label className="text-caption text-[#8B95A1] dark:text-gray-500 mb-1.5 block">날짜 기준</label>
+              <div className="flex gap-1.5">
+                {[
+                  { value: 'checkin', label: '체크인' },
+                  { value: 'checkout', label: '체크아웃' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setSDateMode(opt.value as 'checkin' | 'checkout')}
+                    className={`rounded-lg px-3 py-1.5 text-caption font-medium transition-colors ${
+                      sDateMode === opt.value
+                        ? 'bg-[#3182F6] text-white'
+                        : 'bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB] dark:bg-[#2C2C34] dark:text-gray-300 dark:hover:bg-[#35353E]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Row 5: Date */}
             <div className="space-y-1.5">
               <div className="text-caption font-medium text-[#8B95A1] dark:text-gray-400">날짜</div>
               <div className="inline-flex rounded-lg overflow-hidden border border-[#E5E8EB] dark:border-gray-600">
@@ -1509,9 +1724,60 @@ const Templates: React.FC = () => {
               </div>
             </div>
 
+            {/* Row 6: Consecutive stay filter */}
+            <div>
+              <label className="text-caption text-[#8B95A1] dark:text-gray-500 mb-1.5 block">연박자</label>
+              <div className="flex gap-1.5">
+                {[
+                  { value: '', label: '전체' },
+                  { value: 'exclude', label: '연박 제외' },
+                  { value: 'only', label: '연박만' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setSConsecutiveStayFilter(opt.value)}
+                    className={`rounded-lg px-3 py-1.5 text-caption font-medium transition-colors ${
+                      sConsecutiveStayFilter === opt.value
+                        ? 'bg-[#3182F6] text-white'
+                        : 'bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB] dark:bg-[#2C2C34] dark:text-gray-300 dark:hover:bg-[#35353E]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Row 7: Next stay filter */}
+            <div>
+              <label className="text-caption text-[#8B95A1] dark:text-gray-500 mb-1.5 block">연장 여부</label>
+              <div className="flex gap-1.5">
+                {[
+                  { value: '', label: '전체' },
+                  { value: 'exclude', label: '연장자 제외' },
+                  { value: 'only', label: '연장자만' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setSNextStayFilter(opt.value)}
+                    className={`rounded-lg px-3 py-1.5 text-caption font-medium transition-colors ${
+                      sNextStayFilter === opt.value
+                        ? 'bg-[#3182F6] text-white'
+                        : 'bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB] dark:bg-[#2C2C34] dark:text-gray-300 dark:hover:bg-[#35353E]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Summary text — {{건물}}의 {{배정 상태}} 상태의 {{날짜}} 예약자에게 발송됩니다 */}
             {(() => {
               const dateLabel = sDateFilter === 'tomorrow' ? '내일' : '오늘';
+              const dateModeLabel = sDateMode === 'checkout' ? '체크아웃 기준 ' : '';
               const buildingFilters = sFilters.filter(f => f.type === 'building');
               const assignmentFilters = sFilters.filter(f => f.type === 'assignment');
               const columnMatchFilters = sFilters.filter(f => f.type === 'column_match');
@@ -1532,10 +1798,17 @@ const Templates: React.FC = () => {
                   }).join(' 또는 ')
                 : '';
 
+              const suffixParts: string[] = [];
+              if (sConsecutiveStayFilter === 'exclude') suffixParts.push('연박 제외');
+              else if (sConsecutiveStayFilter === 'only') suffixParts.push('연박만');
+              if (sNextStayFilter === 'exclude') suffixParts.push('연장자 제외');
+              else if (sNextStayFilter === 'only') suffixParts.push('연장자만');
+              const suffixText = suffixParts.length > 0 ? ` (${suffixParts.join(', ')})` : '';
+
               if (!buildingText && !assignmentText && columnMatchFilters.length === 0) {
                 return (
                   <p className="text-caption text-[#B0B8C1] dark:text-gray-600">
-                    {dateLabel} 전체 예약자에게 발송됩니다
+                    {dateModeLabel}{dateLabel} 전체 예약자에게 발송됩니다{suffixText}
                   </p>
                 );
               }
@@ -1558,7 +1831,7 @@ const Templates: React.FC = () => {
 
               return (
                 <p className="text-caption text-[#3182F6]">
-                  {parts.join('의 ')}의 {dateLabel} 예약자에게 발송됩니다
+                  {dateModeLabel}{parts.join('의 ')}의 {dateLabel} 예약자에게 발송됩니다{suffixText}
                 </p>
               );
             })()}

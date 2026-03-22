@@ -68,13 +68,20 @@ def sync_sms_tags(db: Session, reservation_id: int, schedules=None) -> None:
 
 
 def get_schedule_dates(schedule, reservation) -> List[str]:
-    """Get target dates for a schedule+reservation pair based on target_mode."""
+    """Get target dates for a schedule+reservation pair based on target_mode and date_mode."""
+    date_mode = getattr(schedule, 'date_mode', 'checkin')
+
+    # daily mode always uses full date range (ignores date_mode)
     if (
         getattr(schedule, 'target_mode', 'once') == 'daily'
         and reservation.check_out_date
         and reservation.check_out_date > (reservation.check_in_date or '')
     ):
         return _date_range(reservation.check_in_date, reservation.check_out_date)
+
+    # For checkout mode, use check_out_date
+    if date_mode == 'checkout':
+        return [reservation.check_out_date or reservation.check_in_date or '']
     return [reservation.check_in_date or '']
 
 
