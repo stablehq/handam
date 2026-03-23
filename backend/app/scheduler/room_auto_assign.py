@@ -171,8 +171,8 @@ def _assign_all_rooms(
     # Sort candidates: females first, then males, then unknown gender
     candidates = sorted(candidates, key=_gender_sort_key)
 
-    # Build stay_group → existing room map for consecutive stay same-room preference
-    stay_group_room_map: Dict[str, str] = {}
+    # Build stay_group → existing room_id map for consecutive stay same-room preference
+    stay_group_room_map: Dict[str, int] = {}
     group_ids = {r.stay_group_id for r in candidates if r.stay_group_id}
     if group_ids:
         # Find existing assignments for any member of these groups
@@ -185,7 +185,7 @@ def _assign_all_rooms(
             check_dates = [target_date]
 
         group_members = (
-            db.query(Reservation.stay_group_id, RoomAssignment.room_number)
+            db.query(Reservation.stay_group_id, RoomAssignment.room_id)
             .join(RoomAssignment, RoomAssignment.reservation_id == Reservation.id)
             .filter(
                 Reservation.stay_group_id.in_(group_ids),
@@ -193,9 +193,9 @@ def _assign_all_rooms(
             )
             .all()
         )
-        for gid, rn in group_members:
-            if gid and rn:
-                stay_group_room_map[gid] = rn
+        for gid, rid in group_members:
+            if gid and rid:
+                stay_group_room_map[gid] = rid
 
     for res in candidates:
         candidate_rooms = biz_to_rooms.get(res.naver_biz_item_id, [])
@@ -205,10 +205,10 @@ def _assign_all_rooms(
 
         # Consecutive stay: prepend the group's existing room to candidates
         if res.stay_group_id and res.stay_group_id in stay_group_room_map:
-            preferred_room_number = stay_group_room_map[res.stay_group_id]
-            preferred = [r for r in candidate_rooms if r.room_number == preferred_room_number]
+            preferred_room_id = stay_group_room_map[res.stay_group_id]
+            preferred = [r for r in candidate_rooms if r.id == preferred_room_id]
             if preferred:
-                candidate_rooms = preferred + [r for r in candidate_rooms if r.room_number != preferred_room_number]
+                candidate_rooms = preferred + [r for r in candidate_rooms if r.id != preferred_room_id]
         if not candidate_rooms:
             continue
 
@@ -218,7 +218,7 @@ def _assign_all_rooms(
             if room.is_dormitory:
                 # Check capacity with actual party size
                 if not room_assignment.check_capacity_all_dates(
-                    db, room.room_number, target_date, res.check_out_date,
+                    db, room.id, target_date, res.check_out_date,
                     people_count=people_count, exclude_reservation_id=res.id
                 ):
                     continue
@@ -227,7 +227,7 @@ def _assign_all_rooms(
                 existing = (
                     db.query(RoomAssignment)
                     .filter(
-                        RoomAssignment.room_number == room.room_number,
+                        RoomAssignment.room_id == room.id,
                         RoomAssignment.date == target_date,
                     )
                     .all()
@@ -248,30 +248,30 @@ def _assign_all_rooms(
 
                 # Assign
                 room_assignment.assign_room(
-                    db, res.id, room.room_number, target_date, res.check_out_date,
+                    db, res.id, room.id, target_date, res.check_out_date,
                     assigned_by="auto", skip_sms_sync=True, skip_logging=True,
                 )
                 db.flush()
                 assigned_results.append({"reservation_id": res.id, "guest_name": res.customer_name, "room_number": room.room_number})
                 # Update group room map so next group member prefers same room
                 if res.stay_group_id:
-                    stay_group_room_map[res.stay_group_id] = room.room_number
+                    stay_group_room_map[res.stay_group_id] = room.id
                 break
             else:
                 # Regular room: one per room
                 if room_assignment.check_capacity_all_dates(
-                    db, room.room_number, target_date, res.check_out_date,
+                    db, room.id, target_date, res.check_out_date,
                     people_count=1, exclude_reservation_id=res.id
                 ):
                     room_assignment.assign_room(
-                        db, res.id, room.room_number, target_date, res.check_out_date,
+                        db, res.id, room.id, target_date, res.check_out_date,
                         assigned_by="auto", skip_sms_sync=True, skip_logging=True,
                     )
                     db.flush()
                     assigned_results.append({"reservation_id": res.id, "guest_name": res.customer_name, "room_number": room.room_number})
                     # Update group room map so next group member prefers same room
                     if res.stay_group_id:
-                        stay_group_room_map[res.stay_group_id] = room.room_number
+                        stay_group_room_map[res.stay_group_id] = room.id
                     break
 
     return assigned_results

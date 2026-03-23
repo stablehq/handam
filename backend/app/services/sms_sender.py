@@ -85,7 +85,7 @@ async def send_single_sms(
                 "phone": reservation.phone,
                 "template_key": template_key,
                 "message": message_content,
-                "room_number": ra.room_number if ra else None,
+                "room_number": ra.room.room_number if ra and ra.room else None,
                 "provider": result.get("provider", "unknown"),
                 "message_id": result.get("message_id"),
                 "error": result.get("error"),

@@ -45,7 +45,7 @@ def _condition_by_building(value, ctx):
     target_date = ctx.get("target_date")
     sub = (
         ctx["db"].query(RoomAssignment.reservation_id)
-        .join(Room, and_(Room.room_number == RoomAssignment.room_number, Room.tenant_id == RoomAssignment.tenant_id))
+        .join(Room, Room.id == RoomAssignment.room_id)
         .filter(
             RoomAssignment.date == target_date,
             Room.building_id == int(value),
@@ -55,13 +55,17 @@ def _condition_by_building(value, ctx):
 
 
 def _condition_by_room(value, ctx):
-    """Return condition for room number."""
+    """Return condition for room id."""
     target_date = ctx.get("target_date")
+    try:
+        room_id_val = int(value)
+    except (ValueError, TypeError):
+        return None
     sub = (
         ctx["db"].query(RoomAssignment.reservation_id)
         .filter(
             RoomAssignment.date == target_date,
-            RoomAssignment.room_number == value,
+            RoomAssignment.room_id == room_id_val,
         )
     ).subquery()
     return Reservation.id.in_(sub)
@@ -278,16 +282,16 @@ class TemplateScheduleExecutor:
                     RoomAssignment.reservation_id.in_(target_res_ids),
                     RoomAssignment.date == target_date,
                 ).all()
-                assign_room_map = {ra.reservation_id: ra.room_number for ra in assignments}
-                room_numbers = set(assign_room_map.values())
+                assign_room_id_map = {ra.reservation_id: ra.room_id for ra in assignments}
+                room_ids = set(assign_room_id_map.values())
                 room_name_map = {}
-                if room_numbers:
-                    rooms_with_building = self.db.query(Room).filter(Room.room_number.in_(room_numbers)).all()
+                if room_ids:
+                    rooms_with_building = self.db.query(Room).filter(Room.id.in_(room_ids)).all()
                     for rm in rooms_with_building:
                         building_name = rm.building.name if rm.building else ""
-                        room_name_map[rm.room_number] = f"{building_name} {rm.room_number}호" if building_name else f"{rm.room_number}호"
-                for res_id, rn in assign_room_map.items():
-                    room_building_map[res_id] = room_name_map.get(rn, rn)
+                        room_name_map[rm.id] = f"{building_name} {rm.room_number}호" if building_name else f"{rm.room_number}호"
+                for res_id, rid in assign_room_id_map.items():
+                    room_building_map[res_id] = room_name_map.get(rid, str(rid))
 
             template_key = schedule.template.template_key
 
@@ -740,7 +744,14 @@ class TemplateScheduleExecutor:
                 RoomAssignment.reservation_id.in_(res_ids),
                 RoomAssignment.date == target_date,
             ).all()
-            room_map = {ra.reservation_id: ra.room_number for ra in assignments}
+            # Batch-fetch Room objects to get room_number display strings
+            room_id_map = {ra.reservation_id: ra.room_id for ra in assignments}
+            room_ids = set(room_id_map.values())
+            room_number_lookup: dict[int, str] = {}
+            if room_ids:
+                rooms = self.db.query(Room).filter(Room.id.in_(room_ids)).all()
+                room_number_lookup = {rm.id: rm.room_number for rm in rooms}
+            room_map = {res_id: room_number_lookup.get(rid, '') for res_id, rid in room_id_map.items()}
 
         return [
             {

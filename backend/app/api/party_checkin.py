@@ -115,7 +115,14 @@ async def get_party_checkin_list(
             )
             .all()
         )
-        room_map = {ra.reservation_id: ra.room_number for ra in room_assignments}
+        # Batch-fetch Room objects to resolve room_number display strings
+        _ra_room_ids = {ra.room_id for ra in room_assignments}
+        _room_lookup: dict = {}
+        if _ra_room_ids:
+            from app.db.models import Room as _Room
+            _rooms = db.query(_Room).filter(_Room.id.in_(_ra_room_ids)).all()
+            _room_lookup = {rm.id: rm.room_number for rm in _rooms}
+        room_map = {ra.reservation_id: _room_lookup.get(ra.room_id, '') for ra in room_assignments}
 
     result = []
     for res in party_reservations:

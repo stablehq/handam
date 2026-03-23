@@ -55,7 +55,7 @@ class ReservationUpdate(BaseModel):
 
 
 class RoomAssignRequest(BaseModel):
-    room_number: Optional[str] = None
+    room_id: Optional[int] = None
     date: Optional[str] = None
     apply_subsequent: bool = True  # Apply to subsequent dates for multi-night stays
 
@@ -89,6 +89,7 @@ class ReservationResponse(BaseModel):
     status: str
     notes: Optional[str] = None
     booking_source: str
+    room_id: Optional[int] = None
     room_number: Optional[str] = None
     room_password: Optional[str] = None
     room_assigned_by: Optional[str] = None
@@ -118,7 +119,7 @@ class ReservationResponse(BaseModel):
         from_attributes = True
 
 
-def _to_response(res: Reservation, override_room: Optional[str] = None, override_password: Optional[str] = None, override_assigned_by: Optional[str] = None, override_party_type: Optional[str] = None, db: Session = None, filter_date: Optional[str] = None) -> ReservationResponse:
+def _to_response(res: Reservation, override_room: Optional[str] = None, override_password: Optional[str] = None, override_assigned_by: Optional[str] = None, override_party_type: Optional[str] = None, override_room_id: Optional[int] = None, db: Session = None, filter_date: Optional[str] = None) -> ReservationResponse:
     assignments = []
     if db is not None and hasattr(res, 'sms_assignments'):
         source = [a for a in res.sms_assignments if a.assigned_by != 'excluded']
@@ -153,6 +154,7 @@ def _to_response(res: Reservation, override_room: Optional[str] = None, override
         status=res.status.value,
         notes=res.notes,
         booking_source=res.booking_source,
+        room_id=override_room_id,
         room_number=override_room if override_room is not None else res.room_number,
         room_password=override_password if override_password is not None else res.room_password,
         room_assigned_by=override_assigned_by,
@@ -245,7 +247,14 @@ async def get_reservations(
                 )
                 .all()
             )
-            room_map = {ra.reservation_id: (ra.room_number, ra.room_password, ra.assigned_by) for ra in room_assignments}
+            # Batch-fetch Room objects to resolve room_number display strings
+            _ra_room_ids = {ra.room_id for ra in room_assignments}
+            _room_lookup: dict = {}
+            if _ra_room_ids:
+                from app.db.models import Room as _Room
+                _rooms = db.query(_Room).filter(_Room.id.in_(_ra_room_ids)).all()
+                _room_lookup = {rm.id: rm.room_number for rm in _rooms}
+            room_map = {ra.reservation_id: (ra.room_id, _room_lookup.get(ra.room_id, ''), ra.room_password, ra.assigned_by) for ra in room_assignments}
 
             # Batch-query daily info for the target date
             daily_infos = (
@@ -266,11 +275,18 @@ async def get_reservations(
                 .filter(RoomAssignment.reservation_id.in_(res_ids))
                 .all()
             )
+            # Batch-fetch Room objects
+            _ra_room_ids = {ra.room_id for ra in room_assignments}
+            _room_lookup: dict = {}
+            if _ra_room_ids:
+                from app.db.models import Room as _Room
+                _rooms = db.query(_Room).filter(_Room.id.in_(_ra_room_ids)).all()
+                _room_lookup = {rm.id: rm.room_number for rm in _rooms}
             room_map = {}
             for ra in room_assignments:
                 lookup = res_date_map.get(ra.reservation_id)
                 if ra.date == lookup:
-                    room_map[ra.reservation_id] = (ra.room_number, ra.room_password, ra.assigned_by)
+                    room_map[ra.reservation_id] = (ra.room_id, _room_lookup.get(ra.room_id, ''), ra.room_password, ra.assigned_by)
             daily_party_map = {}
     else:
         room_map = {}
@@ -279,12 +295,12 @@ async def get_reservations(
     results = []
     for res in reservations:
         if res.id in room_map:
-            override_room, override_password, override_assigned_by = room_map[res.id]
+            override_room_id, override_room, override_password, override_assigned_by = room_map[res.id]
         elif date:
             # 해당 날짜에 배정 없음 — denormalized field 무시하고 빈 값 반환
-            override_room, override_password, override_assigned_by = '', '', None
+            override_room_id, override_room, override_password, override_assigned_by = None, '', '', None
         else:
-            override_room, override_password, override_assigned_by = None, None, None
+            override_room_id, override_room, override_password, override_assigned_by = None, None, None, None
 
         # Resolve per-date party_type: daily info overrides reservation-level value when date is provided
         if date and res.id in daily_party_map:
@@ -292,7 +308,7 @@ async def get_reservations(
         else:
             override_party_type = None  # Fall back to reservation.party_type in _to_response
 
-        results.append(_to_response(res, override_room=override_room, override_password=override_password, override_assigned_by=override_assigned_by, override_party_type=override_party_type, db=db, filter_date=date))
+        results.append(_to_response(res, override_room=override_room, override_password=override_password, override_assigned_by=override_assigned_by, override_party_type=override_party_type, override_room_id=override_room_id, db=db, filter_date=date))
     return results
 
 
@@ -414,11 +430,11 @@ async def assign_room(
     if not db_reservation:
         raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다")
 
-    room_number = request.room_number
+    room_id = request.room_id
     req_date = request.date
     apply_subsequent = request.apply_subsequent
 
-    if room_number is None:
+    if room_id is None:
         # Unassign room
         end_date = db_reservation.check_out_date if (req_date and apply_subsequent) else None
         room_assignment.unassign_room(
@@ -434,7 +450,7 @@ async def assign_room(
         room_assignment.assign_room(
             db,
             reservation_id,
-            room_number,
+            room_id,
             from_date,
             end_date,
             assigned_by="manual",

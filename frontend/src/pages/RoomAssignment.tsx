@@ -47,6 +47,7 @@ interface Reservation {
   check_in_date: string;
   check_in_time: string;
   status: string;
+  room_id: number | null;
   room_number: string | null;
   room_password: string | null;
   room_assigned_by: string | null;
@@ -331,7 +332,7 @@ const RoomAssignment = () => {
   const [rooms, setRooms] = useState<any[]>([]);
   const [animDirection, setAnimDirection] = useState<'none' | 'left' | 'right'>('none');
   const [loading, setLoading] = useState(false);
-  const [dragOverRoom, setDragOverRoom] = useState<string | null>(null);
+  const [dragOverRoom, setDragOverRoom] = useState<number | null>(null);
   const [dragOverPool, setDragOverPool] = useState(false);
   const [dragOverPartyZone, setDragOverPartyZone] = useState(false);
   const [dragActive, setDragActive] = useState(false);
@@ -372,7 +373,8 @@ const RoomAssignment = () => {
     open: boolean;
     resId: number;
     resName: string;
-    room: string;
+    roomId: number;
+    roomNumber: string;
     onConfirm: (applySubsequent: boolean) => void;
   } | null>(null);
 
@@ -442,19 +444,20 @@ const RoomAssignment = () => {
 
   const activeRoomEntries = useMemo(() => {
     return rooms.filter((room) => room.active).map((room) => ({
-      room_number: room.room_number,
+      room_id: room.id as number,
+      room_number: room.room_number as string,
       isDormitory: room.dormitory || false,
       bed_capacity: room.bed_capacity || 1,
     }));
   }, [rooms]);
 
   const nextDayRoomMap = useMemo(() => {
-    const map = new Map<string, Reservation[]>();
+    const map = new Map<number, Reservation[]>();
     nextDayReservations.forEach((r) => {
-      if (r.room_number) {
-        const existing = map.get(r.room_number) || [];
+      if (r.room_id) {
+        const existing = map.get(r.room_id) || [];
         existing.push(r);
-        map.set(r.room_number, existing);
+        map.set(r.room_id, existing);
       }
     });
     return map;
@@ -673,16 +676,16 @@ const RoomAssignment = () => {
 
 
   const { assignedRooms, unassigned, partyOnly } = useMemo(() => {
-    const assigned = new Map<string, Reservation[]>();
+    const assigned = new Map<number, Reservation[]>();
     const unassignedList: Reservation[] = [];
     const partyOnlyList: Reservation[] = [];
 
     reservations.forEach((res) => {
-      if (res.room_number) {
+      if (res.room_id) {
         // Has a room assigned → goes to that room's row
-        const list = assigned.get(res.room_number) || [];
+        const list = assigned.get(res.room_id) || [];
         list.push(res);
-        assigned.set(res.room_number, list);
+        assigned.set(res.room_id, list);
       } else if (sectionOverrides[res.id] === 'party' || (sectionOverrides[res.id] === undefined && res.section === 'party')) {
         partyOnlyList.push(res);
       } else {
@@ -730,10 +733,10 @@ const RoomAssignment = () => {
     setDragOverTrash(false);
   };
 
-  const onRoomDragOver = (e: DragEvent, room: string) => {
+  const onRoomDragOver = (e: DragEvent, roomId: number) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    if (dragOverRoom !== room) setDragOverRoom(room);
+    if (dragOverRoom !== roomId) setDragOverRoom(roomId);
   };
   const onRoomDragLeave = (e: DragEvent) => {
     // Only clear if actually leaving the room container (not entering a child)
@@ -743,7 +746,7 @@ const RoomAssignment = () => {
     }
   };
 
-  const doAssignRoom = async (resId: number, room: string, applySubsequent: boolean) => {
+  const doAssignRoom = async (resId: number, roomId: number, roomNumber: string, applySubsequent: boolean) => {
     // Optimistic update: move guest to new room + auto-assign room_info SMS tag
     setReservations((prev) =>
       prev.map((r) => {
@@ -752,18 +755,18 @@ const RoomAssignment = () => {
         const updatedAssignments = hasRoomInfo
           ? r.sms_assignments
           : [...(r.sms_assignments || []), { id: 0, reservation_id: r.id, template_key: 'room_info', assigned_at: new Date().toISOString(), sent_at: null, assigned_by: 'auto', date: selectedDate.format('YYYY-MM-DD') } as SmsAssignment];
-        return { ...r, room_number: room, sms_assignments: updatedAssignments };
+        return { ...r, room_id: roomId, room_number: roomNumber, sms_assignments: updatedAssignments };
       })
     );
     setSectionOverrides((prev) => { const next = { ...prev }; delete next[resId]; return next; });
 
     try {
       await reservationsAPI.assignRoom(resId, {
-        room_number: room,
+        room_id: roomId,
         date: selectedDate.format('YYYY-MM-DD'),
         apply_subsequent: applySubsequent,
       });
-      toast.success(`${room} 배정 완료`);
+      toast.success(`${roomNumber} 배정 완료`);
       // 서버에서 갱신된 sms_assignments 반영
       fetchReservations(selectedDate);
     } catch (err: any) {
@@ -772,12 +775,12 @@ const RoomAssignment = () => {
     }
   };
 
-  const onRoomDrop = async (e: DragEvent, room: string) => {
+  const onRoomDrop = async (e: DragEvent, roomId: number, roomNumber: string) => {
     e.preventDefault();
     setDragOverRoom(null);
     const resId = Number(e.dataTransfer.getData('text/plain'));
     if (!resId) return;
-    const currentList = assignedRooms.get(room) || [];
+    const currentList = assignedRooms.get(roomId) || [];
     if (currentList.some((r) => r.id === resId)) return;
 
     const res = reservations.find((r) => r.id === resId);
@@ -789,17 +792,18 @@ const RoomAssignment = () => {
         open: true,
         resId,
         resName: res.customer_name,
-        room,
+        roomId,
+        roomNumber,
         onConfirm: (applySubsequent) => {
           setMultiNightConfirm(null);
-          doAssignRoom(resId, room, applySubsequent);
+          doAssignRoom(resId, roomId, roomNumber, applySubsequent);
         },
       });
       return;
     }
 
     // Single-night: assign directly (apply_subsequent doesn't matter)
-    await doAssignRoom(resId, room, true);
+    await doAssignRoom(resId, roomId, roomNumber, true);
   };
 
   const onPoolDragOver = (e: DragEvent) => {
@@ -825,21 +829,21 @@ const RoomAssignment = () => {
 
     // Already in unassigned section → nothing to do
     const effectiveSectionPool = sectionOverrides[resId] ?? res.section;
-    if (!res.room_number && effectiveSectionPool === 'unassigned') return;
+    if (!res.room_id && effectiveSectionPool === 'unassigned') return;
 
-    if (res.room_number) {
+    if (res.room_id) {
       // Optimistic update: clear room + remove unsent room_info tag
       setReservations((prev) =>
         prev.map((r) => {
           if (r.id !== resId) return r;
           const filtered = r.sms_assignments?.filter((a) => !(a.template_key === 'room_info' && !a.sent_at)) || [];
-          return { ...r, room_number: null, sms_assignments: filtered };
+          return { ...r, room_id: null, room_number: null, sms_assignments: filtered };
         })
       );
       setSectionOverrides((prev) => ({ ...prev, [resId]: 'unassigned' }));
 
       try {
-        await reservationsAPI.assignRoom(resId, { room_number: null, date: selectedDate.format('YYYY-MM-DD'), apply_subsequent: true });
+        await reservationsAPI.assignRoom(resId, { room_id: null, date: selectedDate.format('YYYY-MM-DD'), apply_subsequent: true });
         // unassign_room sets section by naver_room_type; override to 'unassigned' explicitly
         await reservationsAPI.update(resId, { section: 'unassigned' });
         toast.success('미배정으로 이동');
@@ -892,21 +896,21 @@ const RoomAssignment = () => {
 
     // Already in party section → nothing to do
     const effectiveSectionParty = sectionOverrides[resId] ?? guest.section;
-    if (!guest.room_number && effectiveSectionParty === 'party') return;
+    if (!guest.room_id && effectiveSectionParty === 'party') return;
 
-    if (guest.room_number) {
+    if (guest.room_id) {
       // Optimistic update: clear room + remove unsent room_info tag
       setReservations((prev) =>
         prev.map((r) => {
           if (r.id !== resId) return r;
           const filtered = r.sms_assignments?.filter((a) => !(a.template_key === 'room_info' && !a.sent_at)) || [];
-          return { ...r, room_number: null, sms_assignments: filtered };
+          return { ...r, room_id: null, room_number: null, sms_assignments: filtered };
         })
       );
       setSectionOverrides((prev) => ({ ...prev, [resId]: 'party' }));
 
       try {
-        await reservationsAPI.assignRoom(resId, { room_number: null, date: selectedDate.format('YYYY-MM-DD'), apply_subsequent: true });
+        await reservationsAPI.assignRoom(resId, { room_id: null, date: selectedDate.format('YYYY-MM-DD'), apply_subsequent: true });
         // unassign_room sets section by naver_room_type; override to 'party' explicitly
         await reservationsAPI.update(resId, { section: 'party' });
         toast.success('파티만으로 이동');
@@ -1199,63 +1203,35 @@ const RoomAssignment = () => {
     );
   };
 
-  const renderRoomRow = (entry: { room_number: string; isDormitory: boolean; bed_capacity: number }, rowIndex: number) => {
-    const { room_number, isDormitory, bed_capacity } = entry;
-    const guestsRaw = assignedRooms.get(room_number) || [];
-    const isDragOver = dragOverRoom === room_number;
-    const nextGuestsRaw = nextDayRoomMap.get(room_number) || [];
+  const renderRoomRow = (entry: { room_id: number; room_number: string; isDormitory: boolean; bed_capacity: number }, rowIndex: number) => {
+    const { room_id, room_number, isDormitory, bed_capacity } = entry;
+    const guestsRaw = assignedRooms.get(room_id) || [];
+    const isDragOver = dragOverRoom === room_id;
+    const nextGuestsRaw = nextDayRoomMap.get(room_id) || [];
 
-    // 도미토리: 연박자 행 위치를 날짜간 통일
+    // 도미토리: 연박자를 윗행에 고정, 날짜간 행 위치 통일
     let guests = guestsRaw;
     let nextGuests = nextGuestsRaw;
     if (isDormitory) {
-      // 원본을 ID순으로 정렬 → 어느 날짜에서 보든 같은 참조 순서
-      const byId = (a: Reservation, b: Reservation) => a.id - b.id;
-      const guestsSorted = [...guestsRaw].sort(byId);
-      const nextSorted = [...nextGuestsRaw].sort(byId);
+      // 연박자(2박+ 예약 또는 연속 예약 그룹)를 윗행에, 1박만 아래로
+      const todayIds = new Set(guestsRaw.map(g => g.id));
+      const nextIds = new Set(nextGuestsRaw.map(g => g.id));
+      const isStayingGuest = (g: Reservation) => isMultiNight(g) || !!g.stay_group_id;
 
-      // 리스트를 참조 리스트 기준으로 정렬:
-      // 연박자(참조에도 있는 사람)는 참조 인덱스에 맞추고, 신규는 빈자리에 채우기
-      const alignToRef = (list: Reservation[], refList: Reservation[]): Reservation[] => {
-        const refIds = refList.map((g) => g.id);
-        const continuing: { guest: Reservation; refIdx: number }[] = [];
-        const newG: Reservation[] = [];
-        for (const g of list) {
-          const refIdx = refIds.indexOf(g.id);
-          if (refIdx !== -1) {
-            continuing.push({ guest: g, refIdx });
-          } else {
-            newG.push(g);
-          }
-        }
-        continuing.sort((a, b) => a.refIdx - b.refIdx);
+      // 오늘: 연박자 먼저 → ID순, 그 다음 1박만 → ID순
+      const todayContinuing = [...guestsRaw].filter(g => isStayingGuest(g)).sort((a, b) => a.id - b.id);
+      const todayOnly = [...guestsRaw].filter(g => !isStayingGuest(g)).sort((a, b) => a.id - b.id);
+      const guestsSorted = [...todayContinuing, ...todayOnly];
 
-        const result: Reservation[] = [];
-        let contIdx = 0;
-        let newIdx = 0;
-        const maxLen = Math.max(
-          continuing.length > 0 ? continuing[continuing.length - 1].refIdx + 1 : 0,
-          list.length,
-        );
-        for (let i = 0; i < maxLen; i++) {
-          if (contIdx < continuing.length && continuing[contIdx].refIdx === i) {
-            result.push(continuing[contIdx].guest);
-            contIdx++;
-          } else if (newIdx < newG.length) {
-            result.push(newG[newIdx]);
-            newIdx++;
-          }
-        }
-        while (newIdx < newG.length) {
-          result.push(newG[newIdx]);
-          newIdx++;
-        }
-        return result;
-      };
-
-      // ID 정렬된 당일을 기준으로 익일 정렬 → 안정적 행 위치
+      // 내일: 연박자는 오늘과 같은 행 순서 유지, 신규는 아래에
+      const continuingIds = todayContinuing.map(g => g.id);
+      const nextIsStaying = (g: Reservation) => isMultiNight(g) || !!g.stay_group_id;
+      const nextContinuing = continuingIds.map(id => nextGuestsRaw.find(g => g.id === id)).filter(Boolean) as Reservation[];
+      const nextOnlyContinuing = [...nextGuestsRaw].filter(g => nextIsStaying(g) && !continuingIds.includes(g.id)).sort((a, b) => a.id - b.id);
+      const nextNew = [...nextGuestsRaw].filter(g => !nextIsStaying(g)).sort((a, b) => a.id - b.id);
+      const nextSorted = [...nextContinuing, ...nextOnlyContinuing, ...nextNew];
       guests = guestsSorted;
-      nextGuests = alignToRef(nextSorted, guests);
+      nextGuests = nextSorted;
     }
 
     const maxOccupancy = Math.max(guests.length, nextGuests.length, 1);
@@ -1267,16 +1243,16 @@ const RoomAssignment = () => {
 
     return (
       <div
-        key={room_number}
+        key={room_id}
         className={`group flex select-none transition-colors
           ${isDragOver
             ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/8 ring-1 ring-inset ring-[#3182F6]/30 dark:ring-[#3182F6]/30'
             : stripeBg
           }`}
         style={{ minHeight: `${totalRows * 40}px` }}
-        onDragOver={(e) => onRoomDragOver(e, room_number)}
+        onDragOver={(e) => onRoomDragOver(e, room_id)}
         onDragLeave={onRoomDragLeave}
-        onDrop={(e) => onRoomDrop(e, room_number)}
+        onDrop={(e) => onRoomDrop(e, room_id, room_number)}
       >
         {/* Room label - vertically centered, spans all rows */}
         <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
@@ -2009,7 +1985,7 @@ const RoomAssignment = () => {
             <h3 className="mb-2 text-lg font-semibold text-[#191F28] dark:text-white">연박 객실 이동</h3>
             <p className="mb-5 text-sm text-[#8B95A1] dark:text-[#8B95A1]">
               <span className="font-semibold text-[#191F28] dark:text-white">{multiNightConfirm?.resName}</span> 님을{' '}
-              <span className="font-semibold text-[#3182F6]">{multiNightConfirm?.room}</span>(으)로 이동합니다.
+              <span className="font-semibold text-[#3182F6]">{multiNightConfirm?.roomNumber}</span>(으)로 이동합니다.
               <br />이후 날짜도 같은 객실로 배정하시겠습니까?
             </p>
             <div className="flex justify-center gap-3">

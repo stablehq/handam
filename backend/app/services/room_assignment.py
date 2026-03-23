@@ -123,16 +123,16 @@ def _date_range(from_date: str, end_date: Optional[str]) -> List[str]:
     return dates if dates else [from_date]
 
 
-def _is_dormitory_room(db: Session, room_number: str) -> bool:
+def _is_dormitory_room(db: Session, room_id: int) -> bool:
     """Check if a room is a dormitory room."""
-    room = db.query(Room).filter(Room.room_number == room_number, Room.is_active == True).first()
+    room = db.query(Room).filter(Room.id == room_id, Room.is_active == True).first()
     return room.is_dormitory if room else False
 
 
 def assign_room(
     db: Session,
     reservation_id: int,
-    room_number: str,
+    room_id: int,
     from_date: str,
     end_date: Optional[str] = None,
     assigned_by: str = "auto",
@@ -150,12 +150,15 @@ def assign_room(
     if not reservation:
         raise ValueError(f"Reservation {reservation_id} not found")
 
+    room_obj = db.query(Room).filter(Room.id == room_id, Room.is_active == True).first()
+    if not room_obj:
+        raise ValueError("Room not found")
+
     dates = _date_range(from_date, end_date)
-    is_dorm = _is_dormitory_room(db, room_number)
+    is_dorm = room_obj.is_dormitory
     # 객실에 고정 비밀번호가 있으면 사용, 없으면 자동 생성
-    room_obj = db.query(Room).filter(Room.room_number == room_number, Room.is_active == True).first()
-    password = (room_obj.door_password if room_obj and room_obj.door_password else
-                TemplateRenderer.generate_room_password(room_number))
+    password = (room_obj.door_password if room_obj.door_password else
+                TemplateRenderer.generate_room_password(room_obj.room_number))
 
     # Concurrency guard for non-dormitory rooms
     if not is_dorm:
@@ -164,7 +167,7 @@ def assign_room(
                 db.query(RoomAssignment)
                 .filter(
                     RoomAssignment.date == d,
-                    RoomAssignment.room_number == room_number,
+                    RoomAssignment.room_id == room_id,
                     RoomAssignment.reservation_id != reservation_id,
                 )
                 .with_for_update()
@@ -172,7 +175,7 @@ def assign_room(
             )
             if existing:
                 raise ValueError(
-                    f"Room {room_number} is already occupied on {d} by reservation {existing.reservation_id}"
+                    f"Room {room_obj.room_number} is already occupied on {d} by reservation {existing.reservation_id}"
                 )
 
     # Capture old room for move logging
@@ -184,7 +187,7 @@ def assign_room(
         )
         .all()
     )
-    old_room = old_assignments[0].room_number if old_assignments else None
+    old_room_display = old_assignments[0].room.room_number if old_assignments and old_assignments[0].room else None
 
     # Delete existing assignments for this reservation in the date range (현재 테넌트만)
     tid = current_tenant_id.get()
@@ -194,34 +197,36 @@ def assign_room(
         RoomAssignment.tenant_id == tid,
     ).delete(synchronize_session="fetch")
 
+    new_room_display = room_obj.room_number
+
     # Log room move/assignment (skip when caller will log in bulk)
     if not skip_logging:
         log_creator = created_by or ("system" if assigned_by == "auto" else assigned_by)
-        if old_room and old_room != room_number:
+        if old_room_display and old_room_display != new_room_display:
             log_activity(
                 db, type="room_move",
-                title=f"[{reservation.customer_name}] 객실이동 {old_room} → {room_number}",
+                title=f"[{reservation.customer_name}] 객실이동 {old_room_display} → {new_room_display}",
                 detail={
                     "reservation_id": reservation_id,
                     "move_type": assigned_by,
                     "guest_name": reservation.customer_name,
                     "dates": dates,
-                    "old_room": old_room,
-                    "new_room": room_number,
+                    "old_room": old_room_display,
+                    "new_room": new_room_display,
                 },
                 created_by=log_creator,
             )
-        elif not old_room:
+        elif not old_room_display:
             log_activity(
                 db, type="room_move",
-                title=f"[{reservation.customer_name}] 객실배정 {room_number}",
+                title=f"[{reservation.customer_name}] 객실배정 {new_room_display}",
                 detail={
                     "reservation_id": reservation_id,
                     "move_type": assigned_by,
                     "guest_name": reservation.customer_name,
                     "dates": dates,
                     "old_room": None,
-                    "new_room": room_number,
+                    "new_room": new_room_display,
                 },
                 created_by=log_creator,
             )
@@ -232,7 +237,7 @@ def assign_room(
         assignment = RoomAssignment(
             reservation_id=reservation_id,
             date=d,
-            room_number=room_number,
+            room_id=room_id,
             room_password=password,
             assigned_by=assigned_by,
         )
@@ -280,17 +285,17 @@ def unassign_room(
     # Capture old room for unassign logging
     old_assignments = query.all()
     if old_assignments:
-        old_room = old_assignments[0].room_number
+        old_room_display = old_assignments[0].room.room_number if old_assignments[0].room else None
         old_assigned_by = old_assignments[0].assigned_by
         log_activity(
             db, type="room_move",
-            title=f"[{reservation.customer_name}] 객실해제 {old_room}",
+            title=f"[{reservation.customer_name}] 객실해제 {old_room_display}",
             detail={
                 "reservation_id": reservation_id,
                 "move_type": old_assigned_by,
                 "guest_name": reservation.customer_name,
                 "dates": [a.date for a in old_assignments],
-                "old_room": old_room,
+                "old_room": old_room_display,
                 "new_room": None,
             },
             created_by="system" if old_assigned_by == "auto" else old_assigned_by,
@@ -347,7 +352,8 @@ def sync_denormalized_field(db: Session, reservation: Reservation):
         .first()
     )
     if assignment:
-        reservation.room_number = assignment.room_number
+        room = db.query(Room).filter(Room.id == assignment.room_id).first()
+        reservation.room_number = room.room_number if room else None
         reservation.room_password = assignment.room_password
     else:
         # Check if any assignment exists (for mid-stay changes)
@@ -358,7 +364,8 @@ def sync_denormalized_field(db: Session, reservation: Reservation):
             .first()
         )
         if first_assignment:
-            reservation.room_number = first_assignment.room_number
+            room = db.query(Room).filter(Room.id == first_assignment.room_id).first()
+            reservation.room_number = room.room_number if room else None
             reservation.room_password = first_assignment.room_password
         else:
             reservation.room_number = None
@@ -401,7 +408,7 @@ def reconcile_dates(db: Session, reservation: Reservation):
 
 def check_capacity_all_dates(
     db: Session,
-    room_number: str,
+    room_id: int,
     from_date: str,
     end_date: Optional[str],
     people_count: int = 1,
@@ -412,7 +419,7 @@ def check_capacity_all_dates(
     Used by auto-assign to ensure multi-night guests get the same room every night.
     """
     room = db.query(Room).filter(
-        Room.room_number == room_number, Room.is_active == True
+        Room.id == room_id, Room.is_active == True
     ).first()
     if not room:
         return False
@@ -435,7 +442,7 @@ def check_capacity_all_dates(
             )
             .join(Reservation, and_(RoomAssignment.reservation_id == Reservation.id, RoomAssignment.tenant_id == Reservation.tenant_id))
             .filter(
-                RoomAssignment.room_number == room_number,
+                RoomAssignment.room_id == room_id,
                 RoomAssignment.date.in_(dates),
             )
         )
@@ -451,7 +458,7 @@ def check_capacity_all_dates(
         for d in dates:
             query = db.query(RoomAssignment).filter(
                 RoomAssignment.date == d,
-                RoomAssignment.room_number == room_number,
+                RoomAssignment.room_id == room_id,
             )
             if exclude_reservation_id:
                 query = query.filter(RoomAssignment.reservation_id != exclude_reservation_id)

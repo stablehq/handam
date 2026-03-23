@@ -409,7 +409,7 @@ async def delete_room(room_id: int, db: Session = Depends(get_tenant_scoped_db),
 
     # Check if room is currently assigned to any reservations
     assigned_count = db.query(RoomAssignment).filter(
-        RoomAssignment.room_number == db_room.room_number
+        RoomAssignment.room_id == room_id
     ).count()
 
     if assigned_count > 0:

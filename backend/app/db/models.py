@@ -327,19 +327,20 @@ class RoomAssignment(TenantMixin, Base):
     __tablename__ = "room_assignments"
     __table_args__ = (
         UniqueConstraint("reservation_id", "date", name="uq_room_assignment_res_date"),
-        Index("ix_room_assignment_date_room", "date", "room_number"),
+        Index("ix_room_assignment_date_room", "date", "room_id"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
     reservation_id = Column(Integer, ForeignKey("reservations.id", ondelete="CASCADE"), nullable=False, index=True)
     date = Column(String(20), nullable=False)  # YYYY-MM-DD
-    room_number = Column(String(20), nullable=False)
+    room_id = Column(Integer, ForeignKey("rooms.id"), nullable=False)
     room_password = Column(String(20), nullable=True)
     assigned_by = Column(String(10), default="auto")  # 'auto' or 'manual'
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     reservation = relationship("Reservation", back_populates="room_assignments")
+    room = relationship("Room")
 
 
 class NaverBizItem(TenantMixin, Base):

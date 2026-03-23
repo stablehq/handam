@@ -181,19 +181,30 @@ def calculate_template_variables(
     variables['naver_room_type'] = reservation.naver_room_type or ''
 
     # 객실 정보 - prefer room_assignment if provided
-    effective_room_number = (room_assignment.room_number if room_assignment else None) or reservation.room_number
+    # room_assignment has room_id (FK) → look up Room for display name
     effective_room_password = (room_assignment.room_password if room_assignment else None) or reservation.room_password
-
     variables['room_password'] = effective_room_password or ''
 
+    from app.db.models import Room, Building
+    room_obj = None
+    if room_assignment and room_assignment.room_id:
+        room_obj = db.query(Room).filter(Room.id == room_assignment.room_id).first()
+
+    effective_room_number = (room_obj.room_number if room_obj else None) or reservation.room_number
+
     if effective_room_number:
-        # Room number format: "본관 101호" → building="본관", room_num="101호"
         # Lookup Building name via Room → Building relationship
-        from app.db.models import Room, Building
-        room_obj = db.query(Room).filter(Room.room_number == effective_room_number).first()
         if room_obj and room_obj.building_id:
             building_obj = db.query(Building).filter(Building.id == room_obj.building_id).first()
             variables['building'] = building_obj.name if building_obj else ''
+        elif not room_obj:
+            # Fallback: look up by reservation.room_number (denormalized)
+            fallback_room = db.query(Room).filter(Room.room_number == effective_room_number).first()
+            if fallback_room and fallback_room.building_id:
+                building_obj = db.query(Building).filter(Building.id == fallback_room.building_id).first()
+                variables['building'] = building_obj.name if building_obj else ''
+            else:
+                variables['building'] = ''
         else:
             variables['building'] = ''
         # Extract room number part: "본관 101호" → "101호", or just use as-is
