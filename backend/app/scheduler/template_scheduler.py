@@ -173,16 +173,21 @@ def matches_schedule(db: Session, schedule: TemplateSchedule, reservation_id: in
             group_key = ftype
         filter_groups[group_key].append(fval)
 
+    # 미배정이 assignment 조건에 포함되면, 건물/객실 필터에서 면제
+    has_unassigned = 'unassigned' in filter_groups.get('assignment', [])
+
     for group_key, values in filter_groups.items():
         filter_type = group_key.split(':')[0] if group_key.startswith('column_match:') else group_key
         builder = FILTER_BUILDERS.get(filter_type)
         if not builder:
             continue
         conditions = [c for c in (builder(v, ctx) for v in values) if c is not None]
-        if len(conditions) == 1:
-            query = query.filter(conditions[0])
-        elif len(conditions) > 1:
-            query = query.filter(or_(*conditions))
+        if conditions:
+            combined = or_(*conditions) if len(conditions) > 1 else conditions[0]
+            # 미배정 예약자는 건물/객실 조건 면제 (RoomAssignment 없으므로 매칭 불가)
+            if filter_type in ("building", "room") and has_unassigned:
+                combined = or_(combined, Reservation.section == 'unassigned')
+            query = query.filter(combined)
 
     return query.first() is not None
 
@@ -498,6 +503,9 @@ class TemplateScheduleExecutor:
                 group_key = ftype
             filter_groups[group_key].append(fval)
 
+        # 미배정이 assignment 조건에 포함되면, 건물/객실 필터에서 면제
+        has_unassigned = 'unassigned' in filter_groups.get('assignment', [])
+
         for group_key, values in filter_groups.items():
             # Extract base type from group key (e.g., "column_match:party_type" -> "column_match")
             filter_type = group_key.split(':')[0] if group_key.startswith('column_match:') else group_key
@@ -505,10 +513,12 @@ class TemplateScheduleExecutor:
             if not builder:
                 continue
             conditions = [c for c in (builder(v, ctx) for v in values) if c is not None]
-            if len(conditions) == 1:
-                query = query.filter(conditions[0])
-            elif len(conditions) > 1:
-                query = query.filter(or_(*conditions))
+            if conditions:
+                combined = or_(*conditions) if len(conditions) > 1 else conditions[0]
+                # 미배정 예약자는 건물/객실 조건 면제 (RoomAssignment 없으므로 매칭 불가)
+                if filter_type in ("building", "room") and has_unassigned:
+                    combined = or_(combined, Reservation.section == 'unassigned')
+                query = query.filter(combined)
 
         # Apply exclude_sent filter via join table
         if exclude_sent and schedule.exclude_sent:

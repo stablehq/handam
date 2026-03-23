@@ -1655,7 +1655,10 @@ const Templates: React.FC = () => {
                   <button
                     key={opt.value}
                     type="button"
-                    onClick={() => setSDateTarget(opt.value)}
+                    onClick={() => {
+                      setSDateTarget(opt.value);
+                      if (opt.value.endsWith('_checkout')) setSTargetMode('once');
+                    }}
                     className={`px-3 py-2.5 text-body font-medium transition-colors cursor-pointer border-r border-[#E5E8EB] dark:border-gray-600 last:border-r-0
                       ${sDateTarget === opt.value
                         ? 'bg-[#3182F6] text-white'
@@ -1806,7 +1809,10 @@ const Templates: React.FC = () => {
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => setSStayFilter(opt.value)}
+                  onClick={() => {
+                    setSStayFilter(opt.value);
+                    if (opt.value === 'exclude') setSTargetMode('once');
+                  }}
                   className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-colors cursor-pointer flex-1
                     ${sStayFilter === opt.value
                       ? 'border-[#3182F6] bg-[#E8F3FF] dark:bg-[#3182F6]/15 dark:border-[#3182F6]'
@@ -1825,8 +1831,8 @@ const Templates: React.FC = () => {
               ))}
             </div>
 
-            {/* 발송 시점 — 제외 시 비활성화 */}
-              <div className={`space-y-1.5 ml-2 ${sStayFilter === 'exclude' ? 'opacity-40 pointer-events-none' : ''}`}>
+            {/* 발송 시점 — 체크아웃 계열 또는 연박 제외 시 비활성화 */}
+              <div className={`space-y-1.5 ml-2 ${sStayFilter === 'exclude' || sDateTarget.endsWith('_checkout') ? 'opacity-40 pointer-events-none' : ''}`}>
                 <div className="text-caption font-medium text-[#8B95A1] dark:text-gray-400">발송 시점</div>
                 <div className="inline-flex rounded-lg overflow-hidden border border-[#E5E8EB] dark:border-gray-600">
                   {[
