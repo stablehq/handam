@@ -747,7 +747,7 @@ const RoomAssignment = () => {
     }
   };
 
-  const doAssignRoom = async (resId: number, roomId: number, roomNumber: string, applySubsequent: boolean) => {
+  const doAssignRoom = async (resId: number, roomId: number, roomNumber: string, applySubsequent: boolean, applyGroup: boolean = false) => {
     // Optimistic update: move guest to new room + auto-assign room_info SMS tag
     setReservations((prev) =>
       prev.map((r) => {
@@ -766,6 +766,7 @@ const RoomAssignment = () => {
         room_id: roomId,
         date: selectedDate.format('YYYY-MM-DD'),
         apply_subsequent: applySubsequent,
+        apply_group: applyGroup,
       });
       toast.success(`${roomNumber} 배정 완료`);
       // 서버에서 갱신된 sms_assignments 반영
@@ -787,8 +788,8 @@ const RoomAssignment = () => {
     const res = reservations.find((r) => r.id === resId);
     if (!res) return;
 
-    // Multi-night guest: ask whether to apply to subsequent dates
-    if (isMultiNight(res)) {
+    // Multi-night or consecutive-stay guest: ask whether to apply to all dates
+    if (isMultiNight(res) || !!res.stay_group_id) {
       setMultiNightConfirm({
         open: true,
         resId,
@@ -797,7 +798,7 @@ const RoomAssignment = () => {
         roomNumber,
         onConfirm: (applySubsequent) => {
           setMultiNightConfirm(null);
-          doAssignRoom(resId, roomId, roomNumber, applySubsequent);
+          doAssignRoom(resId, roomId, roomNumber, applySubsequent, !!res.stay_group_id && applySubsequent);
         },
       });
       return;
@@ -1181,7 +1182,6 @@ const RoomAssignment = () => {
         >
           <div className="overflow-hidden px-1.5">
             <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className="font-medium text-[#191F28] dark:text-white" placeholder="이름" autoFocus={res.id === quickAddedId} />
-            {res.is_long_stay && <Badge size="xs" color="purple" className="ml-1">연박</Badge>}
           </div>
           <div className="overflow-hidden px-1.5">
             <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-[#8B95A1] tabular-nums" placeholder="연락처" />

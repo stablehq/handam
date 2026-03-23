@@ -531,7 +531,6 @@ export default function Reservations() {
                           <span className="font-medium text-gray-900 dark:text-white">
                             {r.customer_name}
                           </span>
-                          {r.is_long_stay && <Badge size="xs" color="purple" className="ml-1">연박</Badge>}
                           {r.visitor_name && r.visitor_name !== r.customer_name && (
                             <p className="text-caption text-gray-400">{r.visitor_name}</p>
                           )}

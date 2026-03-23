@@ -58,6 +58,7 @@ class RoomAssignRequest(BaseModel):
     room_id: Optional[int] = None
     date: Optional[str] = None
     apply_subsequent: bool = True  # Apply to subsequent dates for multi-night stays
+    apply_group: bool = False  # Apply to all reservations in the same stay_group
 
 
 class SmsAssignRequest(BaseModel):
@@ -464,6 +465,29 @@ async def assign_room(
             assigned_by="manual",
             created_by=current_user.username,
         )
+
+        # 연장자 그룹 일괄 이동: 같은 stay_group의 다른 예약도 같은 방으로 배정
+        if request.apply_group and db_reservation.stay_group_id:
+            group_members = db.query(Reservation).filter(
+                Reservation.stay_group_id == db_reservation.stay_group_id,
+                Reservation.id != reservation_id,
+            ).all()
+            for member in group_members:
+                member_from = member.check_in_date
+                member_end = member.check_out_date
+                try:
+                    room_assignment.assign_room(
+                        db,
+                        member.id,
+                        room_id,
+                        member_from,
+                        member_end,
+                        assigned_by="manual",
+                        created_by=current_user.username,
+                        skip_logging=True,  # 그룹 이동은 대표 로그 1건만
+                    )
+                except ValueError:
+                    pass  # 이미 배정된 경우 등 에러 무시
 
     db.commit()
     db.refresh(db_reservation)

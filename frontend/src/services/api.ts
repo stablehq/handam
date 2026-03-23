@@ -105,7 +105,7 @@ export const reservationsAPI = {
   create: (data: any) => api.post('/api/reservations', data),
   update: (id: number, data: any) => api.put(`/api/reservations/${id}`, data),
   delete: (id: number) => api.delete(`/api/reservations/${id}`),
-  assignRoom: (id: number, data: { room_id: number | null; date?: string; apply_subsequent?: boolean }) =>
+  assignRoom: (id: number, data: { room_id: number | null; date?: string; apply_subsequent?: boolean; apply_group?: boolean }) =>
     api.put(`/api/reservations/${id}/room`, data),
   syncNaver: (fromDate?: string) => api.post('/api/reservations/sync/naver', null, { params: fromDate ? { from_date: fromDate } : undefined }),
   updateDailyInfo: (id: number, data: { date: string; party_type: string | null }) =>
