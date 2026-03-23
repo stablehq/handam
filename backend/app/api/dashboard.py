@@ -3,7 +3,7 @@ Dashboard statistics API
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from app.api.deps import get_tenant_scoped_db
 from app.db.models import Reservation, ActivityLog, ReservationStatus, User
 from app.auth.dependencies import get_current_user
@@ -33,10 +33,6 @@ async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), curre
 
     # Campaign stats — today's sends (from ActivityLog)
     # tenant_id 필터는 before_compile hook이 select_from(ActivityLog)에서 자동 적용
-    today_campaigns = db.query(func.count()).select_from(ActivityLog).filter(
-        ActivityLog.activity_type == "sms_send",
-        ActivityLog.created_at >= today_start,
-    ).scalar() or 0
     today_campaign_sent = int(db.query(func.coalesce(func.sum(ActivityLog.success_count), 0)).select_from(ActivityLog).filter(
         ActivityLog.activity_type == "sms_send",
         ActivityLog.created_at >= today_start,
@@ -87,7 +83,6 @@ async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), curre
             "today_reservations": today_reservations,
         },
         "campaigns": {
-            "today_campaigns": today_campaigns,
             "today_sent": today_campaign_sent,
         },
         "gender_stats": {
@@ -134,7 +129,11 @@ async def get_today_schedules(db: Session = Depends(get_tenant_scoped_db), curre
             sent_log = db.query(ActivityLog).filter(
                 ActivityLog.activity_type == "sms_send",
                 ActivityLog.created_at >= today_start,
-                ActivityLog.title.contains(s.schedule_name),
+                or_(
+                    ActivityLog.detail.contains(f'"schedule_id": {s.id}'),
+                    ActivityLog.detail.contains(f'"schedule_id":{s.id}'),
+                    ActivityLog.title.contains(s.schedule_name),
+                ),
             ).first()
             status = "완료" if sent_log else ("대기" if not done else "미발송")
             result = f"성공 {sent_log.success_count}건" if sent_log else "-"
@@ -156,7 +155,11 @@ async def get_today_schedules(db: Session = Depends(get_tenant_scoped_db), curre
             sent_count = db.query(ActivityLog).filter(
                 ActivityLog.activity_type == "sms_send",
                 ActivityLog.created_at >= today_start,
-                ActivityLog.title.contains(s.schedule_name),
+                or_(
+                    ActivityLog.detail.contains(f'"schedule_id": {s.id}'),
+                    ActivityLog.detail.contains(f'"schedule_id":{s.id}'),
+                    ActivityLog.title.contains(s.schedule_name),
+                ),
             ).count()
             status = "완료" if done else ("진행중" if in_progress else "대기")
             result = f"{sent_count}건" if sent_count > 0 else "-"
@@ -178,7 +181,11 @@ async def get_today_schedules(db: Session = Depends(get_tenant_scoped_db), curre
             sent_count = db.query(ActivityLog).filter(
                 ActivityLog.activity_type == "sms_send",
                 ActivityLog.created_at >= today_start,
-                ActivityLog.title.contains(s.schedule_name),
+                or_(
+                    ActivityLog.detail.contains(f'"schedule_id": {s.id}'),
+                    ActivityLog.detail.contains(f'"schedule_id":{s.id}'),
+                    ActivityLog.title.contains(s.schedule_name),
+                ),
             ).count()
             status = "완료" if done else ("진행중" if in_progress else "대기")
             result = f"{sent_count}건" if sent_count > 0 else "-"

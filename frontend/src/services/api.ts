@@ -263,7 +263,6 @@ export const settingsAPI = {
   updateNaverCookie: (cookie: string) =>
     api.post('/api/settings/naver/cookie', { cookie }),
   clearNaverCookie: () => api.delete('/api/settings/naver/cookie'),
-  getBookmarklet: () => api.get('/api/settings/naver/bookmarklet'),
 };
 
 // Party Check-in API

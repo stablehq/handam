@@ -14,18 +14,20 @@ import {
   TextInput,
   Label,
   Spinner,
+  Tooltip,
 } from 'flowbite-react';
 import {
   Send,
   RefreshCw,
   X,
-  UserPlus,
+  BedDouble,
   Trash2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   GripVertical,
   Plus,
+  UserRoundPlus,
 } from 'lucide-react';
 
 interface SmsAssignment {
@@ -287,13 +289,14 @@ const SmsCell: React.FC<SmsCellProps> = ({ reservation, templateLabels, selected
   );
 };
 
-const InlineInput = ({ value, field, resId, className, placeholder, onSave }: {
+const InlineInput = ({ value, field, resId, className, placeholder, onSave, autoFocus }: {
   value: string;
   field: string;
   resId: number;
   className?: string;
   placeholder?: string;
   onSave: (resId: number, field: string, value: string) => void;
+  autoFocus?: boolean;
 }) => {
   const [localValue, setLocalValue] = useState(value);
   useEffect(() => setLocalValue(value), [value]);
@@ -306,6 +309,7 @@ const InlineInput = ({ value, field, resId, className, placeholder, onSave }: {
       onChange={(e) => setLocalValue(e.target.value)}
       onBlur={() => { if (localValue !== value) onSave(resId, field, localValue); }}
       placeholder={placeholder}
+      autoFocus={autoFocus}
     />
   );
 };
@@ -334,6 +338,7 @@ const RoomAssignment = () => {
   const [dragOverTrash, setDragOverTrash] = useState(false);
   const [recentlyMovedId, setRecentlyMovedId] = useState<number | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [quickAddedId, setQuickAddedId] = useState<number | null>(null);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [savingReservation, setSavingReservation] = useState(false);
@@ -610,6 +615,13 @@ const RoomAssignment = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (quickAddedId) {
+      const timer = setTimeout(() => setQuickAddedId(null), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [quickAddedId]);
 
 
   const loadTargets = () => {
@@ -940,6 +952,27 @@ const RoomAssignment = () => {
     setModalVisible(true);
   };
 
+  const handleQuickAddParty = async () => {
+    try {
+      const res = await reservationsAPI.create({
+        customer_name: '',
+        phone: '',
+        check_in_date: selectedDate.format('YYYY-MM-DD'),
+        check_in_time: '18:00',
+        naver_room_type: '파티만',
+        section: 'party',
+        status: 'confirmed',
+        booking_source: 'manual',
+      });
+      const newId = res.data?.id;
+      if (newId) setQuickAddedId(newId);
+      await fetchReservations(selectedDate);
+      toast.success('파티 게스트 추가됨');
+    } catch {
+      toast.error('추가 실패');
+    }
+  };
+
   const handleEditGuest = (id: number) => {
     const guest = reservations.find((r) => r.id === id);
     if (guest) {
@@ -1142,7 +1175,7 @@ const RoomAssignment = () => {
           style={{ gridTemplateColumns: GUEST_COLS }}
         >
           <div className="overflow-hidden px-1.5">
-            <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className="font-medium text-[#191F28] dark:text-white" placeholder="이름" />
+            <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className="font-medium text-[#191F28] dark:text-white" placeholder="이름" autoFocus={res.id === quickAddedId} />
             {res.is_consecutive_stay && <Badge size="xs" color="purple" className="ml-1">연박</Badge>}
           </div>
           <div className="overflow-hidden px-1.5">
@@ -1426,7 +1459,7 @@ const RoomAssignment = () => {
   }, [reservations]);
 
   return (
-    <div className={`space-y-4 ${processing ? 'opacity-60 pointer-events-none' : ''}`}>
+    <div className={`space-y-4 pb-14 ${processing ? 'opacity-60 pointer-events-none' : ''}`}>
 
       {/* Page header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1548,19 +1581,6 @@ const RoomAssignment = () => {
             </Button>
 
 
-            <div className="flex items-center gap-2 ml-auto">
-              <Button color="blue" size="sm" onClick={() => setAutoAssignConfirm(true)} disabled={autoAssigning}>
-                {autoAssigning ? <><Spinner size="sm" className="mr-1.5" />배정 중...</> : <><UserPlus className="h-3.5 w-3.5 mr-1.5" />객실 자동 배정</>}
-              </Button>
-              <Button
-                color="light"
-                size="sm"
-                onClick={handleAddPartyGuest}
-              >
-                <UserPlus className="h-3.5 w-3.5 mr-1.5" />
-                예약자 추가
-              </Button>
-            </div>
           </div>
 
           {targets.length > 0 && (
@@ -1880,39 +1900,66 @@ const RoomAssignment = () => {
         </ModalFooter>
       </Modal>
 
-      {/* Trash Drop Zone — visible only while dragging */}
-      {dragActive && (
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            if (!dragOverTrash) setDragOverTrash(true);
-          }}
-          onDragLeave={(e) => {
-            const related = e.relatedTarget as Node | null;
-            if (!related || !e.currentTarget.contains(related)) {
-              setDragOverTrash(false);
-            }
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragOverTrash(false);
-            setDragActive(false);
-            const resId = Number(e.dataTransfer.getData('text/plain'));
-            if (resId) handleDeleteGuest(resId);
-          }}
-          className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-2xl px-6 py-3 shadow-lg transition-all duration-300 animate-in slide-in-from-bottom-4
-            ${dragOverTrash
-              ? 'bg-[#F04452] text-white scale-110 shadow-[#F04452]/30'
-              : 'bg-white text-[#F04452] border-2 border-dashed border-[#F04452] dark:bg-[#1E1E24]'
-            }`}
-        >
-          <Trash2 className="h-5 w-5" />
-          <span className="text-body font-semibold">
-            {dragOverTrash ? '놓으면 삭제됩니다' : '여기에 놓으면 삭제'}
-          </span>
+      {/* Quick Menu — fixed bottom bar */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-2xl shadow-lg bg-white dark:bg-[#1E1E24] border border-[#E5E8EB] dark:border-gray-800 px-4 py-2.5">
+        <div className="flex items-center gap-3">
+          <span className="text-[9px] font-bold tracking-widest leading-tight text-[#B0B8C1] dark:text-[#4E5968]">QUICK<br/>MENU</span>
+          <Tooltip content={autoAssigning ? '배정 중...' : '객실 자동 배정'} placement="top">
+            <div className="inline-block">
+              <button
+                onClick={() => setAutoAssignConfirm(true)}
+                disabled={autoAssigning}
+                className="h-10 w-10 flex items-center justify-center rounded-full bg-[#3182F6] text-white hover:bg-[#1B64DA] active:bg-[#1554B5] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+              >
+                {autoAssigning ? <Spinner size="sm" /> : <BedDouble className="h-[18px] w-[18px]" />}
+              </button>
+            </div>
+          </Tooltip>
+          <Tooltip content="파티 게스트 추가" placement="top">
+            <div className="inline-block">
+              <button
+                onClick={handleQuickAddParty}
+                className="h-10 w-10 flex items-center justify-center rounded-full bg-white dark:bg-[#2C2C34] border border-[#E5E8EB] dark:border-gray-700 text-[#4E5968] dark:text-gray-300 hover:bg-[#F2F4F6] dark:hover:bg-[#35353E] active:bg-[#E5E8EB] transition-colors cursor-pointer"
+              >
+                <UserRoundPlus className="h-[18px] w-[18px]" />
+              </button>
+            </div>
+          </Tooltip>
+          <Tooltip content={dragOverTrash ? '놓으면 삭제됩니다' : '게스트를 드래그하여 삭제'} placement="top">
+            <div className="inline-block">
+              <div
+                onDragOver={(e: React.DragEvent) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (!dragOverTrash) setDragOverTrash(true);
+                }}
+                onDragLeave={(e: React.DragEvent) => {
+                  const related = e.relatedTarget as Node | null;
+                  if (!related || !e.currentTarget.contains(related)) {
+                    setDragOverTrash(false);
+                  }
+                }}
+                onDrop={(e: React.DragEvent) => {
+                  e.preventDefault();
+                  setDragOverTrash(false);
+                  setDragActive(false);
+                  const resId = Number(e.dataTransfer.getData('text/plain'));
+                  if (resId) handleDeleteGuest(resId);
+                }}
+                className={`flex items-center justify-center rounded-full transition-all duration-300 ${
+                  dragOverTrash
+                    ? 'h-12 w-12 bg-[#F04452] text-white scale-110 shadow-lg shadow-[#F04452]/40 ring-4 ring-[#F04452]/20'
+                    : dragActive
+                      ? 'h-12 w-12 bg-[#FFEBEE] dark:bg-[#F04452]/15 text-[#F04452] border-2 border-[#F04452] animate-bounce'
+                      : 'h-10 w-10 bg-white dark:bg-[#2C2C34] border border-[#E5E8EB] dark:border-gray-700 text-[#8B95A1] dark:text-gray-400'
+                }`}
+              >
+                <Trash2 className={`transition-all duration-300 ${dragActive ? 'h-5 w-5' : 'h-[18px] w-[18px]'}`} />
+              </div>
+            </div>
+          </Tooltip>
         </div>
-      )}
+      </div>
 
       {/* Confirm Dialog */}
       <Modal
@@ -1957,7 +2004,7 @@ const RoomAssignment = () => {
         <ModalBody>
           <div className="text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#E8F3FF] dark:bg-[#3182F6]/10">
-              <UserPlus className="h-6 w-6 text-[#3182F6]" />
+              <BedDouble className="h-6 w-6 text-[#3182F6]" />
             </div>
             <h3 className="mb-2 text-lg font-semibold text-[#191F28] dark:text-white">연박 객실 이동</h3>
             <p className="mb-5 text-sm text-[#8B95A1] dark:text-[#8B95A1]">

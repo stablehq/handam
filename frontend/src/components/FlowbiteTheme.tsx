@@ -140,6 +140,25 @@ const customTheme = {
       },
     },
   },
+  tooltip: {
+    target: '',
+    animation: 'transition-opacity duration-150',
+    arrow: {
+      base: 'absolute z-10 h-2 w-2 rotate-45',
+      style: {
+        dark: 'bg-[#191F28] dark:bg-[#2C2C34]',
+        light: 'bg-white dark:bg-[#2C2C34]',
+        auto: 'bg-[#191F28] dark:bg-[#2C2C34]',
+      },
+      placement: '-4px',
+    },
+    style: {
+      dark: 'bg-[#191F28] text-white dark:bg-[#2C2C34] dark:text-gray-100',
+      light: 'bg-white text-[#191F28] border border-[#E5E8EB] dark:bg-[#2C2C34] dark:text-gray-100 dark:border-gray-700',
+      auto: 'bg-[#191F28] text-white dark:bg-[#2C2C34] dark:text-gray-100',
+    },
+    content: 'relative z-[60] rounded-lg px-3 py-1.5 text-caption font-medium shadow-lg whitespace-nowrap',
+  },
   spinner: {
     color: {
       info: 'fill-[#3182F6]',
