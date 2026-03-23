@@ -222,7 +222,7 @@ def calculate_template_variables(
         variables['female_count'] = '0'
 
     # 날짜 프리픽스 변수: today/tomorrow/yesterday (동일 버퍼 적용)
-    # NOTE: get_or_create_snapshot은 check_in_date 기준 집계. date_mode='checkout'이어도 인원 통계는 체크인 기준.
+    # NOTE: get_or_create_snapshot은 check_in_date 기준 집계. 인원 통계는 항상 체크인 기준.
     from datetime import timedelta as _td
     try:
         _base_date = datetime.strptime(target_date, '%Y-%m-%d').date() if isinstance(target_date, str) and target_date else datetime.today().date()

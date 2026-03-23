@@ -190,19 +190,9 @@ def init_db():
                 conn.execute(text("ALTER TABLE message_templates ADD COLUMN round_mode VARCHAR(10) DEFAULT 'ceil'"))
                 print("AUTO-MIGRATE: Added round_mode column to message_templates table")
 
-        # template_schedules: date_mode, consecutive_stay_filter, next_stay_filter
+        # template_schedules: date_target, stay_filter
         if "template_schedules" in inspector.get_table_names():
             cols = [c["name"] for c in inspector.get_columns("template_schedules")]
-            if "date_mode" not in cols:
-                conn.execute(text("ALTER TABLE template_schedules ADD COLUMN date_mode VARCHAR(20) DEFAULT 'checkin'"))
-                print("AUTO-MIGRATE: Added date_mode column to template_schedules table")
-            if "consecutive_stay_filter" not in cols:
-                conn.execute(text("ALTER TABLE template_schedules ADD COLUMN consecutive_stay_filter VARCHAR(20)"))
-                print("AUTO-MIGRATE: Added consecutive_stay_filter column to template_schedules table")
-            if "next_stay_filter" not in cols:
-                conn.execute(text("ALTER TABLE template_schedules ADD COLUMN next_stay_filter VARCHAR(20)"))
-                print("AUTO-MIGRATE: Added next_stay_filter column to template_schedules table")
-            # v4: unified filters
             if "date_target" not in cols:
                 conn.execute(text("ALTER TABLE template_schedules ADD COLUMN date_target VARCHAR(30)"))
                 print("AUTO-MIGRATE: Added date_target column to template_schedules table")

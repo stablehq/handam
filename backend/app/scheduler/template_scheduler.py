@@ -140,7 +140,7 @@ FILTER_BUILDERS = {
 def matches_schedule(db: Session, schedule: TemplateSchedule, reservation_id: int) -> bool:
     """Check if a single reservation matches a schedule's structural filters.
 
-    Does NOT apply date_filter or exclude_sent — those are for get_targets() only.
+    Does NOT apply date_target or exclude_sent — those are for get_targets() only.
     Applies only building/assignment/room/column_match filters.
 
     Returns True if the reservation passes all filter groups (AND between groups,
@@ -248,10 +248,7 @@ class TemplateScheduleExecutor:
             send_results = []
 
             date_target_val = getattr(schedule, 'date_target', None)
-            if date_target_val:
-                target_date = self._resolve_date_target(date_target_val)
-            else:
-                target_date = self._parse_date_filter(schedule.date_filter) if schedule.date_filter else None
+            target_date = self._resolve_date_target(date_target_val) if date_target_val else None
 
             # Build reservation_id -> building+room display map for log
             # Use RoomAssignment for target_date (not denormalized field)
@@ -358,7 +355,6 @@ class TemplateScheduleExecutor:
                 detail={
                     "schedule_id": schedule.id,
                     "template_key": schedule.template.template_key,
-                    "date_filter": schedule.date_filter,
                     "targets": send_results,
                     "message": schedule.template.content,
                 },
@@ -409,7 +405,6 @@ class TemplateScheduleExecutor:
             Reservation.status == ReservationStatus.CONFIRMED
         )
 
-        date_mode = getattr(schedule, 'date_mode', 'checkin')
         date_target_val = getattr(schedule, 'date_target', None)
 
         # Safety guard: never send to reservations more than 1 day out
@@ -419,15 +414,10 @@ class TemplateScheduleExecutor:
                 Reservation.check_out_date.isnot(None),
                 Reservation.check_out_date <= max_date,
             )
-        elif date_mode == 'checkout':
-            query = query.filter(
-                Reservation.check_out_date.isnot(None),
-                Reservation.check_out_date <= max_date,
-            )
         else:
             query = query.filter(Reservation.check_in_date <= max_date)
 
-        # Apply date filter — date_target takes precedence over date_mode + date_filter
+        # Apply date_target filter
         target_date = None
         if date_target_val:
             target_date = self._resolve_date_target(date_target_val)
@@ -452,29 +442,6 @@ class TemplateScheduleExecutor:
                     )
                 else:
                     query = query.filter(Reservation.check_in_date == target_date)
-        elif schedule.date_filter:
-            # Fallback to old date_mode + date_filter
-            target_date = self._parse_date_filter(schedule.date_filter)
-            if target_date:
-                if schedule.target_mode in ('daily', 'last_day'):
-                    query = query.filter(
-                        or_(
-                            and_(
-                                Reservation.check_in_date <= target_date,
-                                Reservation.check_out_date > target_date,
-                            ),
-                            and_(
-                                Reservation.check_in_date == target_date,
-                                Reservation.check_out_date.is_(None),
-                            ),
-                        )
-                    )
-                else:
-                    if date_mode == 'checkout':
-                        query = query.filter(Reservation.check_out_date == target_date)
-                    else:
-                        query = query.filter(Reservation.check_in_date == target_date)
-
         # Default target_date for filters that need it
         if not target_date:
             target_date = date.today().strftime('%Y-%m-%d')
@@ -567,46 +534,10 @@ class TemplateScheduleExecutor:
                 filtered.append(res)
             results = filtered
 
-        # Stay filter: NEW (exclusive) vs OLD
+        # Stay filter
         sf = getattr(schedule, 'stay_filter', None)
-
-        if sf:
-            # NEW: stay_filter REPLACES old csf + nsf entirely
-            if sf == 'exclude':
-                results = [r for r in results if not r.stay_group_id]
-        else:
-            # OLD: consecutive_stay_filter + next_stay_filter (backward compat)
-            csf = getattr(schedule, 'consecutive_stay_filter', None)
-            if csf and results:
-                if csf == 'exclude':
-                    results = [r for r in results if not r.stay_group_id]
-                elif csf == 'only':
-                    results = [r for r in results if r.stay_group_id]
-
-            nsf = getattr(schedule, 'next_stay_filter', None)
-            if nsf and results:
-                group_res = [(r.id, r.stay_group_id, r.check_out_date) for r in results if r.stay_group_id and r.check_out_date]
-
-                has_next_ids = set()
-                if group_res:
-                    group_ids = {sg for _, sg, _ in group_res}
-                    next_checkins = self.db.query(Reservation.stay_group_id, Reservation.check_in_date).filter(
-                        Reservation.stay_group_id.in_(group_ids),
-                        Reservation.tenant_id == schedule.tenant_id,
-                    ).all()
-
-                    next_lookup = {}
-                    for sg, ci in next_checkins:
-                        next_lookup.setdefault(sg, set()).add(ci)
-
-                    for rid, sg, co in group_res:
-                        if co in next_lookup.get(sg, set()):
-                            has_next_ids.add(rid)
-
-                if nsf == 'exclude':
-                    results = [r for r in results if r.id not in has_next_ids]
-                elif nsf == 'only':
-                    results = [r for r in results if r.id in has_next_ids]
+        if sf == 'exclude':
+            results = [r for r in results if not r.stay_group_id]
 
         return results
 
@@ -664,10 +595,7 @@ class TemplateScheduleExecutor:
 
         # Batch lookup room assignments from RoomAssignment table (source of truth)
         date_target_val = getattr(schedule, 'date_target', None)
-        if date_target_val:
-            target_date = self._resolve_date_target(date_target_val)
-        else:
-            target_date = self._parse_date_filter(schedule.date_filter or "today")
+        target_date = self._resolve_date_target(date_target_val) if date_target_val else date.today().strftime('%Y-%m-%d')
         res_ids = [r.id for r in targets]
         room_map: dict[int, str] = {}
         if res_ids and target_date:
@@ -745,20 +673,4 @@ class TemplateScheduleExecutor:
 
         return filtered
 
-    def _parse_date_filter(self, date_filter: str) -> str:
-        """
-        Parse date filter to YYYY-MM-DD format
 
-        Args:
-            date_filter: 'today', 'tomorrow', or 'YYYY-MM-DD'
-
-        Returns:
-            Date string in YYYY-MM-DD format or None
-        """
-        if date_filter == 'today':
-            return date.today().strftime('%Y-%m-%d')
-        elif date_filter == 'tomorrow':
-            return (date.today() + timedelta(days=1)).strftime('%Y-%m-%d')
-        elif date_filter and len(date_filter) == 10:  # YYYY-MM-DD
-            return date_filter
-        return None

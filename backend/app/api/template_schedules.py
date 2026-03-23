@@ -53,14 +53,10 @@ def _schedule_to_response(schedule: TemplateSchedule) -> dict:
         "active_end_hour": schedule.active_end_hour,
         "timezone": schedule.timezone,
         "filters": filters,
-        "date_filter": schedule.date_filter,
         "target_mode": schedule.target_mode or "once",
         "exclude_sent": schedule.exclude_sent,
         "active": schedule.is_active,
         "once_per_stay": schedule.once_per_stay or False,
-        "date_mode": schedule.date_mode or "checkin",
-        "consecutive_stay_filter": schedule.consecutive_stay_filter,
-        "next_stay_filter": schedule.next_stay_filter,
         "date_target": schedule.date_target,
         "stay_filter": schedule.stay_filter,
         "created_at": schedule.created_at,
@@ -83,22 +79,12 @@ class TemplateScheduleCreate(BaseModel):
     active_end_hour: Optional[int] = None
     timezone: str = "Asia/Seoul"
     filters: Optional[List[dict]] = None  # [{"type": "tag", "value": "객후"}, ...]
-    date_filter: Optional[str] = None
     target_mode: Optional[Literal['once', 'daily', 'last_day']] = "once"
     exclude_sent: bool = True
     active: bool = True
     once_per_stay: Optional[bool] = False
-    date_mode: Optional[Literal['checkin', 'checkout']] = "checkin"
-    consecutive_stay_filter: Optional[Literal['exclude', 'only']] = None
-    next_stay_filter: Optional[Literal['exclude', 'only']] = None
     date_target: Optional[Literal['today', 'tomorrow', 'today_checkout', 'tomorrow_checkout']] = None
     stay_filter: Optional[Literal['exclude']] = None
-
-    @model_validator(mode='after')
-    def validate_stay_filter_exclusivity(self):
-        if self.stay_filter and (self.consecutive_stay_filter or self.next_stay_filter):
-            raise ValueError("stay_filter cannot be used together with consecutive_stay_filter or next_stay_filter")
-        return self
 
 
 class TemplateScheduleUpdate(BaseModel):
@@ -113,22 +99,12 @@ class TemplateScheduleUpdate(BaseModel):
     active_end_hour: Optional[int] = None
     timezone: Optional[str] = None
     filters: Optional[List[dict]] = None
-    date_filter: Optional[str] = None
     target_mode: Optional[Literal['once', 'daily', 'last_day']] = None
     exclude_sent: Optional[bool] = None
     active: Optional[bool] = None
     once_per_stay: Optional[bool] = None
-    date_mode: Optional[Literal['checkin', 'checkout']] = None
-    consecutive_stay_filter: Optional[Literal['exclude', 'only']] = None
-    next_stay_filter: Optional[Literal['exclude', 'only']] = None
     date_target: Optional[Literal['today', 'tomorrow', 'today_checkout', 'tomorrow_checkout']] = None
     stay_filter: Optional[Literal['exclude']] = None
-
-    @model_validator(mode='after')
-    def validate_stay_filter_exclusivity(self):
-        if self.stay_filter and (self.consecutive_stay_filter or self.next_stay_filter):
-            raise ValueError("stay_filter cannot be used together with consecutive_stay_filter or next_stay_filter")
-        return self
 
 
 class TemplateScheduleResponse(BaseModel):
@@ -146,16 +122,12 @@ class TemplateScheduleResponse(BaseModel):
     active_end_hour: Optional[int] = None
     timezone: str
     filters: Optional[List[dict]] = None
-    date_filter: Optional[str]
     target_mode: Optional[str] = "once"
     exclude_sent: bool
     active: bool
     once_per_stay: Optional[bool] = False
-    date_mode: Optional[str] = "checkin"
-    consecutive_stay_filter: Optional[str] = None
-    next_stay_filter: Optional[str] = None
     date_target: Optional[str] = None
-    stay_filter: Optional[str] = None  # Optional[str] for backward compat with pre-migration 'last_only' values
+    stay_filter: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     last_run: Optional[datetime] = None
@@ -246,14 +218,10 @@ def create_schedule(schedule: TemplateScheduleCreate, db: Session = Depends(get_
         active_end_hour=schedule.active_end_hour,
         timezone=schedule.timezone,
         filters=filters_json,
-        date_filter=schedule.date_filter,
         target_mode=schedule.target_mode or "once",
         exclude_sent=schedule.exclude_sent,
         is_active=schedule.active,
         once_per_stay=schedule.once_per_stay or False,
-        date_mode=schedule.date_mode or "checkin",
-        consecutive_stay_filter=schedule.consecutive_stay_filter,
-        next_stay_filter=schedule.next_stay_filter,
         date_target=schedule.date_target,
         stay_filter=schedule.stay_filter,
     )
@@ -378,13 +346,12 @@ def auto_assign(
     for schedule in schedules:
         if not schedule.template or not schedule.template.is_active:
             continue
-        # If a date was provided, temporarily override date_filter for this call
-        if date and not schedule.date_filter:
-            # Only apply date override when schedule has no date_filter itself
-            original_date_filter = schedule.date_filter
-            schedule.date_filter = date
+        # If a date was provided and schedule has no date_target, temporarily override
+        if date and not schedule.date_target:
+            original = schedule.date_target
+            schedule.date_target = date
             created = executor.auto_assign_for_schedule(schedule)
-            schedule.date_filter = original_date_filter
+            schedule.date_target = original
         else:
             created = executor.auto_assign_for_schedule(schedule)
 

@@ -217,7 +217,6 @@ export const templateSchedulesAPI = {
     interval_minutes?: number;
     timezone?: string;
     filters?: Array<{ type: string; value: string }>;
-    date_filter?: string;
     exclude_sent?: boolean;
     active?: boolean;
   }) => api.post('/api/template-schedules', data),

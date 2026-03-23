@@ -81,11 +81,7 @@ interface TemplateSchedule {
   active_end_hour: number | null;
   timezone: string;
   filters: string | null;
-  date_filter: string | null;
   target_mode: string | null;
-  date_mode: string | null;
-  consecutive_stay_filter: string | null;
-  next_stay_filter: string | null;
   date_target: string | null;
   stay_filter: string | null;
   exclude_sent: boolean;
@@ -236,19 +232,13 @@ function parseFilters(raw: unknown): ScheduleFilter[] {
 }
 
 function getScheduleDateLabel(record: TemplateSchedule): string {
-  // v4: prefer date_target
-  if (record.date_target) {
-    switch (record.date_target) {
-      case 'today': return '오늘';
-      case 'tomorrow': return '내일';
-      case 'today_checkout': return '오늘 체크아웃';
-      case 'tomorrow_checkout': return '내일 체크아웃';
-    }
+  switch (record.date_target) {
+    case 'today': return '오늘';
+    case 'tomorrow': return '내일';
+    case 'today_checkout': return '오늘 체크아웃';
+    case 'tomorrow_checkout': return '내일 체크아웃';
+    default: return '오늘';
   }
-  // Fallback to old fields
-  const dateBase = record.date_filter === 'tomorrow' ? '내일' : '오늘';
-  const mode = record.date_mode === 'checkout' ? ' 체크아웃' : '';
-  return dateBase + mode;
 }
 
 function getDateFilterLabel(dateFilter: string | null): string | null {
@@ -418,11 +408,7 @@ const Templates: React.FC = () => {
   const [sActiveEndHour, setSActiveEndHour] = useState<string>('');
 
   const [sFilters, setSFilters] = useState<ScheduleFilter[]>([]);
-  const [sDateFilter, setSDateFilter] = useState('today');
   const [sTargetMode, setSTargetMode] = useState<'once' | 'daily' | 'last_day'>('once');
-  const [sDateMode, setSDateMode] = useState<'checkin' | 'checkout'>('checkin');
-  const [sConsecutiveStayFilter, setSConsecutiveStayFilter] = useState<string>('');
-  const [sNextStayFilter, setSNextStayFilter] = useState<string>('');
   const [sDateTarget, setSDateTarget] = useState<string>('today');
   const [sStayFilter, setSStayFilter] = useState<string>('');
   const sExcludeSent = true; // 항상 발송 완료 대상 제외
@@ -628,11 +614,8 @@ const Templates: React.FC = () => {
     setSName(''); setSTemplateId(''); setSType('daily');
     setSHour('9'); setSMinute('0'); setSDayOfWeek([]);
     setSIntervalMinutes('10'); setSActiveStartHour(''); setSActiveEndHour('');
-    setSFilters([]); setSDateFilter('');
+    setSFilters([]);
     setSTargetMode('once');
-    setSDateMode('checkin');
-    setSConsecutiveStayFilter('');
-    setSNextStayFilter('');
     setSDateTarget('today');
     setSStayFilter('');
     setCmRows([{ column: 'party_type', operator: '', text: '' }]);
@@ -662,44 +645,9 @@ const Templates: React.FC = () => {
       const parsed = parseColumnMatchValue(f.value);
       return parsed ? { column: parsed.column, operator: parsed.operator as any, text: parsed.text } : { column: 'party_type', operator: 'contains' as const, text: '' };
     }));
-    setSDateFilter(s.date_filter || 'today');
     setSTargetMode(s.target_mode === 'daily' ? 'daily' : s.target_mode === 'last_day' ? 'last_day' : 'once');
-    setSDateMode(s.date_mode === 'checkout' ? 'checkout' : 'checkin');
-    setSConsecutiveStayFilter(s.consecutive_stay_filter || '');
-    setSNextStayFilter(s.next_stay_filter || '');
-
-    // v4: date_target — prefer new field, derive from old if absent
-    if (s.date_target) {
-      setSDateTarget(s.date_target);
-    } else {
-      const dateBase = s.date_filter || 'today';
-      const mode = s.date_mode || 'checkin';
-      if (mode === 'checkout') {
-        setSDateTarget(dateBase === 'tomorrow' ? 'tomorrow_checkout' : 'today_checkout');
-      } else {
-        setSDateTarget(dateBase);
-      }
-    }
-
-    // v4: stay_filter — derive with 'only' guard
-    if (s.stay_filter !== null && s.stay_filter !== undefined) {
-      setSStayFilter(s.stay_filter);
-    } else if (s.consecutive_stay_filter === 'only' || s.next_stay_filter === 'only') {
-      setSStayFilter('');
-      toast.warning(
-        `이 스케줄은 "${s.consecutive_stay_filter === 'only' ? '연박만' : '연장자만'}" 필터를 사용합니다. ` +
-        '새 연박 필터에는 해당 옵션이 없어 저장 시 기존 설정이 유지됩니다.'
-      );
-    } else {
-      if (s.consecutive_stay_filter === 'exclude') {
-        setSStayFilter('exclude');
-      } else if (s.next_stay_filter === 'exclude') {
-        setSStayFilter('');
-        setSTargetMode('last_day');
-      } else {
-        setSStayFilter('');
-      }
-    }
+    setSDateTarget(s.date_target || 'today');
+    setSStayFilter(s.stay_filter || '');
     // sExcludeSent는 항상 true 고정
     setSActive(s.active);
     setScheduleDialogOpen(true);
@@ -708,16 +656,6 @@ const Templates: React.FC = () => {
   const buildSchedulePayload = () => {
     const hasActiveHours = (sType === 'hourly' || sType === 'interval')
       && sActiveStartHour !== '' && sActiveEndHour !== '';
-
-    // Derive consistent old fields from date_target
-    const derivedDateMode = sDateTarget?.endsWith('_checkout') ? 'checkout' : 'checkin';
-    const derivedDateFilter = sDateTarget?.startsWith('tomorrow') ? 'tomorrow' : 'today';
-
-    // Check if existing schedule uses 'only' values that can't map to stay_filter
-    const hasOnlyFilter = editingSchedule && (
-      editingSchedule.consecutive_stay_filter === 'only' ||
-      editingSchedule.next_stay_filter === 'only'
-    );
 
     return {
       schedule_name: sName,
@@ -731,21 +669,10 @@ const Templates: React.FC = () => {
       active_end_hour: hasActiveHours ? Number(sActiveEndHour) : null,
       timezone: 'Asia/Seoul',
       filters: sFilters.length > 0 ? sFilters : undefined,
-      // v5: new fields
       date_target: sDateTarget || null,
-      stay_filter: (hasOnlyFilter && !sStayFilter) ? null : (sStayFilter || null),
+      stay_filter: sStayFilter || null,
       target_mode: sTargetMode,
-      // v5: once_per_stay derived from target_mode selection
       once_per_stay: sTargetMode === 'once',
-      // Old fields: derive consistent values for backward compat
-      date_filter: derivedDateFilter,
-      date_mode: derivedDateMode,
-      consecutive_stay_filter: (hasOnlyFilter && !sStayFilter)
-        ? editingSchedule.consecutive_stay_filter
-        : null,
-      next_stay_filter: (hasOnlyFilter && !sStayFilter)
-        ? editingSchedule.next_stay_filter
-        : null,
       exclude_sent: sExcludeSent,
       active: sActive,
     };
@@ -1092,17 +1019,8 @@ const Templates: React.FC = () => {
                       <TableCell>
                         <div className="flex flex-wrap items-center gap-1">
                           {getTargetSummary(s, buildings)}
-                          {/* v4: date_target checkout badge */}
-                          {s.date_target?.includes('checkout') && <Badge color="purple" size="sm">체크아웃</Badge>}
-                          {!s.date_target && s.date_mode === 'checkout' && <Badge color="purple" size="sm">체크아웃</Badge>}
-                          {/* v4: stay_filter badges */}
                           {s.stay_filter === 'exclude' && <Badge color="warning" size="sm">연박제외</Badge>}
                           {s.target_mode === 'last_day' && <Badge color="info" size="sm">마지막날만</Badge>}
-                          {/* Old badges as fallback */}
-                          {!s.stay_filter && s.consecutive_stay_filter === 'exclude' && <Badge color="warning" size="sm">연박제외</Badge>}
-                          {!s.stay_filter && s.consecutive_stay_filter === 'only' && <Badge color="info" size="sm">연박만</Badge>}
-                          {!s.stay_filter && s.next_stay_filter === 'exclude' && <Badge color="warning" size="sm">연장자제외</Badge>}
-                          {!s.stay_filter && s.next_stay_filter === 'only' && <Badge color="info" size="sm">연장자만</Badge>}
                         </div>
                       </TableCell>
                       <TableCell>

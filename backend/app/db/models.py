@@ -386,7 +386,6 @@ class TemplateSchedule(TenantMixin, Base):
 
     # Target filters
     filters = Column(Text, nullable=True)  # JSON array: [{"type": "tag", "value": "객후"}, {"type": "building", "value": "1"}]
-    date_filter = Column(String(20), nullable=True)  # 'today', 'tomorrow', 'YYYY-MM-DD', null
 
     # SMS tracking
     exclude_sent = Column("is_exclude_sent", Boolean, default=True)  # Prevent duplicate sending
@@ -402,11 +401,6 @@ class TemplateSchedule(TenantMixin, Base):
 
     target_mode = Column(String(20), default='once')  # 'once' | 'daily' | 'last_day' (체크아웃 전날만)
     once_per_stay = Column("is_once_per_stay", Boolean, default=False)  # True: 연박 그룹 내 최초 체크인에만 발송
-    date_mode = Column(String(20), default='checkin')             # 'checkin' | 'checkout' — 대상 필터링 기준 날짜
-    consecutive_stay_filter = Column(String(20), nullable=True)   # null(전체) | 'exclude'(연박제외) | 'only'(연박만)
-    next_stay_filter = Column(String(20), nullable=True)          # null(전체) | 'exclude'(연장자제외) | 'only'(연장자만)
-
-    # v4: unified filters (take precedence over date_mode+date_filter and csf+nsf when set)
     date_target = Column(String(30), nullable=True)   # 'today' | 'tomorrow' | 'today_checkout' | 'tomorrow_checkout'
     stay_filter = Column(String(20), nullable=True)    # null(include) | 'exclude'(no consecutive)
 
