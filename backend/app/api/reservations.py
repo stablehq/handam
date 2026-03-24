@@ -111,7 +111,6 @@ class ReservationResponse(BaseModel):
     section: Optional[str] = None  # 'room', 'unassigned', 'party'
     stay_group_id: Optional[str] = None
     stay_group_order: Optional[int] = None
-    is_consecutive_stay: bool = False
     is_long_stay: bool = False
     created_at: datetime
     updated_at: datetime
@@ -177,7 +176,6 @@ def _to_response(res: Reservation, override_room: Optional[str] = None, override
         section=res.section or 'unassigned',
         stay_group_id=res.stay_group_id,
         stay_group_order=res.stay_group_order,
-        is_consecutive_stay=bool(res.is_long_stay),
         is_long_stay=bool(res.is_long_stay),
         created_at=res.created_at,
         updated_at=res.updated_at,
@@ -430,7 +428,12 @@ async def delete_reservation(reservation_id: int, db: Session = Depends(get_tena
     return {"success": True, "message": "예약이 삭제되었습니다"}
 
 
-@router.put("/{reservation_id}/room", response_model=ReservationResponse)
+class RoomAssignResponse(BaseModel):
+    reservation: ReservationResponse
+    warnings: Optional[List[str]] = None
+
+
+@router.put("/{reservation_id}/room", response_model=RoomAssignResponse)
 async def assign_room(
     reservation_id: int, request: RoomAssignRequest, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)
 ):
@@ -442,6 +445,7 @@ async def assign_room(
     room_id = request.room_id
     req_date = request.date
     apply_subsequent = request.apply_subsequent
+    warnings: List[str] = []
 
     if room_id is None:
         # Unassign room
@@ -486,13 +490,16 @@ async def assign_room(
                         created_by=current_user.username,
                         skip_logging=True,  # 그룹 이동은 대표 로그 1건만
                     )
-                except ValueError:
-                    pass  # 이미 배정된 경우 등 에러 무시
+                except ValueError as e:
+                    warnings.append(f"{member.customer_name}: {e}")
 
     db.commit()
     db.refresh(db_reservation)
 
-    return _to_response(db_reservation, db=db)
+    return RoomAssignResponse(
+        reservation=_to_response(db_reservation, db=db),
+        warnings=warnings if warnings else None,
+    )
 
 
 class DailyInfoUpdate(BaseModel):

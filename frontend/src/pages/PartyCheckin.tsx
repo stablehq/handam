@@ -17,7 +17,6 @@ interface PartyGuest {
   room_number: string | null
   stay_group_id?: string | null
   stay_group_order?: number | null
-  is_consecutive_stay?: boolean
   is_long_stay?: boolean
 }
 

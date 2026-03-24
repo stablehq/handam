@@ -123,11 +123,6 @@ def _date_range(from_date: str, end_date: Optional[str]) -> List[str]:
     return dates if dates else [from_date]
 
 
-def _is_dormitory_room(db: Session, room_id: int) -> bool:
-    """Check if a room is a dormitory room."""
-    room = db.query(Room).filter(Room.id == room_id, Room.is_active == True).first()
-    return room.is_dormitory if room else False
-
 
 def assign_room(
     db: Session,

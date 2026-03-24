@@ -75,6 +75,11 @@ def _condition_by_room(value, ctx):
 _COLUMN_MATCH_COLUMNS = {"party_type", "gender", "naver_room_type", "notes"}
 
 
+def _escape_like(text: str) -> str:
+    """Escape LIKE wildcard characters so they are matched literally."""
+    return text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+
 def _condition_by_column_match(value, ctx):
     """Return condition for column text match filter.
 
@@ -111,9 +116,9 @@ def _condition_by_column_match(value, ctx):
         elif operator == 'is_not_empty':
             return effective.isnot(None) & (effective != '')
         elif operator == 'contains' and text:
-            return effective.like(f'%{text}%')
+            return effective.like(f'%{_escape_like(text)}%', escape='\\')
         elif operator == 'not_contains' and text:
-            return ~effective.like(f'%{text}%') | effective.is_(None)
+            return ~effective.like(f'%{_escape_like(text)}%', escape='\\') | effective.is_(None)
         return None
 
     col_attr = getattr(Reservation, column, None)
@@ -124,9 +129,9 @@ def _condition_by_column_match(value, ctx):
     elif operator == 'is_not_empty':
         return col_attr.isnot(None) & (col_attr != '')
     elif operator == 'contains' and text:
-        return col_attr.like(f'%{text}%')
+        return col_attr.like(f'%{_escape_like(text)}%', escape='\\')
     elif operator == 'not_contains' and text:
-        return ~col_attr.like(f'%{text}%') | col_attr.is_(None)
+        return ~col_attr.like(f'%{_escape_like(text)}%', escape='\\') | col_attr.is_(None)
     return None
 
 

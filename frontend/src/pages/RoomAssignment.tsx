@@ -64,7 +64,6 @@ interface Reservation {
   sms_assignments: SmsAssignment[];
   stay_group_id?: string | null;
   stay_group_order?: number | null;
-  is_consecutive_stay?: boolean;
   is_long_stay?: boolean;
 }
 
@@ -762,13 +761,16 @@ const RoomAssignment = () => {
     setSectionOverrides((prev) => { const next = { ...prev }; delete next[resId]; return next; });
 
     try {
-      await reservationsAPI.assignRoom(resId, {
+      const { data: result } = await reservationsAPI.assignRoom(resId, {
         room_id: roomId,
         date: selectedDate.format('YYYY-MM-DD'),
         apply_subsequent: applySubsequent,
         apply_group: applyGroup,
       });
       toast.success(`${roomNumber} 배정 완료`);
+      if (result.warnings?.length) {
+        result.warnings.forEach((w: string) => toast.warning(w));
+      }
       // 서버에서 갱신된 sms_assignments 반영
       fetchReservations(selectedDate);
     } catch (err: any) {

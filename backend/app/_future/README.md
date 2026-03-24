@@ -5,15 +5,6 @@
 
 ## 파일 목록
 
-### reservation_notifier.py
-- **기능**: 예약 생성/수정 시 SQLAlchemy 이벤트 리스너로 자동 SMS 발송
-- **원래 위치**: `app/reservation/notifier.py`
-- **활성화 방법**:
-  1. `send_sms_sync()`의 `asyncio.get_event_loop()` → FastAPI 호환 async 방식으로 수정
-  2. `main.py`에서 `import app._future.reservation_notifier` 추가 (이벤트 리스너 등록)
-  3. `notifications/service.py`, `scheduler/template_scheduler.py`와 역할 중복 검토
-- **주의사항**: 현재 SMS 발송은 `notifications/service.py`와 `scheduler/template_scheduler.py`에서 처리 중. 이 모듈 활성화 시 중복 발송 가능성 체크 필요.
-
 ### room_priority_assignment.md
 - **기능**: 상품별 + 성별별 객실 배정 순서 커스텀
 - **핵심**: `RoomBizItemLink`에 `male_priority`, `female_priority` 컬럼 추가
