@@ -12,6 +12,7 @@ from app.db.models import Tenant
 from app.db.tenant_context import current_tenant_id, bypass_tenant_filter
 from app.factory import get_reservation_provider_for_tenant
 from app.scheduler.room_auto_assign import daily_assign_rooms
+from app.config import KST
 
 logger = logging.getLogger(__name__)
 
@@ -109,10 +110,9 @@ async def sync_status_log_job():
     00:00, 06:00, 12:00, 18:00에 실행.
     Iterates over all active tenants.
     """
-    from zoneinfo import ZoneInfo
     from app.services.activity_logger import log_activity
 
-    now = datetime.now(ZoneInfo("Asia/Seoul"))
+    now = datetime.now(KST)
     current_hour = now.hour
     # 이전 6시간 구간 계산
     period_start = f"{(current_hour - 6) % 24:02d}:00"
@@ -155,11 +155,9 @@ async def reconcile_today_reservations_job():
     Catches any reservations missed by the regular 5-min REGDATE sync.
     Runs at 09:55 KST, before daily room assignment at 10:00.
     """
-    from zoneinfo import ZoneInfo
     from app.api.reservations_sync import sync_naver_to_db
     from app.services.activity_logger import log_activity
 
-    KST = ZoneInfo("Asia/Seoul")
     today = datetime.now(KST).strftime("%Y-%m-%d")
     from datetime import timedelta as _td
     tomorrow = (datetime.now(KST) + _td(days=1)).strftime("%Y-%m-%d")

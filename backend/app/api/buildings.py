@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from typing import List, Optional
-from app.api.deps import get_tenant_scoped_db
+from app.api.deps import get_tenant_scoped_db, _remap_active_field
 from app.db.models import Building, Room, User
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.api.shared_schemas import ActionResponse
@@ -134,8 +134,7 @@ async def update_building(
     update_data = building.dict(exclude_unset=True)
 
     # Remap JSON key to ORM column name
-    if "active" in update_data:
-        update_data["is_active"] = update_data.pop("active")
+    _remap_active_field(update_data)
 
     # Check for duplicate name if name is being changed
     if "name" in update_data and update_data["name"] != db_building.name:

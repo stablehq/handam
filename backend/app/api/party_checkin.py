@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel
 
 from app.api.deps import get_tenant_scoped_db
-from app.db.models import Reservation, ReservationStatus, PartyCheckin, RoomAssignment, ReservationDailyInfo
+from app.db.models import Reservation, ReservationStatus, PartyCheckin, ReservationDailyInfo
 from app.auth.dependencies import require_any_role
 
 router = APIRouter(prefix="/api/party-checkin", tags=["party-checkin"])
@@ -105,24 +105,8 @@ async def get_party_checkin_list(
         )
         checkin_map = {c.reservation_id: c for c in checkins}
 
-        room_assignments = (
-            db.query(RoomAssignment)
-            .filter(
-                and_(
-                    RoomAssignment.reservation_id.in_(reservation_ids),
-                    RoomAssignment.date == date,
-                )
-            )
-            .all()
-        )
-        # Batch-fetch Room objects to resolve room_number display strings
-        _ra_room_ids = {ra.room_id for ra in room_assignments}
-        _room_lookup: dict = {}
-        if _ra_room_ids:
-            from app.db.models import Room as _Room
-            _rooms = db.query(_Room).filter(_Room.id.in_(_ra_room_ids)).all()
-            _room_lookup = {rm.id: rm.room_number for rm in _rooms}
-        room_map = {ra.reservation_id: _room_lookup.get(ra.room_id, '') for ra in room_assignments}
+        from app.services.room_lookup import batch_room_number_map
+        room_map = batch_room_number_map(db, reservation_ids, date)
 
     result = []
     for res in party_reservations:

@@ -81,6 +81,13 @@ async def get_current_tenant(
     return tenant
 
 
+def _remap_active_field(data: dict) -> dict:
+    """Remap 'active' key to 'is_active' for ORM compatibility."""
+    if "active" in data:
+        data["is_active"] = data.pop("active")
+    return data
+
+
 async def get_tenant_scoped_db(
     tenant_id: int = Depends(get_current_tenant_id),
 ):

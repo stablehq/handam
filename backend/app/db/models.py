@@ -191,6 +191,17 @@ class MessageTemplate(TenantMixin, Base):
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
+    def get_buffer_vars(self) -> dict:
+        """Return template buffer settings as custom_vars dict for SMS rendering."""
+        return {
+            '_participant_buffer': self.participant_buffer or 0,
+            '_male_buffer': self.male_buffer or 0,
+            '_female_buffer': self.female_buffer or 0,
+            '_gender_ratio_buffers': self.gender_ratio_buffers,
+            '_round_unit': self.round_unit or 0,
+            '_round_mode': self.round_mode or 'ceil',
+        }
+
     __table_args__ = (
         UniqueConstraint("tenant_id", "key", name="uq_tenant_template_key"),
     )

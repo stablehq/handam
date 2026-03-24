@@ -32,10 +32,7 @@ async def send_single_sms(
     RoomAssignment 조회 + calculate_template_variables + 렌더링 + 발송.
 
     [호출부 동기화 주의]
-    이 함수를 호출하는 곳이 3곳 있습니다. custom_vars 등 새 파라미터 추가 시 모두 확인:
-    1. template_scheduler.py → execute_schedule() (스케줄 자동 발송)
-    2. reservations.py → toggle_sms_sent() (칩 클릭 발송)
-    3. sms_sender.py → SmsSender.send_by_assignment() (프론트 대량 발송)
+    custom_vars는 MessageTemplate.get_buffer_vars()로 통일되었습니다.
     발송 결과(성공/실패)를 activity log에 기록합니다.
 
     Returns: {"success": bool, "message_id": str | None, "error": str | None}
@@ -189,14 +186,7 @@ class SmsSender:
                     template_key=template_key,
                     date=date,
                     created_by="schedule",
-                    custom_vars={
-                        '_participant_buffer': template.participant_buffer or 0,
-                        '_male_buffer': template.male_buffer or 0,
-                        '_female_buffer': template.female_buffer or 0,
-                        '_gender_ratio_buffers': template.gender_ratio_buffers,
-                        '_round_unit': template.round_unit or 0,
-                        '_round_mode': template.round_mode or 'ceil',
-                    },
+                    custom_vars=template.get_buffer_vars(),
                 )
                 if result.get("success"):
                     sent_count += 1

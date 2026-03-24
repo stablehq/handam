@@ -7,7 +7,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime, timezone
 
-from app.api.deps import get_tenant_scoped_db
+from app.api.deps import get_tenant_scoped_db, _remap_active_field
 from app.db.models import MessageTemplate, User
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.templates.renderer import TemplateRenderer
@@ -261,8 +261,7 @@ def update_template(template_id: int, template: TemplateUpdate, db: Session = De
     # Update fields
     update_data = template.dict(exclude_unset=True)
     # Remap Pydantic 'active' field to ORM 'is_active' column
-    if "active" in update_data:
-        update_data["is_active"] = update_data.pop("active")
+    _remap_active_field(update_data)
     for field, value in update_data.items():
         setattr(db_template, field, value)
 

@@ -70,17 +70,17 @@ def sync_sms_tags(db: Session, reservation_id: int, schedules=None) -> None:
 def get_schedule_dates(schedule, reservation) -> List[str]:
     """Get target dates for a schedule+reservation pair based on target_mode and date_target."""
     # 이벤트 스케줄: 체크인 날짜 하나만 반환
-    if getattr(schedule, 'schedule_category', 'standard') == 'event':
+    if (schedule.schedule_category or 'standard') == 'event':
         return [reservation.check_in_date] if reservation.check_in_date else []
 
-    date_target = getattr(schedule, 'date_target', None)
+    date_target = schedule.date_target
 
     # last_day mode: only create chip for last-in-group reservation
-    if getattr(schedule, 'target_mode', 'once') == 'last_day':
+    if (schedule.target_mode or 'once') == 'last_day':
         if not reservation.check_out_date:
             return []
         if reservation.stay_group_id:
-            if getattr(reservation, 'is_last_in_group', False):
+            if reservation.is_last_in_group:
                 from datetime import datetime, timedelta
                 last_day = (datetime.strptime(reservation.check_out_date, "%Y-%m-%d")
                             - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -95,7 +95,7 @@ def get_schedule_dates(schedule, reservation) -> List[str]:
 
     # daily mode always uses full date range
     if (
-        getattr(schedule, 'target_mode', 'once') == 'daily'
+        (schedule.target_mode or 'once') == 'daily'
         and reservation.check_out_date
         and reservation.check_out_date > (reservation.check_in_date or '')
     ):
@@ -204,7 +204,7 @@ def assign_room(
                 detail={
                     "reservation_id": reservation_id,
                     "move_type": assigned_by,
-                    "guest_name": reservation.customer_name,
+                    "customer_name": reservation.customer_name,
                     "dates": dates,
                     "old_room": old_room_display,
                     "new_room": new_room_display,
@@ -218,7 +218,7 @@ def assign_room(
                 detail={
                     "reservation_id": reservation_id,
                     "move_type": assigned_by,
-                    "guest_name": reservation.customer_name,
+                    "customer_name": reservation.customer_name,
                     "dates": dates,
                     "old_room": None,
                     "new_room": new_room_display,
@@ -288,7 +288,7 @@ def unassign_room(
             detail={
                 "reservation_id": reservation_id,
                 "move_type": old_assigned_by,
-                "guest_name": reservation.customer_name,
+                "customer_name": reservation.customer_name,
                 "dates": [a.date for a in old_assignments],
                 "old_room": old_room_display,
                 "new_room": None,

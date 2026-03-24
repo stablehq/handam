@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from typing import List, Optional, Dict
-from app.api.deps import get_tenant_scoped_db, get_current_tenant
+from app.api.deps import get_tenant_scoped_db, get_current_tenant, _remap_active_field
 from app.db.models import Room, NaverBizItem, User, Tenant, RoomAssignment, RoomBizItemLink, Building
 from app.factory import get_reservation_provider_for_tenant
 from app.auth.dependencies import get_current_user, require_admin_or_above
@@ -381,8 +381,7 @@ async def update_room(
         biz_item_ids = [legacy_biz_id] if legacy_biz_id else []
 
     # Remap JSON keys to ORM column names
-    if "active" in update_data:
-        update_data["is_active"] = update_data.pop("active")
+    _remap_active_field(update_data)
     if "dormitory" in update_data:
         update_data["is_dormitory"] = update_data.pop("dormitory")
 

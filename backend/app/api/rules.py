@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
-from app.api.deps import get_tenant_scoped_db
+from app.api.deps import get_tenant_scoped_db, _remap_active_field
 from app.db.models import Rule, User
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.api.shared_schemas import ActionResponse
@@ -82,8 +82,7 @@ async def create_rule(rule: RuleCreate, db: Session = Depends(get_tenant_scoped_
     _validate_regex_pattern(rule.pattern)
     rule_data = rule.dict()
     # Remap Pydantic 'active' → ORM 'is_active'
-    if "active" in rule_data:
-        rule_data["is_active"] = rule_data.pop("active")
+    _remap_active_field(rule_data)
     db_rule = Rule(**rule_data)
     db.add(db_rule)
     db.commit()
@@ -100,8 +99,7 @@ async def update_rule(rule_id: int, rule: RuleUpdate, db: Session = Depends(get_
 
     update_data = rule.dict(exclude_unset=True)
     # Remap Pydantic 'active' → ORM 'is_active'
-    if "active" in update_data:
-        update_data["is_active"] = update_data.pop("active")
+    _remap_active_field(update_data)
     if "pattern" in update_data:
         _validate_regex_pattern(update_data["pattern"])
     for field, value in update_data.items():

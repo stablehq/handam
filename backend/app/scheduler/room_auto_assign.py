@@ -11,10 +11,8 @@ Unified assignment logic (biz_item_id mapping + capacity check + gender lock):
   prevents mixing genders in the same room on the same date.
 """
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-
-KST = ZoneInfo("Asia/Seoul")
 from typing import List, Dict
+from app.config import KST
 from sqlalchemy.orm import Session
 import logging
 
@@ -252,7 +250,7 @@ def _assign_all_rooms(
                     assigned_by="auto", skip_sms_sync=True, skip_logging=True,
                 )
                 db.flush()
-                assigned_results.append({"reservation_id": res.id, "guest_name": res.customer_name, "room_number": room.room_number})
+                assigned_results.append({"reservation_id": res.id, "customer_name": res.customer_name, "room_number": room.room_number})
                 # Update group room map so next group member prefers same room
                 if res.stay_group_id:
                     stay_group_room_map[res.stay_group_id] = room.id
@@ -268,7 +266,7 @@ def _assign_all_rooms(
                         assigned_by="auto", skip_sms_sync=True, skip_logging=True,
                     )
                     db.flush()
-                    assigned_results.append({"reservation_id": res.id, "guest_name": res.customer_name, "room_number": room.room_number})
+                    assigned_results.append({"reservation_id": res.id, "customer_name": res.customer_name, "room_number": room.room_number})
                     # Update group room map so next group member prefers same room
                     if res.stay_group_id:
                         stay_group_room_map[res.stay_group_id] = room.id

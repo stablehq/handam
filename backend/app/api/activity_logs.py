@@ -6,9 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-
-KST = ZoneInfo("Asia/Seoul")
+from app.config import KST
 
 from app.api.deps import get_tenant_scoped_db
 from app.db.models import ActivityLog, User

@@ -560,7 +560,7 @@ const ActivityLogs = () => {
                                         <tbody>
                                           {targets.map((t, i) => (
                                             <tr key={i} className="border-b last:border-b-0 border-[#F2F4F6] dark:border-gray-800">
-                                              <td className="px-3 py-1.5 text-[#191F28] dark:text-gray-200">{t.guest_name || t.name || '-'}</td>
+                                              <td className="px-3 py-1.5 text-[#191F28] dark:text-gray-200">{t.customer_name || t.guest_name || t.name || '-'}</td>
                                               {log.type === 'room_assign' ? (
                                                 <td className="px-3 py-1.5 text-[#4E5968] dark:text-gray-400">{t.room_number || '-'}</td>
                                               ) : (

@@ -12,6 +12,7 @@ from app.db.models import Reservation, ReservationStatus, NaverBizItem, RoomBizI
 from app.services import room_assignment
 from app.services.consecutive_stay import compute_is_long_stay
 from app.scheduler.room_auto_assign import auto_assign_rooms
+from app.config import KST
 
 logger = logging.getLogger(__name__)
 
@@ -143,8 +144,7 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
     # 일반 sync 경로: 내일 이후만 (오늘은 수동 배정 유지)
     if added_count > 0:
         try:
-            from zoneinfo import ZoneInfo
-            today = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d")
+            today = datetime.now(KST).strftime("%Y-%m-%d")
             dates = set()
             for res_data in reservations:
                 d = res_data.get("date")

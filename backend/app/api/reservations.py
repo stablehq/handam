@@ -240,22 +240,9 @@ async def get_reservations(
     if res_ids:
         # date 파라미터가 있으면 해당 날짜로 일괄 조회, 없으면 각 예약의 date를 키로 사용
         if date:
-            room_assignments = (
-                db.query(RoomAssignment)
-                .filter(
-                    RoomAssignment.reservation_id.in_(res_ids),
-                    RoomAssignment.date == date,
-                )
-                .all()
-            )
-            # Batch-fetch Room objects to resolve room_number display strings
-            _ra_room_ids = {ra.room_id for ra in room_assignments}
-            _room_lookup: dict = {}
-            if _ra_room_ids:
-                from app.db.models import Room as _Room
-                _rooms = db.query(_Room).filter(_Room.id.in_(_ra_room_ids)).all()
-                _room_lookup = {rm.id: rm.room_number for rm in _rooms}
-            room_map = {ra.reservation_id: (ra.room_id, _room_lookup.get(ra.room_id, ''), ra.room_password, ra.assigned_by) for ra in room_assignments}
+            from app.services.room_lookup import batch_room_lookup
+            _rl = batch_room_lookup(db, res_ids, date)
+            room_map = {res_id: (info["room_id"], info["room_number"] or '', info["room_password"], info["assigned_by"]) for res_id, info in _rl.items()}
 
             # Batch-query daily info for the target date
             daily_infos = (
@@ -276,18 +263,16 @@ async def get_reservations(
                 .filter(RoomAssignment.reservation_id.in_(res_ids))
                 .all()
             )
-            # Batch-fetch Room objects
-            _ra_room_ids = {ra.room_id for ra in room_assignments}
-            _room_lookup: dict = {}
-            if _ra_room_ids:
-                from app.db.models import Room as _Room
-                _rooms = db.query(_Room).filter(_Room.id.in_(_ra_room_ids)).all()
-                _room_lookup = {rm.id: rm.room_number for rm in _rooms}
+            from app.services.room_lookup import batch_room_lookup
+            # Collect only assignments matching each reservation's check-in date
+            matching_ids = [ra.reservation_id for ra in room_assignments if ra.date == res_date_map.get(ra.reservation_id)]
+            _rl = batch_room_lookup(db, matching_ids) if matching_ids else {}
+            # Merge with per-date filter: only keep if the assignment date matches check-in
             room_map = {}
             for ra in room_assignments:
-                lookup = res_date_map.get(ra.reservation_id)
-                if ra.date == lookup:
-                    room_map[ra.reservation_id] = (ra.room_id, _room_lookup.get(ra.room_id, ''), ra.room_password, ra.assigned_by)
+                if ra.date == res_date_map.get(ra.reservation_id) and ra.reservation_id in _rl:
+                    info = _rl[ra.reservation_id]
+                    room_map[ra.reservation_id] = (info["room_id"], info["room_number"] or '', info["room_password"], info["assigned_by"])
             daily_party_map = {}
     else:
         room_map = {}
@@ -691,14 +676,7 @@ async def toggle_sms_sent(
             # Look up template buffer for participant_count
             from app.db.models import MessageTemplate
             tpl = db.query(MessageTemplate).filter(MessageTemplate.template_key == template_key).first()
-            custom_vars = {
-                '_participant_buffer': tpl.participant_buffer or 0,
-                '_male_buffer': tpl.male_buffer or 0,
-                '_female_buffer': tpl.female_buffer or 0,
-                '_gender_ratio_buffers': tpl.gender_ratio_buffers,
-                '_round_unit': tpl.round_unit or 0,
-                '_round_mode': tpl.round_mode or 'ceil',
-            } if tpl else None
+            custom_vars = tpl.get_buffer_vars() if tpl else None
 
             result = await send_single_sms(
                 db=db,

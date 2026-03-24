@@ -8,7 +8,7 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, model_validator
 from datetime import datetime, timezone, timedelta
 
-from app.api.deps import get_tenant_scoped_db
+from app.api.deps import get_tenant_scoped_db, _remap_active_field
 from app.db.models import TemplateSchedule, MessageTemplate, User
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.scheduler.template_scheduler import TemplateScheduleExecutor
@@ -320,8 +320,7 @@ def update_schedule(schedule_id: int, schedule: TemplateScheduleUpdate, db: Sess
     if "filters" in update_data and update_data["filters"] is not None:
         update_data["filters"] = json.dumps(update_data["filters"], ensure_ascii=False)
     # Remap Pydantic 'active' field to ORM 'is_active' column
-    if "active" in update_data:
-        update_data["is_active"] = update_data.pop("active")
+    _remap_active_field(update_data)
     # Recalculate expires_at when expires_after_days changes
     if "expires_after_days" in update_data:
         if update_data["expires_after_days"]:

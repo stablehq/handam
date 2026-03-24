@@ -8,9 +8,7 @@ from app.api.deps import get_tenant_scoped_db
 from app.db.models import Reservation, ActivityLog, ReservationStatus, User
 from app.auth.dependencies import get_current_user
 from datetime import datetime
-from zoneinfo import ZoneInfo
-
-KST = ZoneInfo("Asia/Seoul")
+from app.config import KST
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
