@@ -235,12 +235,12 @@ const Messages = () => {
           <Button
             color="light"
             size="xs"
-            pill
+            className="rounded-full"
             onClick={fetchContacts}
             disabled={loadingContacts}
           >
             {loadingContacts ? (
-              <Spinner size="xs" />
+              <Spinner size="sm" />
             ) : (
               <RefreshCw className="h-3.5 w-3.5" />
             )}
@@ -331,12 +331,12 @@ const Messages = () => {
               <Button
                 color="light"
                 size="xs"
-                pill
+                className="rounded-full"
                 onClick={() => fetchMessages(selectedContact.phone)}
                 disabled={loadingMessages}
               >
                 {loadingMessages ? (
-                  <Spinner size="xs" />
+                  <Spinner size="sm" />
                 ) : (
                   <RefreshCw className="h-3.5 w-3.5" />
                 )}
@@ -378,7 +378,7 @@ const Messages = () => {
                 />
                 <Button
                   color="blue"
-                  pill
+                  className="rounded-full"
                   onClick={handleSend}
                   disabled={!inputText.trim() || sending}
                 >
