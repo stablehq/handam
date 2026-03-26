@@ -475,6 +475,35 @@ const RoomAssignment = () => {
   const getDist = (a: React.Touch, b: React.Touch) =>
     Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
 
+  // Clamp pan so table edge is always visible in viewport
+  const clampPan = (x: number, y: number, scale: number) => {
+    const wrapper = tableWrapperRef.current;
+    const table = tableContainerRef.current;
+    if (!wrapper || !table) return { x, y };
+    const ww = wrapper.clientWidth;
+    const wh = wrapper.clientHeight;
+    const tw = table.scrollWidth * scale;
+    const th = table.scrollHeight * scale;
+    // Allow dragging until only 20% of table remains visible
+    const minX = Math.min(0, ww - tw * 0.8);
+    const maxX = Math.max(0, tw * 0.8 - tw);
+    const minY = Math.min(0, wh - th * 0.8);
+    const maxY = Math.max(0, th * 0.8 - th);
+    // Simpler: table can't go further right than x=0, and left edge can't pass 80% of viewport
+    return {
+      x: Math.max(Math.min(0, ww - tw), Math.min(x, 0)),
+      y: Math.max(Math.min(0, wh - th), Math.min(y, 0)),
+    };
+  };
+
+  // Zoom guard: min = fit container width, max = 2x
+  const getMinScale = () => {
+    const wrapper = tableWrapperRef.current;
+    const table = tableContainerRef.current;
+    if (!wrapper || !table) return 0.3;
+    return Math.max(0.3, wrapper.clientWidth / table.scrollWidth);
+  };
+
   const handleMapTouchStart = (e: RTouchEvent) => {
     if (!isMobile) return;
     const t = e.touches;
@@ -497,18 +526,20 @@ const RoomAssignment = () => {
     if (ref.mode === 'pan' && t.length === 1) {
       const dx = t[0].clientX - ref.startX;
       const dy = t[0].clientY - ref.startY;
-      const next = { scale: mapStateRef.current.scale, x: ref.startMapX + dx, y: ref.startMapY + dy };
+      const clamped = clampPan(ref.startMapX + dx, ref.startMapY + dy, mapStateRef.current.scale);
+      const next = { scale: mapStateRef.current.scale, ...clamped };
       mapStateRef.current = next;
       setMapTransform(next);
     } else if (ref.mode === 'pinch' && t.length === 2) {
       const dist = getDist(t[0], t[1]);
       const ratio = dist / ref.startDist;
-      const newScale = Math.max(0.3, Math.min(2, ref.startScale * ratio));
-      // zoom toward pinch midpoint
+      const minScale = getMinScale();
+      const newScale = Math.max(minScale, Math.min(2, ref.startScale * ratio));
       const scaleChange = newScale / ref.startScale;
       const nx = ref.startMapX - ref.midX * (scaleChange - 1);
       const ny = ref.startMapY - ref.midY * (scaleChange - 1);
-      const next = { scale: newScale, x: nx, y: ny };
+      const clamped = clampPan(nx, ny, newScale);
+      const next = { scale: newScale, ...clamped };
       mapStateRef.current = next;
       setMapTransform(next);
     }
