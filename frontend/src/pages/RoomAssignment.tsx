@@ -436,7 +436,7 @@ const RoomAssignment = () => {
   };
 
 
-  const defaultColWidths = { name: 60, phone: 120, party: 60, gender: 60, roomType: 100, notes: 100, sms: 200, nextDay: 96 };
+  const defaultColWidths = { name: 60, phone: 120, party: 60, gender: 60, roomType: 100, notes: 100, sms: 140, nextDay: 96 };
   const [colWidths, setColWidths] = useState(() => {
     try {
       const saved = localStorage.getItem('roomAssignment_colWidths');
@@ -604,7 +604,7 @@ const RoomAssignment = () => {
 
     const handleMouseMove = (e: MouseEvent) => {
       const delta = e.clientX - resizeStartXRef.current;
-      const minWidths: Record<string, number> = { name: 60, phone: 120, party: 60, gender: 60, roomType: 100, notes: 100, sms: 200, nextDay: 96 };
+      const minWidths: Record<string, number> = { name: 60, phone: 120, party: 60, gender: 60, roomType: 100, notes: 100, sms: 140, nextDay: 96 };
       const newWidth = Math.max(minWidths[resizeCol] || 30, resizeStartWidthRef.current + delta);
       setColWidths((prev: typeof defaultColWidths) => ({ ...prev, [resizeCol!]: newWidth }));
       if (tableContainerRef.current) {
@@ -1395,10 +1395,10 @@ const RoomAssignment = () => {
         onDrop={(e) => onRoomDrop(e, room_id, room_number)}
       >
         {/* Room label - vertically centered, spans all rows */}
-        <div className="flex items-center gap-1.5 flex-shrink-0 w-28 sm:w-42 pl-2 sm:pl-3 pr-1 sm:pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
+        <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
           <span className="font-semibold text-[#191F28] dark:text-white text-body">{room_number}</span>
           {roomInfoMap[room_number] && (
-            <span className="hidden sm:inline text-caption text-[#B0B8C1] dark:text-[#8B95A1] truncate">{roomInfoMap[room_number]}</span>
+            <span className="text-caption text-[#B0B8C1] dark:text-[#8B95A1] truncate">{roomInfoMap[room_number]}</span>
           )}
         </div>
 
@@ -1413,7 +1413,6 @@ const RoomAssignment = () => {
               }
               return (
                 <div key={`empty-${i}`} className={`flex items-center h-10 ${guestAreaCursor()}`}>
-                  <div className="w-7 flex-shrink-0" />
                   <div
                     className="flex-1 grid items-center py-1.5"
                     style={{ gridTemplateColumns: GUEST_COLS }}
@@ -1429,7 +1428,6 @@ const RoomAssignment = () => {
             guests.map((res) => renderGuestRow(res, true))
           ) : (
             <div className={`flex items-center h-10 ${guestAreaCursor()}`}>
-              <div className="w-7 flex-shrink-0" />
               <div
                 className="flex-1 grid items-center py-1.5"
                 style={{ gridTemplateColumns: GUEST_COLS }}
@@ -1577,7 +1575,7 @@ const RoomAssignment = () => {
   }, [reservations]);
 
   return (
-    <div className={`space-y-4 pb-14 ${processing ? 'opacity-60 pointer-events-none' : ''}`}>
+    <div className={`space-y-4 pb-14 min-w-max ${processing ? 'opacity-60 pointer-events-none' : ''}`}>
 
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
@@ -1589,8 +1587,8 @@ const RoomAssignment = () => {
 
       {/* Summary stats */}
       <div className="flex flex-wrap gap-3 items-stretch">
-        {/* PC: 기존 한 카드 (sm 이상) */}
-        <div className="stat-card hidden sm:flex overflow-hidden !p-0">
+        {/* 그룹 카드 */}
+        <div className="stat-card flex overflow-hidden !p-0">
           <div className="w-[130px] flex flex-col items-center justify-center px-3 py-4">
             <span className="stat-label whitespace-nowrap">총 예약자</span>
             <div className="flex items-center justify-center gap-2.5 mt-1">
@@ -1626,50 +1624,6 @@ const RoomAssignment = () => {
           <div className="w-[130px] flex flex-col items-center justify-center px-3 py-4">
             <span className="stat-label whitespace-nowrap">전체</span>
             <div className="flex items-center justify-center gap-2.5 mt-1">
-              <span className="stat-value tabular-nums text-[#4A90D9]">{summary.partyMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
-              <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
-              <span className="stat-value tabular-nums text-[#E05263]">{summary.partyFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
-            </div>
-          </div>
-        </div>
-        {/* 모바일: 2개로 분리 (sm 미만) */}
-        <div className="stat-card flex w-full sm:hidden overflow-hidden !p-0">
-          <div className="flex-1 flex flex-col items-center justify-center px-3 py-4">
-            <span className="stat-label whitespace-nowrap">총 예약자</span>
-            <div className="flex items-center justify-center gap-2.5 mt-1 whitespace-nowrap">
-              <span className="stat-value tabular-nums text-[#4A90D9]">{summary.roomMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
-              <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
-              <span className="stat-value tabular-nums text-[#E05263]">{summary.roomFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
-            </div>
-          </div>
-          <div className="w-px bg-[#E5E8EB] dark:bg-[#2C2C34] my-3" />
-          <div className="flex-1 flex flex-col items-center justify-center px-3 py-4">
-            <span className="stat-label whitespace-nowrap">현재 신청인원</span>
-            <div className="stat-value tabular-nums mt-1 whitespace-nowrap">{summary.partyTotal}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></div>
-          </div>
-        </div>
-        <div className="stat-card flex w-full sm:hidden overflow-hidden !p-0">
-          <div className="flex-1 flex flex-col items-center justify-center px-3 py-4">
-            <span className="stat-label whitespace-nowrap">1차</span>
-            <div className="flex items-center justify-center gap-2.5 mt-1 whitespace-nowrap">
-              <span className="stat-value tabular-nums text-[#4A90D9]">{summary.firstMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
-              <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
-              <span className="stat-value tabular-nums text-[#E05263]">{summary.firstFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
-            </div>
-          </div>
-          <div className="w-px bg-[#E5E8EB] dark:bg-[#2C2C34] my-3" />
-          <div className="flex-1 flex flex-col items-center justify-center px-3 py-4">
-            <span className="stat-label whitespace-nowrap">2차만</span>
-            <div className="flex items-center justify-center gap-2.5 mt-1 whitespace-nowrap">
-              <span className="stat-value tabular-nums text-[#4A90D9]">{summary.secondOnlyMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
-              <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
-              <span className="stat-value tabular-nums text-[#E05263]">{summary.secondOnlyFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
-            </div>
-          </div>
-          <div className="w-px bg-[#E5E8EB] dark:bg-[#2C2C34] my-3" />
-          <div className="flex-1 flex flex-col items-center justify-center px-3 py-4">
-            <span className="stat-label whitespace-nowrap">전체</span>
-            <div className="flex items-center justify-center gap-2.5 mt-1 whitespace-nowrap">
               <span className="stat-value tabular-nums text-[#4A90D9]">{summary.partyMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
               <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
               <span className="stat-value tabular-nums text-[#E05263]">{summary.partyFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
@@ -1787,7 +1741,7 @@ const RoomAssignment = () => {
       </div>
 
       {/* Main grid card */}
-      <div className="section-card !overflow-visible max-w-full">
+      <div className="section-card !overflow-visible w-max min-w-full">
         {/* Date navigation header */}
         <div className="section-header justify-center">
           <div className="flex items-center gap-1">
@@ -1826,19 +1780,13 @@ const RoomAssignment = () => {
             }
           >
             {/* Unified Table */}
-            <div
-              className="overflow-auto rounded-xl border border-[#F2F4F6] dark:border-[#2C2C34]"
-            >
-            <div
-              ref={tableContainerRef}
-              className="relative min-w-max"
-            >
+            <div ref={tableContainerRef} className="relative rounded-xl border border-[#F2F4F6] dark:border-[#2C2C34]">
               {resizeGuideX !== null && (
                 <div className="absolute top-0 bottom-0 w-px bg-[#3182F6] z-50 pointer-events-none" style={{ left: resizeGuideX }} />
               )}
               {/* Header */}
               <div className="flex items-center h-10 bg-[#F2F4F6] dark:bg-[#17171C] border-b border-[#F2F4F6] dark:border-[#2C2C34]">
-                <div className="flex-shrink-0 pl-2 sm:pl-3 pr-1 sm:pr-2 w-28 sm:w-42 border-r border-[#F2F4F6] dark:border-[#2C2C34]">
+                <div className="flex-shrink-0 pl-3 pr-2 w-42 border-r border-[#F2F4F6] dark:border-[#2C2C34]">
                   <span className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">객실</span>
                 </div>
                 <div className="w-7 flex-shrink-0" />
@@ -1878,7 +1826,7 @@ const RoomAssignment = () => {
                 onDrop={onPoolDrop}
               >
                 {/* Room label */}
-                <div className="flex items-center gap-1.5 flex-shrink-0 w-28 sm:w-42 pl-2 sm:pl-3 pr-1 sm:pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
+                <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
                   <span className="font-semibold text-[#FF9500] dark:text-[#FF9500] text-body">미배정</span>
                 </div>
 
@@ -1888,7 +1836,6 @@ const RoomAssignment = () => {
                     unassigned.map((res) => renderGuestRow(res, true))
                   ) : (
                     <div className={`flex items-center h-10 ${guestAreaCursor()}`}>
-                      <div className="w-7 flex-shrink-0" />
                       <div className="flex-1 grid items-center py-1.5" style={{ gridTemplateColumns: GUEST_COLS }}>
                         <div className="overflow-hidden truncate col-span-full text-body text-[#FF9500] dark:text-[#FF9500] italic px-1.5">
                           {dragOverPool ? '여기에 놓으면 배정 해제' : ''}
@@ -1915,7 +1862,7 @@ const RoomAssignment = () => {
                 onDrop={onPartyZoneDrop}
               >
                 {/* Room label */}
-                <div className="flex items-center gap-1.5 flex-shrink-0 w-28 sm:w-42 pl-2 sm:pl-3 pr-1 sm:pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
+                <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
                   <span className="font-semibold text-[#7B61FF] dark:text-[#7B61FF] text-body">파티만</span>
                 </div>
 
@@ -1925,7 +1872,6 @@ const RoomAssignment = () => {
                     partyOnly.map((res) => renderGuestRow(res, true))
                   ) : (
                     <div className={`flex items-center h-10 ${guestAreaCursor()}`}>
-                      <div className="w-7 flex-shrink-0" />
                       <div className="flex-1 grid items-center py-1.5" style={{ gridTemplateColumns: GUEST_COLS }}>
                         <div className="overflow-hidden truncate col-span-full text-body text-[#7B61FF] dark:text-[#7B61FF] italic px-1.5">
                           {dragOverPartyZone ? '여기에 놓으면 파티만 게스트로 전환' : ''}
@@ -1938,7 +1884,6 @@ const RoomAssignment = () => {
                 {/* Next day column - empty */}
                 <div className="flex-shrink-0 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700" style={{ width: colWidths.nextDay }} />
               </div>
-            </div>
             </div>
           </div>
         </div>

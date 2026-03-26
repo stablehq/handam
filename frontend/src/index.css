@@ -69,7 +69,6 @@
 
   body {
     @apply bg-[#FAFBFC] font-sans text-[#191F28] antialiased dark:bg-[#17171C] dark:text-gray-100;
-    @apply max-w-[100vw] overflow-x-hidden;
   }
 
   /* Thin scrollbar */
@@ -161,7 +160,7 @@
 
   /* Section card — clean, subtle border */
   .section-card {
-    @apply max-w-full rounded-2xl border border-[#F2F4F6] bg-white shadow-[0_1px_4px_rgba(0,0,0,0.02)] dark:border-gray-800 dark:bg-[#1E1E24] dark:shadow-[0_1px_4px_rgba(0,0,0,0.15)];
+    @apply overflow-x-auto overflow-y-visible rounded-2xl border border-[#F2F4F6] bg-white shadow-[0_1px_4px_rgba(0,0,0,0.02)] dark:border-gray-800 dark:bg-[#1E1E24] dark:shadow-[0_1px_4px_rgba(0,0,0,0.15)];
   }
   .section-header {
     @apply flex items-center justify-between px-5 py-4;
