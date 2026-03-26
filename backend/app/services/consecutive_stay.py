@@ -163,7 +163,7 @@ def detect_and_link_consecutive_stays(db: Session) -> dict:
 
     # Unlink reservations that are no longer consecutive
     for res in reservations:
-        if res.stay_group_id and res.id not in should_be_grouped:
+        if res.stay_group_id and res.id not in should_be_grouped and not res.stay_group_id.startswith("manual-"):
             res.stay_group_id = None
             res.stay_group_order = None
             res.is_last_in_group = None
@@ -246,7 +246,7 @@ def link_reservations(db: Session, reservation_ids: List[int]) -> Optional[str]:
         if res.stay_group_id:
             group_id = res.stay_group_id
             break
-    group_id = group_id or str(uuid.uuid4())
+    group_id = group_id or f"manual-{uuid.uuid4()}"
 
     for order, res in enumerate(reservations):
         res.stay_group_id = group_id

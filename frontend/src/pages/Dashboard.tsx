@@ -68,7 +68,7 @@ function GenderWeekly({ daily }: { daily: { date: string; male: number; female: 
 
   return (
     <div className="overflow-x-auto scrollbar-none -mx-1 px-1">
-    <div className="grid grid-cols-7 gap-2 min-w-[420px]">
+    <div className="flex gap-2 w-full min-w-[600px]">
       {daily.map((d) => {
         const dayTotal = d.male + d.female
         const today = isToday(d.date)
@@ -81,7 +81,7 @@ function GenderWeekly({ daily }: { daily: { date: string; male: number; female: 
         return (
           <div
             key={d.date}
-            className={`rounded-xl p-3 text-center ${riskBg}`}
+            className={`rounded-xl p-3 text-center min-w-[80px] flex-1 ${riskBg}`}
           >
             <div className="flex items-center justify-center gap-1">
               {today ? (

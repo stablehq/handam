@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, DragEvent, useMemo, useRef } from 'react';
-import api, { reservationsAPI, roomsAPI, templatesAPI, templateSchedulesAPI, smsAssignmentsAPI } from '../services/api';
+import { useState, useEffect, useCallback, DragEvent, useMemo, useRef, type TouchEvent as RTouchEvent, type TouchList as RTouchList } from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
+import api, { reservationsAPI, roomsAPI, templatesAPI, templateSchedulesAPI, smsAssignmentsAPI, stayGroupAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import dayjs, { Dayjs } from 'dayjs';
 import { toast } from 'sonner';
@@ -23,6 +24,8 @@ import {
   GripVertical,
   Plus,
   UserRoundPlus,
+  UserPlus,
+  Link2,
 } from 'lucide-react';
 
 interface SmsAssignment {
@@ -395,6 +398,14 @@ const RoomAssignment = () => {
   const [partyValues, setPartyValues] = useState<Record<number, string>>({});
   const [templateLabels, setTemplateLabels] = useState<{template_key: string; name: string; short_label: string | null}[]>([]);
 
+  const [showStayGroupModal, setShowStayGroupModal] = useState(false);
+  const [stayGroupStep, setStayGroupStep] = useState<1 | 2>(1);
+  const [stayGroupChain, setStayGroupChain] = useState<Array<{id: number; customer_name: string; phone: string; check_in_date: string; check_out_date: string; stay_group_id?: string | null}>>([]);
+  const [stayGroupDateReservations, setStayGroupDateReservations] = useState<any[]>([]);
+  const [stayGroupSelectedId, setStayGroupSelectedId] = useState<number | null>(null);
+  const [stayGroupLoading, setStayGroupLoading] = useState(false);
+  const [stayGroupLinking, setStayGroupLinking] = useState(false);
+
   const handleFieldSave = async (resId: number, field: string, value: string) => {
     if (field === 'party_type') {
       try {
@@ -439,6 +450,40 @@ const RoomAssignment = () => {
   const resizeStartXRef = useRef(0);
   const resizeStartWidthRef = useRef(0);
   const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  // --- Mobile pinch-zoom ---
+  const isMobile = useIsMobile();
+  const [tableScale, setTableScale] = useState(1);
+  const tableWrapperRef = useRef<HTMLDivElement>(null);
+  const pinchStartRef = useRef({ distance: 0, scale: 1 });
+
+  useEffect(() => {
+    if (!isMobile || !tableWrapperRef.current) return;
+    const containerWidth = tableWrapperRef.current.clientWidth;
+    const tableWidth = 900;
+    const autoScale = containerWidth / tableWidth;
+    setTableScale(Math.max(autoScale, 0.8));
+  }, [isMobile]);
+
+  const getDistance = (touches: RTouchList) => {
+    const a = touches[0];
+    const b = touches[1];
+    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  };
+
+  const handlePinchStart = (e: RTouchEvent) => {
+    if (e.touches.length === 2) {
+      pinchStartRef.current = { distance: getDistance(e.touches), scale: tableScale };
+    }
+  };
+
+  const handlePinchMove = (e: RTouchEvent) => {
+    if (e.touches.length === 2) {
+      const ratio = getDistance(e.touches) / pinchStartRef.current.distance;
+      setTableScale(Math.max(0.3, Math.min(1.5, pinchStartRef.current.scale * ratio)));
+    }
+  };
+  // --- end mobile pinch-zoom ---
 
   useEffect(() => {
     localStorage.setItem('roomAssignment_colWidths', JSON.stringify(colWidths));
@@ -956,6 +1001,110 @@ const RoomAssignment = () => {
     }
   };
 
+  // Stay group modal helpers
+  const loadReservationsForDate = async (date: string) => {
+    setStayGroupLoading(true);
+    try {
+      const res = await reservationsAPI.getAll({ date });
+      setStayGroupDateReservations(res.data.items || res.data || []);
+    } catch {
+      toast.error('예약자 목록을 불러올 수 없습니다');
+    } finally {
+      setStayGroupLoading(false);
+    }
+  };
+
+  const openStayGroupModal = () => {
+    setShowStayGroupModal(true);
+    setStayGroupStep(1);
+    setStayGroupChain([]);
+    setStayGroupSelectedId(null);
+    loadReservationsForDate(selectedDate.format('YYYY-MM-DD'));
+  };
+
+  const handleStayGroupNext = () => {
+    const selected = stayGroupDateReservations.find((r: any) => r.id === stayGroupSelectedId);
+    if (!selected) return;
+
+    const newChain = [...stayGroupChain, {
+      id: selected.id,
+      customer_name: selected.customer_name,
+      phone: selected.phone,
+      check_in_date: selected.check_in_date,
+      check_out_date: selected.check_out_date || selected.check_in_date,
+      stay_group_id: selected.stay_group_id,
+    }];
+    setStayGroupChain(newChain);
+    setStayGroupSelectedId(null);
+    setStayGroupStep(2);
+
+    // Load next date's reservations based on check_out_date
+    const nextDate = selected.check_out_date || selected.check_in_date;
+    if (nextDate) {
+      loadReservationsForDate(nextDate);
+    }
+  };
+
+  const handleStayGroupAddMore = () => {
+    const selected = stayGroupDateReservations.find((r: any) => r.id === stayGroupSelectedId);
+    if (!selected) return;
+
+    const lastInChain = stayGroupChain[stayGroupChain.length - 1];
+    // Validate: check_in must equal previous check_out
+    if (lastInChain && selected.check_in_date !== lastInChain.check_out_date) {
+      toast.error('체크인 날짜가 이전 예약의 체크아웃과 일치하지 않습니다');
+      return;
+    }
+
+    const newChain = [...stayGroupChain, {
+      id: selected.id,
+      customer_name: selected.customer_name,
+      phone: selected.phone,
+      check_in_date: selected.check_in_date,
+      check_out_date: selected.check_out_date || selected.check_in_date,
+      stay_group_id: selected.stay_group_id,
+    }];
+    setStayGroupChain(newChain);
+    setStayGroupSelectedId(null);
+
+    // Load next date
+    const nextDate = selected.check_out_date || selected.check_in_date;
+    if (nextDate) {
+      loadReservationsForDate(nextDate);
+    }
+  };
+
+  const handleStayGroupComplete = async () => {
+    if (stayGroupChain.length < 2) {
+      toast.error('최소 2개의 예약을 선택해야 합니다');
+      return;
+    }
+    setStayGroupLinking(true);
+    try {
+      const ids = stayGroupChain.map(c => c.id);
+      await stayGroupAPI.link(ids[0], ids);
+      toast.success(`연박 그룹 생성 완료 (${ids.length}건)`);
+      setShowStayGroupModal(false);
+      // Refresh data
+      window.location.reload();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || '연박 묶기에 실패했습니다');
+    } finally {
+      setStayGroupLinking(false);
+    }
+  };
+
+  const handleStayGroupUnlink = async (reservationId: number) => {
+    if (!confirm('이 예약을 연박 그룹에서 해제하시겠습니까?\nSMS 스케줄이 변경될 수 있습니다.')) return;
+    try {
+      await stayGroupAPI.unlink(reservationId);
+      toast.success('연박 그룹에서 해제되었습니다');
+      window.location.reload();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || '연박 해제에 실패했습니다');
+    }
+  };
+
   const handleAddPartyGuest = () => {
     setEditingId(null);
     setFormValues({
@@ -1196,8 +1345,17 @@ const RoomAssignment = () => {
           className="flex-1 grid items-center py-1.5"
           style={{ gridTemplateColumns: GUEST_COLS }}
         >
-          <div className="overflow-hidden px-1.5">
+          <div className="overflow-hidden px-1.5 flex items-center gap-0.5">
             <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className="font-medium text-[#191F28] dark:text-white" placeholder="이름" autoFocus={res.id === quickAddedId} />
+            {res.stay_group_id && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleStayGroupUnlink(res.id); }}
+                className="ml-0.5 flex-shrink-0 rounded bg-[#FF9F00]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#FF9F00] hover:bg-[#FF9F00]/20 transition-colors cursor-pointer"
+                title="연박 해제"
+              >
+                연박{res.stay_group_order != null ? ` ${res.stay_group_order + 1}박` : ''}
+              </button>
+            )}
           </div>
           <div className="overflow-hidden px-1.5">
             <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-[#8B95A1] tabular-nums" placeholder="연락처" />
@@ -1272,10 +1430,10 @@ const RoomAssignment = () => {
         onDrop={(e) => onRoomDrop(e, room_id, room_number)}
       >
         {/* Room label - vertically centered, spans all rows */}
-        <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
+        <div className="flex items-center gap-1.5 flex-shrink-0 w-28 sm:w-42 pl-2 sm:pl-3 pr-1 sm:pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
           <span className="font-semibold text-[#191F28] dark:text-white text-body">{room_number}</span>
           {roomInfoMap[room_number] && (
-            <span className="text-caption text-[#B0B8C1] dark:text-[#8B95A1] truncate">{roomInfoMap[room_number]}</span>
+            <span className="hidden sm:inline text-caption text-[#B0B8C1] dark:text-[#8B95A1] truncate">{roomInfoMap[room_number]}</span>
           )}
         </div>
 
@@ -1290,6 +1448,7 @@ const RoomAssignment = () => {
               }
               return (
                 <div key={`empty-${i}`} className={`flex items-center h-10 ${guestAreaCursor()}`}>
+                  <div className="w-7 flex-shrink-0" />
                   <div
                     className="flex-1 grid items-center py-1.5"
                     style={{ gridTemplateColumns: GUEST_COLS }}
@@ -1305,6 +1464,7 @@ const RoomAssignment = () => {
             guests.map((res) => renderGuestRow(res, true))
           ) : (
             <div className={`flex items-center h-10 ${guestAreaCursor()}`}>
+              <div className="w-7 flex-shrink-0" />
               <div
                 className="flex-1 grid items-center py-1.5"
                 style={{ gridTemplateColumns: GUEST_COLS }}
@@ -1464,8 +1624,8 @@ const RoomAssignment = () => {
 
       {/* Summary stats */}
       <div className="flex flex-wrap gap-3 items-stretch">
-        {/* 그룹 카드 */}
-        <div className="stat-card flex overflow-hidden !p-0">
+        {/* PC: 기존 한 카드 (sm 이상) */}
+        <div className="stat-card hidden sm:flex overflow-hidden !p-0">
           <div className="w-[130px] flex flex-col items-center justify-center px-3 py-4">
             <span className="stat-label whitespace-nowrap">총 예약자</span>
             <div className="flex items-center justify-center gap-2.5 mt-1">
@@ -1501,6 +1661,50 @@ const RoomAssignment = () => {
           <div className="w-[130px] flex flex-col items-center justify-center px-3 py-4">
             <span className="stat-label whitespace-nowrap">전체</span>
             <div className="flex items-center justify-center gap-2.5 mt-1">
+              <span className="stat-value tabular-nums text-[#4A90D9]">{summary.partyMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+              <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
+              <span className="stat-value tabular-nums text-[#E05263]">{summary.partyFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+            </div>
+          </div>
+        </div>
+        {/* 모바일: 2개로 분리 (sm 미만) */}
+        <div className="stat-card flex w-full sm:hidden overflow-hidden !p-0">
+          <div className="flex-1 flex flex-col items-center justify-center px-3 py-4">
+            <span className="stat-label whitespace-nowrap">총 예약자</span>
+            <div className="flex items-center justify-center gap-2.5 mt-1 whitespace-nowrap">
+              <span className="stat-value tabular-nums text-[#4A90D9]">{summary.roomMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+              <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
+              <span className="stat-value tabular-nums text-[#E05263]">{summary.roomFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+            </div>
+          </div>
+          <div className="w-px bg-[#E5E8EB] dark:bg-[#2C2C34] my-3" />
+          <div className="flex-1 flex flex-col items-center justify-center px-3 py-4">
+            <span className="stat-label whitespace-nowrap">현재 신청인원</span>
+            <div className="stat-value tabular-nums mt-1 whitespace-nowrap">{summary.partyTotal}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></div>
+          </div>
+        </div>
+        <div className="stat-card flex w-full sm:hidden overflow-hidden !p-0">
+          <div className="flex-1 flex flex-col items-center justify-center px-3 py-4">
+            <span className="stat-label whitespace-nowrap">1차</span>
+            <div className="flex items-center justify-center gap-2.5 mt-1 whitespace-nowrap">
+              <span className="stat-value tabular-nums text-[#4A90D9]">{summary.firstMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+              <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
+              <span className="stat-value tabular-nums text-[#E05263]">{summary.firstFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+            </div>
+          </div>
+          <div className="w-px bg-[#E5E8EB] dark:bg-[#2C2C34] my-3" />
+          <div className="flex-1 flex flex-col items-center justify-center px-3 py-4">
+            <span className="stat-label whitespace-nowrap">2차만</span>
+            <div className="flex items-center justify-center gap-2.5 mt-1 whitespace-nowrap">
+              <span className="stat-value tabular-nums text-[#4A90D9]">{summary.secondOnlyMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+              <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
+              <span className="stat-value tabular-nums text-[#E05263]">{summary.secondOnlyFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+            </div>
+          </div>
+          <div className="w-px bg-[#E5E8EB] dark:bg-[#2C2C34] my-3" />
+          <div className="flex-1 flex flex-col items-center justify-center px-3 py-4">
+            <span className="stat-label whitespace-nowrap">전체</span>
+            <div className="flex items-center justify-center gap-2.5 mt-1 whitespace-nowrap">
               <span className="stat-value tabular-nums text-[#4A90D9]">{summary.partyMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
               <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
               <span className="stat-value tabular-nums text-[#E05263]">{summary.partyFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
@@ -1573,7 +1777,24 @@ const RoomAssignment = () => {
               발송 ({targets.length}건)
             </Button>
 
-
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                color="light"
+                size="sm"
+                onClick={openStayGroupModal}
+              >
+                <Link2 className="h-3.5 w-3.5 mr-1.5" />
+                연박 묶기
+              </Button>
+              <Button
+                color="light"
+                size="sm"
+                onClick={handleAddPartyGuest}
+              >
+                <UserPlus className="h-3.5 w-3.5 mr-1.5" />
+                예약자 추가
+              </Button>
+            </div>
           </div>
 
           {targets.length > 0 && (
@@ -1601,7 +1822,7 @@ const RoomAssignment = () => {
       </div>
 
       {/* Main grid card */}
-      <div className="section-card !overflow-visible">
+      <div className="section-card !overflow-visible max-w-full">
         {/* Date navigation header */}
         <div className="section-header justify-center">
           <div className="flex items-center gap-1">
@@ -1640,13 +1861,23 @@ const RoomAssignment = () => {
             }
           >
             {/* Unified Table */}
-            <div ref={tableContainerRef} className="relative rounded-xl border border-[#F2F4F6] dark:border-[#2C2C34]">
+            <div
+              ref={tableWrapperRef}
+              className={`rounded-xl border border-[#F2F4F6] dark:border-[#2C2C34] ${isMobile ? 'overflow-auto' : 'overflow-x-auto'}`}
+              onTouchStart={isMobile ? handlePinchStart : undefined}
+              onTouchMove={isMobile ? handlePinchMove : undefined}
+            >
+            <div
+              ref={tableContainerRef}
+              className="relative min-w-[800px]"
+              style={isMobile ? { zoom: tableScale } : undefined}
+            >
               {resizeGuideX !== null && (
                 <div className="absolute top-0 bottom-0 w-px bg-[#3182F6] z-50 pointer-events-none" style={{ left: resizeGuideX }} />
               )}
               {/* Header */}
               <div className="flex items-center h-10 bg-[#F2F4F6] dark:bg-[#17171C] border-b border-[#F2F4F6] dark:border-[#2C2C34]">
-                <div className="flex-shrink-0 pl-3 pr-2 w-42 border-r border-[#F2F4F6] dark:border-[#2C2C34]">
+                <div className="flex-shrink-0 pl-2 sm:pl-3 pr-1 sm:pr-2 w-28 sm:w-42 border-r border-[#F2F4F6] dark:border-[#2C2C34]">
                   <span className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">객실</span>
                 </div>
                 <div className="w-7 flex-shrink-0" />
@@ -1686,7 +1917,7 @@ const RoomAssignment = () => {
                 onDrop={onPoolDrop}
               >
                 {/* Room label */}
-                <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
+                <div className="flex items-center gap-1.5 flex-shrink-0 w-28 sm:w-42 pl-2 sm:pl-3 pr-1 sm:pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
                   <span className="font-semibold text-[#FF9500] dark:text-[#FF9500] text-body">미배정</span>
                 </div>
 
@@ -1696,6 +1927,7 @@ const RoomAssignment = () => {
                     unassigned.map((res) => renderGuestRow(res, true))
                   ) : (
                     <div className={`flex items-center h-10 ${guestAreaCursor()}`}>
+                      <div className="w-7 flex-shrink-0" />
                       <div className="flex-1 grid items-center py-1.5" style={{ gridTemplateColumns: GUEST_COLS }}>
                         <div className="overflow-hidden truncate col-span-full text-body text-[#FF9500] dark:text-[#FF9500] italic px-1.5">
                           {dragOverPool ? '여기에 놓으면 배정 해제' : ''}
@@ -1722,7 +1954,7 @@ const RoomAssignment = () => {
                 onDrop={onPartyZoneDrop}
               >
                 {/* Room label */}
-                <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
+                <div className="flex items-center gap-1.5 flex-shrink-0 w-28 sm:w-42 pl-2 sm:pl-3 pr-1 sm:pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
                   <span className="font-semibold text-[#7B61FF] dark:text-[#7B61FF] text-body">파티만</span>
                 </div>
 
@@ -1732,6 +1964,7 @@ const RoomAssignment = () => {
                     partyOnly.map((res) => renderGuestRow(res, true))
                   ) : (
                     <div className={`flex items-center h-10 ${guestAreaCursor()}`}>
+                      <div className="w-7 flex-shrink-0" />
                       <div className="flex-1 grid items-center py-1.5" style={{ gridTemplateColumns: GUEST_COLS }}>
                         <div className="overflow-hidden truncate col-span-full text-body text-[#7B61FF] dark:text-[#7B61FF] italic px-1.5">
                           {dragOverPartyZone ? '여기에 놓으면 파티만 게스트로 전환' : ''}
@@ -1744,6 +1977,7 @@ const RoomAssignment = () => {
                 {/* Next day column - empty */}
                 <div className="flex-shrink-0 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700" style={{ width: colWidths.nextDay }} />
               </div>
+            </div>
             </div>
           </div>
         </div>
@@ -2151,6 +2385,125 @@ const RoomAssignment = () => {
           <Button color="blue" onClick={handleAutoAssign} disabled={autoAssigning}>
             {autoAssigning ? <><Spinner size="sm" className="mr-2" />배정 중...</> : '배정 진행'}
           </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Stay Group Link Modal */}
+      <Modal show={showStayGroupModal} onClose={() => setShowStayGroupModal(false)} size="md">
+        <ModalHeader>
+          연박 묶기 {stayGroupStep === 1 ? '— 기준 예약자 선택' : '— 연결할 예약자 선택'}
+        </ModalHeader>
+        <ModalBody>
+          <div className="space-y-4">
+            {/* Chain preview */}
+            {stayGroupChain.length > 0 && (
+              <div className="rounded-xl bg-[#E8F3FF] dark:bg-[#3182F6]/10 p-3">
+                <p className="text-caption font-medium text-[#3182F6] mb-2">연박 체인</p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {stayGroupChain.map((item, idx) => (
+                    <span key={item.id} className="flex items-center gap-1.5">
+                      {idx > 0 && <span className="text-[#3182F6]">&rarr;</span>}
+                      <span className="rounded-lg bg-white dark:bg-[#1E1E24] px-2 py-1 text-caption font-medium text-[#191F28] dark:text-white shadow-sm">
+                        {item.check_in_date.slice(5)} {item.customer_name}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* SMS warning */}
+            {stayGroupChain.length >= 1 && (
+              <div className="rounded-xl bg-[#FFF8E1] dark:bg-[#FF9F00]/10 p-3">
+                <p className="text-caption text-[#FF9F00] dark:text-[#FFB84D]">
+                  연박을 묶으면 SMS 스케줄(마지막 날 발송, 연박 제외 등)이 변경될 수 있습니다.
+                </p>
+              </div>
+            )}
+
+            {/* Date label */}
+            <div className="flex items-center gap-2">
+              <span className="text-label font-semibold text-[#191F28] dark:text-white">
+                {stayGroupStep === 1 ? '날짜 선택' : `${stayGroupChain[stayGroupChain.length - 1]?.check_out_date || ''} 예약자`}
+              </span>
+              {stayGroupStep === 1 && (
+                <input
+                  type="date"
+                  defaultValue={selectedDate.format('YYYY-MM-DD')}
+                  onChange={(e) => {
+                    if (e.target.value) loadReservationsForDate(e.target.value);
+                  }}
+                  className="rounded-lg border border-[#E5E8EB] bg-white px-2 py-1 text-caption dark:border-gray-600 dark:bg-[#1E1E24] dark:text-gray-300"
+                />
+              )}
+            </div>
+
+            {/* Reservation list */}
+            {stayGroupLoading ? (
+              <div className="flex justify-center py-8">
+                <Spinner size="md" />
+              </div>
+            ) : stayGroupDateReservations.length === 0 ? (
+              <div className="py-8 text-center text-label text-[#B0B8C1]">해당 날짜에 예약이 없습니다</div>
+            ) : (
+              <div className="divide-y divide-[#F2F4F6] dark:divide-gray-800 rounded-xl border border-[#E5E8EB] dark:border-gray-700">
+                {stayGroupDateReservations
+                  .filter((r: any) => !stayGroupChain.some(c => c.id === r.id))
+                  .map((r: any) => (
+                  <label
+                    key={r.id}
+                    className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${
+                      stayGroupSelectedId === r.id
+                        ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/10'
+                        : 'hover:bg-[#F2F4F6] dark:hover:bg-[#1E1E24]'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="stayGroupSelect"
+                      checked={stayGroupSelectedId === r.id}
+                      onChange={() => setStayGroupSelectedId(r.id)}
+                      className="h-4 w-4 text-[#3182F6] border-[#E5E8EB] focus:ring-[#3182F6]"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-body text-[#191F28] dark:text-white">{r.customer_name}</span>
+                        <span className="text-caption tabular-nums text-[#8B95A1]">{r.phone}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-caption text-[#B0B8C1]">{r.check_in_date} ~ {r.check_out_date}</span>
+                        {r.stay_group_id && (
+                          <Badge color="warning" size="sm">이미 연박 그룹</Badge>
+                        )}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          {stayGroupStep === 1 ? (
+            <>
+              <Button color="blue" disabled={!stayGroupSelectedId} onClick={handleStayGroupNext}>
+                다음
+              </Button>
+              <Button color="light" onClick={() => setShowStayGroupModal(false)}>취소</Button>
+            </>
+          ) : (
+            <>
+              {stayGroupChain.length >= 2 && (
+                <Button color="blue" disabled={stayGroupLinking} onClick={handleStayGroupComplete}>
+                  {stayGroupLinking ? <><Spinner size="sm" className="mr-2" />묶는 중...</> : `완료 (${stayGroupChain.length}건 연박)`}
+                </Button>
+              )}
+              <Button color="light" disabled={!stayGroupSelectedId} onClick={handleStayGroupAddMore}>
+                {stayGroupSelectedId ? '+ 선택 추가' : '예약자를 선택하세요'}
+              </Button>
+              <Button color="light" onClick={() => setShowStayGroupModal(false)}>취소</Button>
+            </>
+          )}
         </ModalFooter>
       </Modal>
     </div>

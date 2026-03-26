@@ -284,4 +284,14 @@ export const tenantsAPI = {
   getAll: () => api.get('/api/tenants'),
 };
 
+// Stay Group API
+export const stayGroupAPI = {
+  link: (id: number, reservationIds: number[]) =>
+    api.post(`/api/reservations/${id}/stay-group/link`, { reservation_ids: reservationIds }),
+  unlink: (id: number) =>
+    api.delete(`/api/reservations/${id}/stay-group/unlink`),
+  detect: () =>
+    api.post('/api/reservations/detect-consecutive'),
+};
+
 export default api;

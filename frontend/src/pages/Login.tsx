@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TextInput } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -7,14 +7,30 @@ import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth-store'
 import { authAPI } from '@/services/api'
 
+const SAVED_CREDENTIALS_KEY = 'sms-saved-credentials'
+
 export default function Login() {
   const navigate = useNavigate()
   const login = useAuthStore((s) => s.login)
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [rememberMe, setRememberMe] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Load saved credentials on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SAVED_CREDENTIALS_KEY)
+      if (saved) {
+        const { username: u, password: p } = JSON.parse(saved)
+        setUsername(u || '')
+        setPassword(p || '')
+        setRememberMe(true)
+      }
+    } catch { /* ignore */ }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -23,6 +39,14 @@ export default function Login() {
     try {
       const res = await authAPI.login({ username, password })
       const { access_token, refresh_token, user } = res.data
+
+      // Save or clear credentials
+      if (rememberMe) {
+        localStorage.setItem(SAVED_CREDENTIALS_KEY, JSON.stringify({ username, password }))
+      } else {
+        localStorage.removeItem(SAVED_CREDENTIALS_KEY)
+      }
+
       login(access_token, refresh_token, user)
       navigate('/')
     } catch (err: any) {
@@ -82,6 +106,16 @@ export default function Login() {
                 autoComplete="current-password"
               />
             </div>
+
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="h-4 w-4 rounded border-[#E5E8EB] text-[#3182F6] focus:ring-[#3182F6] dark:border-gray-600 dark:bg-[#2C2C34]"
+              />
+              <span className="text-label text-[#8B95A1] dark:text-gray-400">아이디/비밀번호 저장</span>
+            </label>
 
             {error && (
               <p className="text-label text-[#F04452]">{error}</p>

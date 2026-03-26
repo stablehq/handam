@@ -866,13 +866,13 @@ const Templates: React.FC = () => {
   const renderTemplatesTab = () => (
     <div className="space-y-4">
       {/* Info banner + action */}
-      <div className="flex items-center justify-between rounded-2xl border border-[#E8F3FF] bg-[#E8F3FF] px-4 py-3 dark:border-blue-800 dark:bg-blue-900/20">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-[#E8F3FF] bg-[#E8F3FF] px-4 py-3 dark:border-blue-800 dark:bg-blue-900/20">
         <span className="text-label text-[#3182F6] dark:text-blue-300">
           메시지 템플릿을 만들어두면 스케줄에서 자동으로 발송할 수 있습니다.{' '}
           <code className="rounded bg-[#F2F4F6] px-1 py-0.5 font-mono text-[#3182F6] dark:bg-blue-800/40">{'{{변수명}}'}</code>{' '}
           형식으로 변수를 사용하세요.
         </span>
-        <Button color="blue" size="sm" onClick={openCreateTemplate} className="ml-4 shrink-0">
+        <Button color="blue" size="sm" onClick={openCreateTemplate} className="shrink-0 whitespace-nowrap">
           <Plus className="mr-1.5 h-3.5 w-3.5" />
           새 템플릿
         </Button>
@@ -989,16 +989,16 @@ const Templates: React.FC = () => {
   const renderSchedulesTab = () => (
     <div className="space-y-4">
       {/* Info banner + actions */}
-      <div className="flex items-center justify-between rounded-2xl border border-[#E8F3FF] bg-[#E8F3FF] px-4 py-3 dark:border-blue-800 dark:bg-blue-900/20">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-[#E8F3FF] bg-[#E8F3FF] px-4 py-3 dark:border-blue-800 dark:bg-blue-900/20">
         <span className="text-label text-[#3182F6] dark:text-blue-300">
           템플릿을 자동으로 발송할 시간을 설정합니다. 매일, 매주, 매시간, 또는 N분마다 발송할 수 있습니다.
         </span>
-        <div className="flex items-center gap-2 ml-4 shrink-0">
-          <Button size="sm" color="light" onClick={handleSyncSchedules}>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button size="sm" color="light" className="whitespace-nowrap" onClick={handleSyncSchedules}>
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
             동기화
           </Button>
-          <Button color="blue" size="sm" onClick={openCreateSchedule}>
+          <Button color="blue" size="sm" className="whitespace-nowrap" onClick={openCreateSchedule}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             새 스케줄
           </Button>
@@ -2267,7 +2267,7 @@ const Templates: React.FC = () => {
               </span>
             }
           >
-            <div className="px-6 pb-6">
+            <div className="px-4 sm:px-6 pt-4 pb-6">
               {renderTemplatesTab()}
             </div>
           </TabItem>
@@ -2280,7 +2280,7 @@ const Templates: React.FC = () => {
               </span>
             }
           >
-            <div className="px-6 pb-6">
+            <div className="px-4 sm:px-6 pt-4 pb-6">
               {renderSchedulesTab()}
             </div>
           </TabItem>

@@ -12,7 +12,7 @@ interface TableProps extends React.TableHTMLAttributes<HTMLTableElement> {
 const Table = React.forwardRef<HTMLTableElement, TableProps>(
   ({ className, hoverable, striped, ...props }, ref) => {
     return (
-      <div className="overflow-x-auto">
+      <div className="max-w-full overflow-x-auto">
         <table
           ref={ref}
           className={cn("w-full text-left text-body text-[#4E5968] dark:text-gray-400", className)}

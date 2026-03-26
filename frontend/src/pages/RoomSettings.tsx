@@ -553,10 +553,10 @@ const RoomSettings = () => {
       {/* ── Building + Room List (combined card) ── */}
       <div className="section-card">
         {/* Building List */}
-        <div className="flex items-center gap-3 px-5 py-4">
+        <div className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-4">
           <div className="flex items-center gap-2">
             <Building2 size={16} className="text-[#3182F6]" />
-            <span className="text-subheading font-semibold text-[#191F28] dark:text-white">건물 목록</span>
+            <span className="text-subheading font-semibold text-[#191F28] dark:text-white whitespace-nowrap">건물 목록</span>
             {buildings.length > 0 && (
               <Badge color="info" size="sm">{buildings.length}</Badge>
             )}
@@ -566,7 +566,7 @@ const RoomSettings = () => {
           ) : buildings.length === 0 ? (
             <span className="text-label text-[#B0B8C1] dark:text-gray-500">등록된 건물이 없습니다</span>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {buildings.map((building) => (
                 <Badge key={building.id} color="gray" size="sm">
                   {building.name}
@@ -578,7 +578,7 @@ const RoomSettings = () => {
             </div>
           )}
           <div className="ml-auto">
-            <Button color="light" size="sm" onClick={openBuildingManage}>
+            <Button color="light" size="sm" className="whitespace-nowrap" onClick={openBuildingManage}>
               <Building2 className="mr-1.5 h-3.5 w-3.5" />
               건물 관리
             </Button>
@@ -589,28 +589,28 @@ const RoomSettings = () => {
         <div className="border-t border-[#E5E8EB] dark:border-gray-800" />
 
         {/* Room List */}
-        <div className="section-header">
-          <div className="flex items-center gap-2">
+        <div className="section-header flex-wrap gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <Home size={16} className="text-[#3182F6]" />
-            <span className="text-subheading font-semibold text-[#191F28] dark:text-white">객실 목록</span>
+            <span className="text-subheading font-semibold text-[#191F28] dark:text-white whitespace-nowrap">객실 목록</span>
             {rooms.length > 0 && (
               <Badge color="info" size="sm">{rooms.length}</Badge>
             )}
-            <div className="flex items-center gap-1.5 text-caption text-[#B0B8C1] dark:text-gray-600">
+            <div className="hidden sm:flex items-center gap-1.5 text-caption text-[#B0B8C1] dark:text-gray-600">
               <GripVertical size={14} />
               <span>드래그하여 순서 변경</span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button color="light" size="sm" onClick={() => setBizItemModalOpen(true)}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button color="light" size="sm" className="whitespace-nowrap" onClick={() => setBizItemModalOpen(true)}>
               <Settings className="mr-1.5 h-3.5 w-3.5" />
               상품 설정
             </Button>
-            <Button color="light" size="sm" onClick={openPriorityModal}>
+            <Button color="light" size="sm" className="whitespace-nowrap" onClick={openPriorityModal}>
               <ArrowUpDown className="mr-1.5 h-3.5 w-3.5" />
               배정 순서
             </Button>
-            <Button color="blue" size="sm" onClick={openCreate}>
+            <Button color="blue" size="sm" className="whitespace-nowrap" onClick={openCreate}>
               <Plus className="mr-1.5 h-3.5 w-3.5" />
               객실 추가
             </Button>

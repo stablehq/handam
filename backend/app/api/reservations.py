@@ -785,6 +785,12 @@ async def link_stay_group(
     if not group_id:
         raise HTTPException(status_code=400, detail="최소 2개 이상의 유효한 예약이 필요합니다")
 
+    from app.services.room_assignment import sync_sms_tags
+    from app.db.models import TemplateSchedule
+    schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
+    for res_id in all_ids:
+        sync_sms_tags(db, res_id, schedules=schedules)
+
     db.commit()
     return {"success": True, "message": f"연박 그룹 생성: {group_id}"}
 
@@ -797,10 +803,23 @@ async def unlink_stay_group(
 ):
     """Remove a reservation from its consecutive stay group."""
     from app.services.consecutive_stay import unlink_from_group
+    from app.services.room_assignment import sync_sms_tags
+    from app.db.models import TemplateSchedule, Reservation
+
+    res = db.query(Reservation).filter(Reservation.id == reservation_id).first()
+    affected_ids = []
+    if res and res.stay_group_id:
+        affected_ids = [r.id for r in db.query(Reservation).filter(
+            Reservation.stay_group_id == res.stay_group_id
+        ).all()]
 
     unlinked = unlink_from_group(db, reservation_id)
     if not unlinked:
         raise HTTPException(status_code=404, detail="연박 그룹에 속하지 않은 예약입니다")
+
+    schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
+    for res_id in affected_ids:
+        sync_sms_tags(db, res_id, schedules=schedules)
 
     db.commit()
     return {"success": True, "message": "연박 그룹에서 해제되었습니다"}

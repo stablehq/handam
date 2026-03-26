@@ -1,4 +1,5 @@
 import { useState, useEffect, createContext, useContext } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useAuthStore } from '@/stores/auth-store'
@@ -298,8 +299,8 @@ function MobileSidebar() {
         <Menu size={20} />
       </button>
 
-      {/* Overlay + Drawer */}
-      {open && (
+      {/* Overlay + Drawer (portal to body to escape stacking context) */}
+      {open && createPortal(
         <div className="fixed inset-0 z-50 flex">
           {/* Backdrop */}
           <div
@@ -355,7 +356,8 @@ function MobileSidebar() {
               ))}
             </nav>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   )
@@ -465,7 +467,7 @@ export default function Layout({ children }: LayoutProps) {
             </button>
           </div>
         </header>
-        <main className="flex-1 p-4 md:p-6">
+        <main className="min-w-0 flex-1 p-4 md:p-6">
           {children}
         </main>
       </div>
@@ -485,12 +487,12 @@ export default function Layout({ children }: LayoutProps) {
       {/* Main Area */}
       <div
         className={cn(
-          "flex flex-1 flex-col transition-all duration-300",
+          "flex min-w-0 flex-1 flex-col transition-all duration-300",
           !isMobile && (collapsed ? 'ml-[68px]' : 'ml-60'),
         )}
       >
         <AppHeader pageTitle={pageTitle} isMobile={isMobile} />
-        <main className="flex-1 p-4 md:p-6">
+        <main className="min-w-0 flex-1 p-4 md:p-6">
           {children}
         </main>
       </div>

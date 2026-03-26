@@ -355,8 +355,8 @@ export default function Reservations() {
           <h1 className="page-title">예약 관리</h1>
           <p className="page-subtitle">예약 현황을 확인하고 네이버 예약을 동기화합니다.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button color="light" size="sm" onClick={openCreate}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button color="light" size="sm" className="whitespace-nowrap" onClick={openCreate}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             예약 등록
           </Button>
@@ -367,7 +367,7 @@ export default function Reservations() {
             className="h-[34px] rounded-lg border border-[#E5E8EB] bg-white px-2.5 text-caption text-[#4E5968] dark:border-gray-600 dark:bg-[#1E1E24] dark:text-gray-300"
             placeholder="시작일"
           />
-          <Button color="blue" size="sm" onClick={handleSync} disabled={syncing}>
+          <Button color="blue" size="sm" className="whitespace-nowrap" onClick={handleSync} disabled={syncing}>
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5${syncing ? ' animate-spin' : ''}`} />
             {syncFromDate ? `${syncFromDate}부터 동기화` : '네이버 동기화'}
           </Button>
@@ -378,7 +378,7 @@ export default function Reservations() {
       {/* Filter bar + Table */}
       <div className="section-card">
 
-        <div className="p-4">
+        <div className="p-2 sm:p-4">
           <div className="filter-bar">
             <div className="relative">
               <input
@@ -400,7 +400,7 @@ export default function Reservations() {
               className="block rounded-lg border border-[#E5E8EB] bg-white py-2 px-3 text-body text-[#191F28] focus:border-[#3182F6] focus:ring-1 focus:ring-[#3182F6] focus:outline-none dark:border-gray-600 dark:bg-[#1E1E24] dark:text-gray-100"
             />
 
-            <div className="flex overflow-x-auto scrollbar-none rounded-lg overflow-hidden border border-[#E5E8EB] dark:border-gray-600">
+            <div className="flex w-full sm:w-auto overflow-x-auto scrollbar-none rounded-lg overflow-hidden border border-[#E5E8EB] dark:border-gray-600">
               {[
                 { value: 'all', label: '전체' },
                 { value: 'confirmed', label: '확정' },
@@ -416,7 +416,7 @@ export default function Reservations() {
                     key={opt.value}
                     type="button"
                     onClick={() => toggleFilter(filterStatus, opt.value, setFilterStatus)}
-                    className={`shrink-0 px-3 py-2 text-body font-medium transition-colors cursor-pointer border-r border-[#E5E8EB] dark:border-gray-600 last:border-r-0
+                    className={`flex-1 sm:flex-none shrink-0 px-3 py-2 text-body font-medium transition-colors cursor-pointer border-r border-[#E5E8EB] dark:border-gray-600 last:border-r-0
                       ${isActive
                         ? 'bg-[#3182F6] text-white'
                         : 'bg-white text-[#B0B8C1] hover:bg-[#F2F4F6] dark:bg-[#1E1E24] dark:text-gray-500 dark:hover:bg-[#2C2C34]'
@@ -428,7 +428,7 @@ export default function Reservations() {
               })}
             </div>
 
-            <div className="flex overflow-x-auto scrollbar-none rounded-lg overflow-hidden border border-[#E5E8EB] dark:border-gray-600">
+            <div className="flex w-full sm:w-auto overflow-x-auto scrollbar-none rounded-lg overflow-hidden border border-[#E5E8EB] dark:border-gray-600">
               {[
                 { value: 'all', label: '전체' },
                 { value: 'naver', label: '네이버' },
@@ -442,7 +442,7 @@ export default function Reservations() {
                     key={opt.value}
                     type="button"
                     onClick={() => toggleFilter(filterSource, opt.value, setFilterSource)}
-                    className={`shrink-0 px-3 py-2 text-body font-medium transition-colors cursor-pointer border-r border-[#E5E8EB] dark:border-gray-600 last:border-r-0
+                    className={`flex-1 sm:flex-none shrink-0 px-3 py-2 text-body font-medium transition-colors cursor-pointer border-r border-[#E5E8EB] dark:border-gray-600 last:border-r-0
                       ${isActive
                         ? 'bg-[#3182F6] text-white'
                         : 'bg-white text-[#B0B8C1] hover:bg-[#F2F4F6] dark:bg-[#1E1E24] dark:text-gray-500 dark:hover:bg-[#2C2C34]'

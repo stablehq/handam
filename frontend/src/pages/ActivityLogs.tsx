@@ -369,7 +369,7 @@ const ActivityLogs = () => {
 
                         {/* Title */}
                         <TableCell>
-                          <span className="line-clamp-1 flex flex-wrap items-center gap-1 text-body">
+                          <span className="line-clamp-1 flex items-center gap-1 text-body whitespace-nowrap">
                             {(() => {
                               // [TENANT] [이름] 나머지 → 색상 뱃지 + 텍스트
                               const match = log.title.match(/^(?:\[([^\]]+)\]\s*)?(?:\[([^\]]+)\]\s*)?(.*)$/)
