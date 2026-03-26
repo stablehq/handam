@@ -437,7 +437,7 @@ const RoomAssignment = () => {
   };
 
 
-  const defaultColWidths = { name: 60, phone: 120, party: 60, gender: 60, roomType: 100, notes: 100, sms: 140, nextDay: 96 };
+  const defaultColWidths = { name: 60, phone: 120, party: 60, gender: 60, roomType: 100, notes: 100, sms: 200, nextDay: 96 };
   const [colWidths, setColWidths] = useState(() => {
     try {
       const saved = localStorage.getItem('roomAssignment_colWidths');
@@ -639,7 +639,7 @@ const RoomAssignment = () => {
 
     const handleMouseMove = (e: MouseEvent) => {
       const delta = e.clientX - resizeStartXRef.current;
-      const minWidths: Record<string, number> = { name: 60, phone: 120, party: 60, gender: 60, roomType: 100, notes: 100, sms: 140, nextDay: 96 };
+      const minWidths: Record<string, number> = { name: 60, phone: 120, party: 60, gender: 60, roomType: 100, notes: 100, sms: 200, nextDay: 96 };
       const newWidth = Math.max(minWidths[resizeCol] || 30, resizeStartWidthRef.current + delta);
       setColWidths((prev: typeof defaultColWidths) => ({ ...prev, [resizeCol!]: newWidth }));
       if (tableContainerRef.current) {
@@ -1866,10 +1866,11 @@ const RoomAssignment = () => {
               className={`rounded-xl border border-[#F2F4F6] dark:border-[#2C2C34] ${isMobile ? 'overflow-auto' : 'overflow-x-auto'}`}
               onTouchStart={isMobile ? handlePinchStart : undefined}
               onTouchMove={isMobile ? handlePinchMove : undefined}
+              {...(isMobile ? { style: { touchAction: 'pan-x pan-y' } } : {})}
             >
             <div
               ref={tableContainerRef}
-              className="relative min-w-[800px]"
+              className="relative min-w-max"
               style={isMobile ? { zoom: tableScale } : undefined}
             >
               {resizeGuideX !== null && (
