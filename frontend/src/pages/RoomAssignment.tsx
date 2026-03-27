@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, DragEvent, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, DragEvent, useMemo, useRef } from 'react';
 import api, { reservationsAPI, roomsAPI, templatesAPI, templateSchedulesAPI, smsAssignmentsAPI, stayGroupAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import dayjs, { Dayjs } from 'dayjs';
@@ -392,7 +392,7 @@ const RoomAssignment = () => {
 
   const [roomGroups, setRoomGroups] = useState<Array<{id: number; name: string; sort_order: number; color?: string; room_ids: number[]}>>([]);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
-  const [localGroups, setLocalGroups] = useState<Array<{id: number | null; name: string; sort_order: number; color?: string; room_ids: number[]}>>([]);
+  const [dividers, setDividers] = useState<Set<number>>(new Set());
   const [savingGroups, setSavingGroups] = useState(false);
 
   const [showStayGroupModal, setShowStayGroupModal] = useState(false);
@@ -1442,9 +1442,9 @@ const RoomAssignment = () => {
 
     const groupBorderClasses = groupInfo
       ? [
-          'border-l-2 border-r-2 border-[#D1D5DB] dark:border-[#4E5968]',
+          'border-l-2 border-r-2 border-[#9CA3AF] dark:border-[#6B7280]',
           groupInfo.isFirst ? 'border-t-2' : '',
-          groupInfo.isLast ? 'border-b-2 border-b-[#D1D5DB] dark:border-b-[#4E5968]' : '',
+          groupInfo.isLast ? 'border-b-2 border-b-[#9CA3AF] dark:border-b-[#6B7280]' : '',
         ].filter(Boolean).join(' ')
       : '';
 
@@ -1768,7 +1768,24 @@ const RoomAssignment = () => {
                 color="light"
                 size="sm"
                 onClick={() => {
-                  setLocalGroups(roomGroups.map(g => ({ ...g })));
+                  // Convert existing roomGroups → dividers
+                  const roomIds = activeRoomEntries.map(e => e.room_id);
+                  const groupMap = new Map<number, number>();
+                  roomGroups.forEach(g => g.room_ids.forEach(rid => groupMap.set(rid, g.id)));
+                  const newDividers = new Set<number>();
+                  roomIds.forEach((id, idx) => {
+                    if (idx < roomIds.length - 1) {
+                      const curGroup = groupMap.get(id);
+                      const nextGroup = groupMap.get(roomIds[idx + 1]);
+                      if (curGroup !== undefined && nextGroup !== undefined && curGroup !== nextGroup) {
+                        newDividers.add(idx);
+                      }
+                      if ((curGroup !== undefined) !== (nextGroup !== undefined)) {
+                        newDividers.add(idx);
+                      }
+                    }
+                  });
+                  setDividers(newDividers);
                   setGroupModalOpen(true);
                 }}
               >
@@ -2412,74 +2429,51 @@ const RoomAssignment = () => {
       </Modal>
 
       {/* Group Settings Modal */}
-      <Modal show={groupModalOpen} onClose={() => setGroupModalOpen(false)} size="lg">
+      <Modal show={groupModalOpen} onClose={() => setGroupModalOpen(false)} size="md">
         <ModalHeader>그룹 설정</ModalHeader>
         <ModalBody>
-          <div className="space-y-4">
-            <div className="flex justify-end">
-              <Button
-                color="light"
-                size="sm"
-                onClick={() => setLocalGroups(prev => [...prev, { id: null, name: '새 그룹', sort_order: prev.length, room_ids: [] }])}
-              >
-                <Plus className="h-3.5 w-3.5 mr-1.5" />
-                그룹 추가
-              </Button>
-            </div>
-            {localGroups.length === 0 && (
-              <div className="py-8 text-center text-label text-[#B0B8C1] dark:text-[#4E5968]">
-                그룹이 없습니다. 그룹 추가 버튼을 눌러 새 그룹을 만드세요.
-              </div>
-            )}
-            {localGroups.map((group, gIdx) => (
-              <div key={gIdx} className="rounded-xl border border-[#E5E8EB] dark:border-[#2C2C34] p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={group.name}
-                    onChange={(e) => setLocalGroups(prev => prev.map((g, i) => i === gIdx ? { ...g, name: e.target.value } : g))}
-                    className="flex-1 rounded-lg border border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24] text-body text-[#191F28] dark:text-white px-3 py-1.5 focus:border-[#3182F6] focus:outline-none"
-                    placeholder="그룹 이름"
-                  />
-                  <Button
-                    color="failure"
-                    size="xs"
-                    onClick={() => setLocalGroups(prev => prev.filter((_, i) => i !== gIdx))}
+          <div className="space-y-0">
+            {activeRoomEntries.map((entry, idx) => (
+              <React.Fragment key={entry.room_id}>
+                {/* Room row */}
+                <div className="flex items-center px-4 py-2.5 text-body">
+                  <span className="font-medium text-[#191F28] dark:text-white w-16">{entry.room_number}</span>
+                  <span className="text-[#8B95A1] dark:text-[#8B95A1] text-caption">{roomInfoMap[entry.room_number] || ''}</span>
+                  {entry.building_name && (
+                    <span className="ml-auto text-caption text-[#B0B8C1] dark:text-[#4E5968]">{entry.building_name}</span>
+                  )}
+                </div>
+                {/* Divider zone (not after last item) */}
+                {idx < activeRoomEntries.length - 1 && (
+                  <div
+                    className="relative py-1.5 flex items-center justify-center cursor-pointer group/divider"
+                    onClick={() => {
+                      setDividers(prev => {
+                        const next = new Set(prev);
+                        if (next.has(idx)) next.delete(idx);
+                        else next.add(idx);
+                        return next;
+                      });
+                    }}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {activeRoomEntries.map((entry) => {
-                    const isChecked = group.room_ids.includes(entry.room_id);
-                    return (
-                      <label key={entry.room_id} className="flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1.5 hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34] transition-colors">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            setLocalGroups(prev => prev.map((g, i) => {
-                              if (i === gIdx) {
-                                const newIds = e.target.checked
-                                  ? [...g.room_ids, entry.room_id]
-                                  : g.room_ids.filter(id => id !== entry.room_id);
-                                return { ...g, room_ids: newIds };
-                              }
-                              // Auto-deselect from other groups
-                              if (e.target.checked) {
-                                return { ...g, room_ids: g.room_ids.filter(id => id !== entry.room_id) };
-                              }
-                              return g;
-                            }));
-                          }}
-                          className="rounded border-[#E5E8EB] text-[#3182F6] focus:ring-[#3182F6]"
-                        />
-                        <span className="text-caption text-[#191F28] dark:text-white">{entry.room_number}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
+                    {dividers.has(idx) ? (
+                      <>
+                        <div className="absolute inset-x-4 border-t-2 border-[#3182F6] dark:border-[#3182F6]" />
+                        <div className="absolute z-10 bg-[#3182F6] text-white rounded-full h-5 w-5 flex items-center justify-center opacity-0 group-hover/divider:opacity-100 transition-opacity">
+                          <X className="h-3 w-3" />
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="absolute inset-x-4 border-t border-dashed border-transparent group-hover/divider:border-[#D1D5DB] dark:group-hover/divider:border-[#4E5968] transition-colors" />
+                        <div className="absolute z-10 bg-[#E5E8EB] dark:bg-[#2C2C34] text-[#8B95A1] rounded-full h-5 w-5 flex items-center justify-center opacity-0 group-hover/divider:opacity-100 transition-opacity">
+                          <Plus className="h-3 w-3" />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </React.Fragment>
             ))}
           </div>
         </ModalBody>
@@ -2491,20 +2485,38 @@ const RoomAssignment = () => {
             onClick={async () => {
               setSavingGroups(true);
               try {
-                // Delete removed groups
-                const removedGroups = roomGroups.filter(rg => !localGroups.some(lg => lg.id === rg.id));
-                for (const rg of removedGroups) {
+                // Delete all existing groups
+                for (const rg of roomGroups) {
                   await roomsAPI.deleteGroup(rg.id);
                 }
-                // Create or update remaining groups
-                for (const lg of localGroups) {
-                  const payload = { name: lg.name, sort_order: lg.sort_order, color: lg.color, room_ids: lg.room_ids };
-                  if (lg.id === null) {
-                    await roomsAPI.createGroup(payload);
-                  } else {
-                    await roomsAPI.updateGroup(lg.id, payload);
+
+                // Convert dividers → groups
+                const roomIds = activeRoomEntries.map(e => e.room_id);
+                const groups: { name: string; room_ids: number[]; sort_order: number }[] = [];
+                let current: number[] = [];
+                let groupIdx = 0;
+
+                roomIds.forEach((id, i) => {
+                  current.push(id);
+                  if (dividers.has(i) || i === roomIds.length - 1) {
+                    const existingName = roomGroups[groupIdx]?.name;
+                    groups.push({
+                      name: existingName || `그룹 ${groupIdx + 1}`,
+                      room_ids: current,
+                      sort_order: groupIdx,
+                    });
+                    current = [];
+                    groupIdx++;
+                  }
+                });
+
+                // Only create groups if there are dividers (more than 1 group)
+                if (groups.length > 1) {
+                  for (const g of groups) {
+                    await roomsAPI.createGroup(g);
                   }
                 }
+
                 toast.success('그룹 설정이 저장되었습니다');
                 setGroupModalOpen(false);
                 await Promise.all([fetchRooms(), fetchRoomGroups()]);
