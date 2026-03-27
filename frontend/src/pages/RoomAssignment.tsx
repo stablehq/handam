@@ -3,7 +3,6 @@ import api, { reservationsAPI, roomsAPI, templatesAPI, templateSchedulesAPI, sms
 import { useNavigate } from 'react-router-dom';
 import dayjs, { Dayjs } from 'dayjs';
 import { toast } from 'sonner';
-import { Card } from '@/components/ui/card';
 import { Tooltip } from '@/components/ui/tooltip';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { TextInput } from '@/components/ui/input';
