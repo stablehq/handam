@@ -142,6 +142,42 @@ FILTER_BUILDERS = {
 }
 
 
+def apply_structural_filters(db: Session, query, schedule, target_date: str):
+    """Apply structural filters (building/assignment/room/column_match) to a query.
+
+    Standalone version of TemplateScheduleExecutor._apply_structural_filters.
+    Used by chip_reconciler for unified matching.
+
+    Args:
+        db: Database session
+        query: SQLAlchemy query to filter
+        schedule: TemplateSchedule instance (needs .filters attribute)
+        target_date: Resolved date string (YYYY-MM-DD)
+
+    Returns:
+        Filtered query
+    """
+    filters = _parse_filters(schedule.filters)
+
+    ctx = {"db": db, "target_date": target_date}
+
+    filter_groups, has_unassigned = _build_filter_groups(filters)
+
+    for group_key, values in filter_groups.items():
+        filter_type = group_key.split(':')[0] if group_key.startswith('column_match:') else group_key
+        builder = FILTER_BUILDERS.get(filter_type)
+        if not builder:
+            continue
+        conditions = [c for c in (builder(v, ctx) for v in values) if c is not None]
+        if conditions:
+            combined = or_(*conditions) if len(conditions) > 1 else conditions[0]
+            if filter_type in ("building", "room") and has_unassigned:
+                combined = or_(combined, Reservation.section == 'unassigned')
+            query = query.filter(combined)
+
+    return query
+
+
 def _parse_filters(raw_filters) -> list:
     """Parse filters from string or list format."""
     if not raw_filters:
@@ -160,12 +196,15 @@ def _build_filter_groups(filters: list) -> tuple:
     Returns: (filter_groups dict, has_unassigned bool)
     """
     filter_groups: dict = defaultdict(list)
+    _cm_idx = 0
     for f in filters:
         ftype = f.get("type", "")
         fval = f.get("value", "")
         if ftype == "column_match":
-            col = fval.split(':', 1)[0] if ':' in fval else fval
-            group_key = f"column_match:{col}"
+            # Each column_match gets its own group → AND between all column_match filters.
+            # Other types (building, assignment) share a group → OR within same type.
+            group_key = f"column_match:{_cm_idx}"
+            _cm_idx += 1
         else:
             group_key = ftype
         filter_groups[group_key].append(fval)
@@ -175,6 +214,10 @@ def _build_filter_groups(filters: list) -> tuple:
 
 def matches_schedule(db: Session, schedule: TemplateSchedule, reservation_id: int) -> bool:
     """Check if a single reservation matches a schedule's structural filters.
+
+    .. deprecated::
+        Use chip_reconciler._reservation_matches_schedule() instead, which
+        resolves target_date from schedule.date_target rather than hardcoding today.
 
     Does NOT apply date_target or exclude_sent — those are for get_targets() only.
     Applies only building/assignment/room/column_match filters.

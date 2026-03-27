@@ -3,13 +3,12 @@ Centralized room assignment service.
 All room assignment operations go through this module to maintain
 consistency between room_assignments table and denormalized fields.
 """
-from datetime import datetime, timedelta
-from typing import Optional, Tuple, List
+from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 import logging
 
-from app.db.models import RoomAssignment, Reservation, Room, ReservationSmsAssignment, TemplateSchedule
+from app.db.models import RoomAssignment, Reservation, Room
 from app.db.tenant_context import current_tenant_id
 from app.services.activity_logger import log_activity
 from app.templates.renderer import TemplateRenderer
@@ -20,106 +19,15 @@ logger = logging.getLogger(__name__)
 def sync_sms_tags(db: Session, reservation_id: int, schedules=None) -> None:
     """
     Reconcile SMS tags for a reservation based on active TemplateSchedules.
-    - Creates missing tags, removes obsolete unsent tags
-    - Protects: sent tags (sent_at != null), manually assigned tags (assigned_by='manual')
+    Thin wrapper delegating to chip_reconciler for unified matching and sync logic.
     """
-    reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
-    if not reservation:
-        return
-
-    if schedules is None:
-        schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
-
-    from app.services.filters import matches_schedule
-
-    # Compute which (template_key, date) pairs should exist based on schedule rules
-    expected_pairs: set[tuple[str, str]] = set()
-    for schedule in schedules:
-        if matches_schedule(db, schedule, reservation_id):
-            template_key = schedule.template.template_key
-            dates = get_schedule_dates(schedule, reservation)
-            for d in dates:
-                expected_pairs.add((template_key, d))
-
-    # Get current tags
-    existing = db.query(ReservationSmsAssignment).filter(
-        ReservationSmsAssignment.reservation_id == reservation_id,
-    ).all()
-
-    existing_pairs = {(a.template_key, a.date) for a in existing}
-
-    # Add missing (template_key, date) pairs — excluded는 사용자가 의도적으로 해제한 것이므로 재생성하지 않음
-    excluded_pairs = {(a.template_key, a.date) for a in existing if a.assigned_by == 'excluded'}
-    for (key, d) in expected_pairs:
-        if (key, d) not in existing_pairs and (key, d) not in excluded_pairs:
-            db.add(ReservationSmsAssignment(
-                reservation_id=reservation_id,
-                template_key=key,
-                date=d,
-                assigned_by='auto',
-                sent_at=None,
-            ))
-
-    # Remove obsolete tags (only unsent, non-manual, non-excluded)
-    for a in existing:
-        if (a.template_key, a.date) not in expected_pairs and a.sent_at is None and a.assigned_by not in ('manual', 'excluded'):
-            db.delete(a)
+    from app.services.chip_reconciler import reconcile_chips_for_reservation
+    reconcile_chips_for_reservation(db, reservation_id, schedules)
 
 
-def get_schedule_dates(schedule, reservation) -> List[str]:
-    """Get target dates for a schedule+reservation pair based on target_mode and date_target."""
-    # 이벤트 스케줄: 체크인 날짜 하나만 반환
-    if (schedule.schedule_category or 'standard') == 'event':
-        return [reservation.check_in_date] if reservation.check_in_date else []
-
-    date_target = schedule.date_target
-
-    # last_day mode: only create chip for last-in-group reservation
-    if (schedule.target_mode or 'once') == 'last_day':
-        if not reservation.check_out_date:
-            return []
-        if reservation.stay_group_id:
-            if reservation.is_last_in_group:
-                from datetime import datetime, timedelta
-                last_day = (datetime.strptime(reservation.check_out_date, "%Y-%m-%d")
-                            - timedelta(days=1)).strftime("%Y-%m-%d")
-                return [last_day]
-            else:
-                return []  # Not last in group — no chip
-        else:
-            from datetime import datetime, timedelta
-            last_day = (datetime.strptime(reservation.check_out_date, "%Y-%m-%d")
-                        - timedelta(days=1)).strftime("%Y-%m-%d")
-            return [last_day]
-
-    # daily mode always uses full date range
-    if (
-        (schedule.target_mode or 'once') == 'daily'
-        and reservation.check_out_date
-        and reservation.check_out_date > (reservation.check_in_date or '')
-    ):
-        return _date_range(reservation.check_in_date, reservation.check_out_date)
-
-    # NEW: date_target checkout modes
-    if date_target and date_target.endswith('_checkout'):
-        return [reservation.check_out_date or reservation.check_in_date or '']
-
-    return [reservation.check_in_date or '']
-
-
-def _date_range(from_date: str, end_date: Optional[str]) -> List[str]:
-    """Generate list of date strings [from_date, end_date) in YYYY-MM-DD format.
-    If end_date is None or same as from_date, returns [from_date].
-    """
-    if not end_date or end_date <= from_date:
-        return [from_date]
-    dates = []
-    current = datetime.strptime(from_date, "%Y-%m-%d")
-    end = datetime.strptime(end_date, "%Y-%m-%d")
-    while current < end:
-        dates.append(current.strftime("%Y-%m-%d"))
-        current += timedelta(days=1)
-    return dates if dates else [from_date]
+# get_schedule_dates and _date_range moved to services/schedule_utils.py
+# to break circular dependency. Re-export for backward compatibility.
+from app.services.schedule_utils import get_schedule_dates, date_range as _date_range
 
 
 

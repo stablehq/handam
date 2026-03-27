@@ -1,25 +1,18 @@
 """
 Template-based schedule execution engine
 """
-import json
 import logging
-from collections import defaultdict
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from datetime import datetime, date, timedelta, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, func
 
-from app.db.models import TemplateSchedule, Reservation, RoomAssignment, ReservationSmsAssignment, Room, ReservationStatus, ReservationDailyInfo
+from app.db.models import TemplateSchedule, Reservation, RoomAssignment, ReservationSmsAssignment, Room, ReservationStatus
 from app.services.filters import (
-    FILTER_BUILDERS,
-    _parse_filters,
-    _build_filter_groups,
-    matches_schedule,
+    apply_structural_filters as _standalone_structural_filters,
 )
 from app.factory import get_sms_provider_for_tenant
 from app.templates.renderer import TemplateRenderer
-from app.templates.variables import calculate_template_variables
-from app.services.room_assignment import get_schedule_dates
 from app.services.sms_tracking import record_sms_sent
 from app.services.activity_logger import log_activity
 from app.services.event_bus import publish as publish_event
@@ -251,34 +244,8 @@ class TemplateScheduleExecutor:
         return self._get_targets_standard(schedule, exclude_sent=exclude_sent)
 
     def _apply_structural_filters(self, query, schedule: TemplateSchedule, target_date: str):
-        """Apply structural filters (building/assignment/room/column_match) to a query.
-
-        Extracts filter JSON, groups by type (OR within group, AND between groups),
-        and applies has_unassigned bypass for building/room filters.
-
-        Returns:
-            Filtered query
-        """
-        filters = _parse_filters(schedule.filters)
-
-        ctx = {"db": self.db, "target_date": target_date}
-
-        filter_groups, has_unassigned = _build_filter_groups(filters)
-
-        for group_key, values in filter_groups.items():
-            filter_type = group_key.split(':')[0] if group_key.startswith('column_match:') else group_key
-            builder = FILTER_BUILDERS.get(filter_type)
-            if not builder:
-                continue
-            conditions = [c for c in (builder(v, ctx) for v in values) if c is not None]
-            if conditions:
-                combined = or_(*conditions) if len(conditions) > 1 else conditions[0]
-                # 미배정 예약자는 건물/객실 조건 면제 (RoomAssignment 없으므로 매칭 불가)
-                if filter_type in ("building", "room") and has_unassigned:
-                    combined = or_(combined, Reservation.section == 'unassigned')
-                query = query.filter(combined)
-
-        return query
+        """Apply structural filters — delegates to standalone function in filters.py."""
+        return _standalone_structural_filters(self.db, query, schedule, target_date)
 
     def _check_send_condition(self, schedule: TemplateSchedule) -> bool:
         """Check if send condition (gender ratio) is met."""
@@ -494,49 +461,13 @@ class TemplateScheduleExecutor:
     def auto_assign_for_schedule(self, schedule: TemplateSchedule) -> int:
         """
         Auto-assign ReservationSmsAssignment records for a schedule's targets.
-        Includes already-sent reservations so they still get a chip.
-        Skips creation if assignment already exists.
+        Delegates to chip_reconciler for unified create+delete logic.
 
         Returns:
             Number of new assignments created
         """
-        # 이벤트는 사전 태그 생성 불가
-        if (schedule.schedule_category or 'standard') == 'event':
-            return 0
-
-        targets = self.get_targets(schedule, exclude_sent=False)
-        template_key = schedule.template.template_key
-        created = 0
-
-        for reservation in targets:
-            # Determine dates to assign based on target_mode
-            dates = get_schedule_dates(schedule, reservation)
-
-            for d in dates:
-                existing = self.db.query(ReservationSmsAssignment).filter(
-                    ReservationSmsAssignment.reservation_id == reservation.id,
-                    ReservationSmsAssignment.template_key == template_key,
-                    ReservationSmsAssignment.date == d,
-                ).first()
-                if not existing:
-                    try:
-                        self.db.begin_nested()
-                        self.db.add(ReservationSmsAssignment(
-                            reservation_id=reservation.id,
-                            template_key=template_key,
-                            assigned_by='schedule',
-                            sent_at=None,
-                            date=d or '',
-                        ))
-                        self.db.flush()
-                        created += 1
-                    except Exception:
-                        self.db.rollback()  # Skip duplicate
-
-        if created:
-            self.db.commit()
-
-        return created
+        from app.services.chip_reconciler import reconcile_chips_for_schedule
+        return reconcile_chips_for_schedule(self.db, schedule)
 
     def preview_targets(self, schedule: TemplateSchedule) -> List[Dict[str, Any]]:
         """

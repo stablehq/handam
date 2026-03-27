@@ -332,6 +332,14 @@ def update_schedule(schedule_id: int, schedule: TemplateScheduleUpdate, db: Sess
         setattr(db_schedule, field, value)
 
     db_schedule.updated_at = datetime.now(timezone.utc)
+
+    # Reconcile chips when filter-affecting fields change
+    _FILTER_FIELDS = {'filters', 'target_mode', 'date_target', 'schedule_category'}
+    if _FILTER_FIELDS & set(update_data.keys()):
+        from app.services.chip_reconciler import reconcile_chips_for_schedule
+        db.flush()
+        reconcile_chips_for_schedule(db, db_schedule)
+
     db.commit()
     db.refresh(db_schedule)
 
@@ -434,6 +442,8 @@ def auto_assign(
             "template_key": schedule.template.template_key,
             "created": created,
         })
+
+    db.commit()
 
     return {
         "success": True,
