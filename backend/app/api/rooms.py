@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 from app.api.deps import get_tenant_scoped_db, get_current_tenant, _remap_active_field
-from app.db.models import Room, NaverBizItem, User, Tenant, RoomAssignment, RoomBizItemLink, Building
+from app.db.models import Room, RoomGroup, NaverBizItem, User, Tenant, RoomAssignment, RoomBizItemLink, Building
 from app.factory import get_reservation_provider_for_tenant
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.rate_limit import limiter
@@ -78,6 +78,8 @@ class RoomResponse(BaseModel):
     building_name: Optional[str] = None
     dormitory: bool = False
     bed_capacity: int = 1
+    room_group_id: Optional[int] = None
+    room_group_name: Optional[str] = None
     door_password: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -125,6 +127,8 @@ def _room_to_response(room: Room) -> dict:
         ],
         building_id=room.building_id,
         building_name=room.building.name if room.building else None,
+        room_group_id=room.room_group_id,
+        room_group_name=room.room_group.name if room.room_group else None,
         dormitory=room.is_dormitory,
         bed_capacity=room.bed_capacity,
         door_password=room.door_password,
@@ -183,6 +187,7 @@ async def get_rooms(
     query = db.query(Room).options(
         selectinload(Room.biz_item_links),
         selectinload(Room.building),
+        selectinload(Room.room_group),
     )
 
     if not include_inactive:
@@ -300,10 +305,137 @@ async def sync_naver_biz_items(request: Request, db: Session = Depends(get_tenan
     return {"success": True, "added": added, "updated": updated, "deactivated": deactivated}
 
 
+
+# ── Room Groups (MUST be before /{room_id} to avoid route shadowing) ─────────
+
+class RoomGroupCreate(BaseModel):
+    name: str
+    sort_order: int = 0
+    color: Optional[str] = None
+    room_ids: List[int] = []
+
+
+class RoomGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    sort_order: Optional[int] = None
+    color: Optional[str] = None
+    room_ids: Optional[List[int]] = None
+
+
+class RoomGroupResponse(BaseModel):
+    id: int
+    name: str
+    sort_order: int
+    color: Optional[str] = None
+    room_ids: List[int] = []
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/groups", response_model=List[RoomGroupResponse])
+async def get_room_groups(
+    db: Session = Depends(get_tenant_scoped_db),
+    current_user: User = Depends(get_current_user),
+):
+    groups = db.query(RoomGroup).order_by(RoomGroup.sort_order).all()
+    return [
+        RoomGroupResponse(
+            id=g.id, name=g.name, sort_order=g.sort_order, color=g.color,
+            room_ids=[r.id for r in g.rooms],
+            created_at=g.created_at,
+        ) for g in groups
+    ]
+
+
+@router.post("/groups", response_model=RoomGroupResponse)
+async def create_room_group(
+    data: RoomGroupCreate,
+    db: Session = Depends(get_tenant_scoped_db),
+    current_user: User = Depends(require_admin_or_above),
+):
+    group = RoomGroup(name=data.name, sort_order=data.sort_order, color=data.color)
+    db.add(group)
+    db.flush()
+
+    if data.room_ids:
+        db.query(Room).filter(Room.id.in_(data.room_ids)).update(
+            {Room.room_group_id: group.id}, synchronize_session="fetch"
+        )
+
+    db.commit()
+    db.refresh(group)
+    return RoomGroupResponse(
+        id=group.id, name=group.name, sort_order=group.sort_order, color=group.color,
+        room_ids=[r.id for r in group.rooms],
+        created_at=group.created_at,
+    )
+
+
+@router.put("/groups/{group_id}", response_model=RoomGroupResponse)
+async def update_room_group(
+    group_id: int,
+    data: RoomGroupUpdate,
+    db: Session = Depends(get_tenant_scoped_db),
+    current_user: User = Depends(require_admin_or_above),
+):
+    group = db.query(RoomGroup).filter(RoomGroup.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="그룹을 찾을 수 없습니다")
+
+    if data.name is not None:
+        group.name = data.name
+    if data.sort_order is not None:
+        group.sort_order = data.sort_order
+    if data.color is not None:
+        group.color = data.color
+
+    if data.room_ids is not None:
+        # Clear old assignments
+        db.query(Room).filter(Room.room_group_id == group.id).update(
+            {Room.room_group_id: None}, synchronize_session="fetch"
+        )
+        # Assign new
+        if data.room_ids:
+            db.query(Room).filter(Room.id.in_(data.room_ids)).update(
+                {Room.room_group_id: group.id}, synchronize_session="fetch"
+            )
+
+    db.commit()
+    db.refresh(group)
+    return RoomGroupResponse(
+        id=group.id, name=group.name, sort_order=group.sort_order, color=group.color,
+        room_ids=[r.id for r in group.rooms],
+        created_at=group.created_at,
+    )
+
+
+@router.delete("/groups/{group_id}")
+async def delete_room_group(
+    group_id: int,
+    db: Session = Depends(get_tenant_scoped_db),
+    current_user: User = Depends(require_admin_or_above),
+):
+    group = db.query(RoomGroup).filter(RoomGroup.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="그룹을 찾을 수 없습니다")
+
+    # Clear room assignments
+    db.query(Room).filter(Room.room_group_id == group.id).update(
+        {Room.room_group_id: None}, synchronize_session="fetch"
+    )
+    db.delete(group)
+    db.commit()
+    return {"success": True}
+
+
+# ── Single Room CRUD ─────────────────────────────────────────────────────────
+
 @router.get("/{room_id}", response_model=RoomResponse)
 async def get_room(room_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
     """Get a single room by ID"""
-    room = db.query(Room).options(selectinload(Room.biz_item_links), selectinload(Room.building)).filter(Room.id == room_id).first()
+    room = db.query(Room).options(selectinload(Room.biz_item_links), selectinload(Room.building), selectinload(Room.room_group)).filter(Room.id == room_id).first()
     if not room:
         raise HTTPException(status_code=404, detail="객실을 찾을 수 없습니다")
     return _room_to_response(room)
@@ -362,7 +494,7 @@ async def update_room(
     current_user: User = Depends(get_current_user),
 ):
     """Update a room"""
-    db_room = db.query(Room).options(selectinload(Room.biz_item_links), selectinload(Room.building)).filter(Room.id == room_id).first()
+    db_room = db.query(Room).options(selectinload(Room.biz_item_links), selectinload(Room.building), selectinload(Room.room_group)).filter(Room.id == room_id).first()
     if not db_room:
         raise HTTPException(status_code=404, detail="객실을 찾을 수 없습니다")
 

@@ -308,6 +308,24 @@ class Building(TenantMixin, Base):
     rooms = relationship("Room", back_populates="building")
 
 
+class RoomGroup(TenantMixin, Base):
+    """Visual grouping of rooms with box borders"""
+
+    __tablename__ = "room_groups"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), nullable=False)
+    sort_order = Column(Integer, default=0)
+    color = Column(String(20), nullable=True)  # optional border color override
+    created_at = Column(DateTime, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name", name="uq_tenant_room_group_name"),
+    )
+
+    rooms = relationship("Room", back_populates="room_group")
+
+
 class Room(TenantMixin, Base):
     """Room configuration for room assignment"""
 
@@ -322,6 +340,7 @@ class Room(TenantMixin, Base):
     sort_order = Column(Integer, default=0)  # Display order
     naver_biz_item_id = Column(String(50), nullable=True)  # Deprecated: use biz_item_links instead
     building_id = Column(Integer, ForeignKey("buildings.id"), nullable=True)
+    room_group_id = Column(Integer, ForeignKey("room_groups.id", ondelete="SET NULL"), nullable=True)
     is_dormitory = Column(Boolean, default=False)
     bed_capacity = Column("dormitory_beds", Integer, default=1)
     door_password = Column("default_password", String(20), nullable=True)  # 객실 고정 비밀번호
@@ -331,6 +350,7 @@ class Room(TenantMixin, Base):
     # N:M relationship to NaverBizItem via RoomBizItemLink
     biz_item_links = relationship("RoomBizItemLink", back_populates="room", cascade="all, delete-orphan")
     building = relationship("Building", back_populates="rooms")
+    room_group = relationship("RoomGroup", back_populates="rooms")
 
 
 class RoomAssignment(TenantMixin, Base):
@@ -559,7 +579,7 @@ from app.db.tenant_context import register_tenant_model as _register  # noqa: E4
 
 for _model in [
     Message, Reservation, Rule, Document, MessageTemplate, ReservationSmsAssignment,
-    CampaignLog, GenderStat, RoomBizItemLink, Building, Room, RoomAssignment,
+    CampaignLog, GenderStat, RoomBizItemLink, Building, RoomGroup, Room, RoomAssignment,
     NaverBizItem, TemplateSchedule, ActivityLog, PartyCheckin, ReservationDailyInfo,
     ParticipantSnapshot,
 ]:

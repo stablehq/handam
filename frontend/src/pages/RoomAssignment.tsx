@@ -25,6 +25,7 @@ import {
   UserRoundPlus,
   UserPlus,
   Link2,
+  Layers,
 } from 'lucide-react';
 
 interface SmsAssignment {
@@ -398,6 +399,11 @@ const RoomAssignment = () => {
   const [partyValues, setPartyValues] = useState<Record<number, string>>({});
   const [templateLabels, setTemplateLabels] = useState<{template_key: string; name: string; short_label: string | null}[]>([]);
 
+  const [roomGroups, setRoomGroups] = useState<Array<{id: number; name: string; sort_order: number; color?: string; room_ids: number[]}>>([]);
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [localGroups, setLocalGroups] = useState<Array<{id: number | null; name: string; sort_order: number; color?: string; room_ids: number[]}>>([]);
+  const [savingGroups, setSavingGroups] = useState(false);
+
   const [showStayGroupModal, setShowStayGroupModal] = useState(false);
   const [stayGroupStep, setStayGroupStep] = useState<1 | 2>(1);
   const [stayGroupChain, setStayGroupChain] = useState<Array<{id: number; customer_name: string; phone: string; check_in_date: string; check_out_date: string; stay_group_id?: string | null}>>([]);
@@ -491,6 +497,24 @@ const RoomAssignment = () => {
   }, [nextDayReservations]);
 
 
+  const roomGroupMap = useMemo(() => {
+    const map = new Map<number, { group_id: number; isFirst: boolean; isLast: boolean }>();
+    for (const group of roomGroups) {
+      // Find positions of group rooms within activeRoomEntries order
+      const orderedIds = activeRoomEntries
+        .map((e) => e.room_id)
+        .filter((id) => group.room_ids.includes(id));
+      orderedIds.forEach((roomId, idx) => {
+        map.set(roomId, {
+          group_id: group.id,
+          isFirst: idx === 0,
+          isLast: idx === orderedIds.length - 1,
+        });
+      });
+    }
+    return map;
+  }, [roomGroups, activeRoomEntries]);
+
   const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null);
   const [campaignDropdownOpen, setCampaignDropdownOpen] = useState(false);
   const campaignDropdownRef = useRef<HTMLDivElement>(null);
@@ -515,6 +539,15 @@ const RoomAssignment = () => {
       setAutoAssignConfirm(false);
     }
   }, [selectedDate]);
+
+  const fetchRoomGroups = useCallback(async () => {
+    try {
+      const res = await roomsAPI.getGroups();
+      setRoomGroups(res.data);
+    } catch {
+      // silently ignore group fetch failures
+    }
+  }, []);
 
   const fetchRooms = useCallback(async () => {
     try {
@@ -573,7 +606,8 @@ const RoomAssignment = () => {
 
   useEffect(() => {
     fetchRooms();
-  }, [fetchRooms]);
+    fetchRoomGroups();
+  }, [fetchRooms, fetchRoomGroups]);
 
   useEffect(() => {
     templatesAPI.getLabels().then(res => setTemplateLabels(res.data)).catch(() => {});
@@ -1352,15 +1386,6 @@ const RoomAssignment = () => {
         >
           <div className="overflow-hidden px-1.5 flex items-center gap-0.5">
             <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className="font-medium text-[#191F28] dark:text-white" placeholder="이름" autoFocus={res.id === quickAddedId} />
-            {res.stay_group_id && (
-              <button
-                onClick={(e) => { e.stopPropagation(); handleStayGroupUnlink(res.id); }}
-                className="ml-0.5 flex-shrink-0 rounded bg-[#FF9F00]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#FF9F00] hover:bg-[#FF9F00]/20 transition-colors cursor-pointer"
-                title="연박 해제"
-              >
-                연박{res.stay_group_order != null ? ` ${res.stay_group_order + 1}박` : ''}
-              </button>
-            )}
           </div>
           <div className="overflow-hidden px-1.5">
             <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-[#8B95A1] tabular-nums" placeholder="연락처" />
@@ -1385,6 +1410,7 @@ const RoomAssignment = () => {
 
   const renderRoomRow = (entry: { room_id: number; room_number: string; isDormitory: boolean; bed_capacity: number }, rowIndex: number) => {
     const { room_id, room_number, isDormitory, bed_capacity } = entry;
+    const groupInfo = roomGroupMap.get(room_id);
     const guestsRaw = assignedRooms.get(room_id) || [];
     const isDragOver = dragOverRoom === room_id;
     const nextGuestsRaw = nextDayRoomMap.get(room_id) || [];
@@ -1423,6 +1449,14 @@ const RoomAssignment = () => {
     const rowHeight = hasGuests ? 40 : 36;
     const stripeBg = rowIndex % 2 === 0 ? 'bg-white dark:bg-[#1E1E24]' : 'bg-[#F8F9FA] dark:bg-[#17171C]';
 
+    const groupBorderClasses = groupInfo
+      ? [
+          'border-l-2 border-r-2 border-[#D1D5DB] dark:border-[#4E5968]',
+          groupInfo.isFirst ? 'border-t-2' : '',
+          groupInfo.isLast ? 'border-b-2 border-b-[#D1D5DB] dark:border-b-[#4E5968]' : '',
+        ].filter(Boolean).join(' ')
+      : '';
+
     return (
       <div
         key={room_id}
@@ -1430,7 +1464,7 @@ const RoomAssignment = () => {
           ${isDragOver
             ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/8 ring-1 ring-inset ring-[#3182F6]/30 dark:ring-[#3182F6]/30'
             : stripeBg
-          }`}
+          } ${groupBorderClasses}`}
         style={{ minHeight: `${totalRows * rowHeight}px` }}
         onDragOver={(e) => onRoomDragOver(e, room_id)}
         onDragLeave={onRoomDragLeave}
@@ -1739,6 +1773,17 @@ const RoomAssignment = () => {
             </Button>
 
             <div className="ml-auto flex items-center gap-2">
+              <Button
+                color="light"
+                size="sm"
+                onClick={() => {
+                  setLocalGroups(roomGroups.map(g => ({ ...g })));
+                  setGroupModalOpen(true);
+                }}
+              >
+                <Layers className="h-3.5 w-3.5 mr-1.5" />
+                그룹 설정
+              </Button>
               <Button
                 color="light"
                 size="sm"
@@ -2371,6 +2416,115 @@ const RoomAssignment = () => {
           </Button>
           <Button color="blue" onClick={handleAutoAssign} disabled={autoAssigning}>
             {autoAssigning ? <><Spinner size="sm" className="mr-2" />배정 중...</> : '배정 진행'}
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Group Settings Modal */}
+      <Modal show={groupModalOpen} onClose={() => setGroupModalOpen(false)} size="lg">
+        <ModalHeader>그룹 설정</ModalHeader>
+        <ModalBody>
+          <div className="space-y-4">
+            <div className="flex justify-end">
+              <Button
+                color="light"
+                size="sm"
+                onClick={() => setLocalGroups(prev => [...prev, { id: null, name: '새 그룹', sort_order: prev.length, room_ids: [] }])}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1.5" />
+                그룹 추가
+              </Button>
+            </div>
+            {localGroups.length === 0 && (
+              <div className="py-8 text-center text-label text-[#B0B8C1] dark:text-[#4E5968]">
+                그룹이 없습니다. 그룹 추가 버튼을 눌러 새 그룹을 만드세요.
+              </div>
+            )}
+            {localGroups.map((group, gIdx) => (
+              <div key={gIdx} className="rounded-xl border border-[#E5E8EB] dark:border-[#2C2C34] p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={group.name}
+                    onChange={(e) => setLocalGroups(prev => prev.map((g, i) => i === gIdx ? { ...g, name: e.target.value } : g))}
+                    className="flex-1 rounded-lg border border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24] text-body text-[#191F28] dark:text-white px-3 py-1.5 focus:border-[#3182F6] focus:outline-none"
+                    placeholder="그룹 이름"
+                  />
+                  <Button
+                    color="failure"
+                    size="xs"
+                    onClick={() => setLocalGroups(prev => prev.filter((_, i) => i !== gIdx))}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {activeRoomEntries.map((entry) => {
+                    const isChecked = group.room_ids.includes(entry.room_id);
+                    return (
+                      <label key={entry.room_id} className="flex items-center gap-2 cursor-pointer rounded-lg px-2 py-1.5 hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34] transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            setLocalGroups(prev => prev.map((g, i) => {
+                              if (i === gIdx) {
+                                const newIds = e.target.checked
+                                  ? [...g.room_ids, entry.room_id]
+                                  : g.room_ids.filter(id => id !== entry.room_id);
+                                return { ...g, room_ids: newIds };
+                              }
+                              // Auto-deselect from other groups
+                              if (e.target.checked) {
+                                return { ...g, room_ids: g.room_ids.filter(id => id !== entry.room_id) };
+                              }
+                              return g;
+                            }));
+                          }}
+                          className="rounded border-[#E5E8EB] text-[#3182F6] focus:ring-[#3182F6]"
+                        />
+                        <span className="text-caption text-[#191F28] dark:text-white">{entry.room_number}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button color="light" onClick={() => setGroupModalOpen(false)}>취소</Button>
+          <Button
+            color="blue"
+            disabled={savingGroups}
+            onClick={async () => {
+              setSavingGroups(true);
+              try {
+                // Delete removed groups
+                const removedGroups = roomGroups.filter(rg => !localGroups.some(lg => lg.id === rg.id));
+                for (const rg of removedGroups) {
+                  await roomsAPI.deleteGroup(rg.id);
+                }
+                // Create or update remaining groups
+                for (const lg of localGroups) {
+                  const payload = { name: lg.name, sort_order: lg.sort_order, color: lg.color, room_ids: lg.room_ids };
+                  if (lg.id === null) {
+                    await roomsAPI.createGroup(payload);
+                  } else {
+                    await roomsAPI.updateGroup(lg.id, payload);
+                  }
+                }
+                toast.success('그룹 설정이 저장되었습니다');
+                setGroupModalOpen(false);
+                await Promise.all([fetchRooms(), fetchRoomGroups()]);
+              } catch {
+                toast.error('그룹 설정 저장에 실패했습니다');
+              } finally {
+                setSavingGroups(false);
+              }
+            }}
+          >
+            {savingGroups ? <><Spinner size="sm" className="mr-2" />저장 중...</> : '저장'}
           </Button>
         </ModalFooter>
       </Modal>

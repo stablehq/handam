@@ -124,6 +124,11 @@ export const roomsAPI = {
   updateBizItems: (items: Array<{biz_item_id: string; display_name?: string | null; default_capacity?: number | null; section_hint?: string | null}>) =>
     api.patch('/api/rooms/naver/biz-items', items),
   autoAssign: (date?: string) => api.post('/api/rooms/auto-assign', null, { params: date ? { date } : undefined }),
+  // Room Groups
+  getGroups: () => api.get('/api/rooms/groups'),
+  createGroup: (data: { name: string; sort_order?: number; color?: string; room_ids?: number[] }) => api.post('/api/rooms/groups', data),
+  updateGroup: (id: number, data: { name?: string; sort_order?: number; color?: string; room_ids?: number[] }) => api.put(`/api/rooms/groups/${id}`, data),
+  deleteGroup: (id: number) => api.delete(`/api/rooms/groups/${id}`),
 };
 
 // Rules API

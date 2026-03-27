@@ -68,6 +68,9 @@ def init_db():
             if "building_id" not in existing_cols:
                 conn.execute(text("ALTER TABLE rooms ADD COLUMN building_id INTEGER"))
                 print("AUTO-MIGRATE: Added building_id column to rooms table")
+            if "room_group_id" not in existing_cols:
+                conn.execute(text("ALTER TABLE rooms ADD COLUMN room_group_id INTEGER"))
+                print("AUTO-MIGRATE: Added room_group_id column to rooms table")
 
         # tenants.aligo_testmode
         if "tenants" in inspector.get_table_names():
