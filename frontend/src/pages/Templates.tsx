@@ -1443,11 +1443,11 @@ const Templates: React.FC = () => {
         </div>
       </ModalBody>
 
-      <ModalFooter className="flex justify-end gap-2 border-t border-[#F2F4F6] dark:border-gray-800">
-        <Button color="blue" size="sm" onClick={handleSaveTemplate} disabled={savingTemplate}>
+      <ModalFooter>
+        <Button color="light" onClick={() => setTemplateDialogOpen(false)}>취소</Button>
+        <Button color="blue" onClick={handleSaveTemplate} disabled={savingTemplate}>
           {savingTemplate ? <><Spinner size="sm" className="mr-2" />저장 중...</> : '저장'}
         </Button>
-        <Button color="light" size="sm" onClick={() => setTemplateDialogOpen(false)}>취소</Button>
       </ModalFooter>
     </Modal>
   );
@@ -2231,8 +2231,8 @@ const Templates: React.FC = () => {
           </p>
         </div>
       </ModalBody>
-      <ModalFooter className="flex justify-end border-t border-[#F2F4F6] dark:border-gray-800">
-        <Button size="sm" color="light" onClick={() => setPreviewDialogOpen(false)}>닫기</Button>
+      <ModalFooter>
+        <Button color="light" onClick={() => setPreviewDialogOpen(false)}>닫기</Button>
       </ModalFooter>
     </Modal>
   );

@@ -414,6 +414,7 @@ const AutoResponse = () => {
           </div>
         </ModalBody>
         <ModalFooter>
+          <Button color="light" onClick={() => setDialogOpen(false)}>취소</Button>
           <Button color="blue" onClick={handleSubmit} disabled={saving}>
             {saving ? (
               <>
@@ -424,7 +425,6 @@ const AutoResponse = () => {
               '저장'
             )}
           </Button>
-          <Button color="light" onClick={() => setDialogOpen(false)}>취소</Button>
         </ModalFooter>
       </Modal>
     </div>

@@ -906,6 +906,7 @@ const RoomSettings = () => {
           </div>
         </ModalBody>
         <ModalFooter>
+          <Button color="light" onClick={() => setDialogOpen(false)}>취소</Button>
           <Button color="blue" onClick={handleSubmit} disabled={saving}>
             {saving ? (
               <>
@@ -916,7 +917,6 @@ const RoomSettings = () => {
               '저장'
             )}
           </Button>
-          <Button color="light" onClick={() => setDialogOpen(false)}>취소</Button>
         </ModalFooter>
       </Modal>
 
@@ -1120,7 +1120,7 @@ const RoomSettings = () => {
       </Modal>
 
       {/* ── Biz item settings modal ── */}
-      <Modal size="fit" show={bizItemModalOpen} onClose={() => setBizItemModalOpen(false)} className="[&>div>div]:w-fit [&>div>div]:max-w-[90vw] [&>div>div]:mx-auto">
+      <Modal size="fit" show={bizItemModalOpen} onClose={() => setBizItemModalOpen(false)}>
         <ModalHeader>네이버 상품 설정</ModalHeader>
         <ModalBody>
           <div className="space-y-4">
@@ -1200,16 +1200,14 @@ const RoomSettings = () => {
           </div>
         </ModalBody>
         <ModalFooter>
-          <div className="flex w-full justify-end gap-2">
-            <Button color="light" onClick={() => setBizItemModalOpen(false)}>닫기</Button>
-            <Button color="blue" onClick={handleBizItemSave} disabled={bizItemSaving || Object.keys(bizItemEdits).length === 0}>
-              {bizItemSaving ? (
-                <><Spinner size="sm" className="mr-2" />저장 중...</>
-              ) : (
-                '저장'
-              )}
-            </Button>
-          </div>
+          <Button color="light" onClick={() => setBizItemModalOpen(false)}>닫기</Button>
+          <Button color="blue" onClick={handleBizItemSave} disabled={bizItemSaving || Object.keys(bizItemEdits).length === 0}>
+            {bizItemSaving ? (
+              <><Spinner size="sm" className="mr-2" />저장 중...</>
+            ) : (
+              '저장'
+            )}
+          </Button>
         </ModalFooter>
       </Modal>
     </div>

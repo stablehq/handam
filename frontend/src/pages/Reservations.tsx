@@ -741,6 +741,9 @@ export default function Reservations() {
         </ModalBody>
 
         <ModalFooter>
+          <Button color="light" onClick={() => setModalOpen(false)} disabled={saving}>
+            취소
+          </Button>
           <Button color="blue" onClick={handleSave} disabled={saving}>
             {saving ? (
               <>
@@ -750,9 +753,6 @@ export default function Reservations() {
             ) : (
               editingId != null ? '수정 완료' : '등록'
             )}
-          </Button>
-          <Button color="light" onClick={() => setModalOpen(false)} disabled={saving}>
-            취소
           </Button>
         </ModalFooter>
       </Modal>

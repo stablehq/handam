@@ -6,12 +6,15 @@ import { cn } from "@/lib/utils"
 /* ── Modal Root ── */
 
 const sizeClasses: Record<string, string> = {
+  fit: "w-fit",
   sm: "max-w-sm",
   md: "max-w-md",
   lg: "max-w-lg",
   xl: "max-w-xl",
   "2xl": "max-w-2xl",
   "3xl": "max-w-3xl",
+  "4xl": "max-w-4xl",
+  "5xl": "max-w-5xl",
 }
 
 interface ModalProps {
@@ -123,7 +126,7 @@ function ModalFooter({ children, className }: ModalFooterProps) {
   return (
     <div
       className={cn(
-        "flex items-center gap-2 rounded-b-xl sm:rounded-b-2xl border-t border-[#F2F4F6] px-5 py-4 dark:border-gray-800",
+        "flex items-center justify-end gap-2 rounded-b-xl sm:rounded-b-2xl border-t border-[#F2F4F6] px-5 py-4 dark:border-gray-800",
         className,
       )}
     >

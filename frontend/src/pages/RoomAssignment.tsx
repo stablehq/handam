@@ -2026,10 +2026,10 @@ const RoomAssignment = () => {
           </div>
         </ModalBody>
         <ModalFooter>
+          <Button color="light" onClick={() => setModalVisible(false)}>취소</Button>
           <Button color="blue" onClick={handleSubmit} disabled={savingReservation}>
             {savingReservation ? '저장 중...' : '저장'}
           </Button>
-          <Button color="light" onClick={() => setModalVisible(false)}>취소</Button>
         </ModalFooter>
       </Modal>
 
@@ -2284,7 +2284,7 @@ const RoomAssignment = () => {
             </div>
           )}
         </ModalBody>
-        <ModalFooter className="justify-end">
+        <ModalFooter>
           <Button color="light" onClick={() => setAutoAssignConfirm(false)}>
             취소
           </Button>
@@ -2392,22 +2392,22 @@ const RoomAssignment = () => {
         <ModalFooter>
           {stayGroupStep === 1 ? (
             <>
+              <Button color="light" onClick={() => setShowStayGroupModal(false)}>취소</Button>
               <Button color="blue" disabled={!stayGroupSelectedId} onClick={handleStayGroupNext}>
                 다음
               </Button>
-              <Button color="light" onClick={() => setShowStayGroupModal(false)}>취소</Button>
             </>
           ) : (
             <>
+              <Button color="light" onClick={() => setShowStayGroupModal(false)}>취소</Button>
+              <Button color="light" disabled={!stayGroupSelectedId} onClick={handleStayGroupAddMore}>
+                {stayGroupSelectedId ? '+ 선택 추가' : '예약자를 선택하세요'}
+              </Button>
               {stayGroupChain.length >= 2 && (
                 <Button color="blue" disabled={stayGroupLinking} onClick={handleStayGroupComplete}>
                   {stayGroupLinking ? <><Spinner size="sm" className="mr-2" />묶는 중...</> : `완료 (${stayGroupChain.length}건 연박)`}
                 </Button>
               )}
-              <Button color="light" disabled={!stayGroupSelectedId} onClick={handleStayGroupAddMore}>
-                {stayGroupSelectedId ? '+ 선택 추가' : '예약자를 선택하세요'}
-              </Button>
-              <Button color="light" onClick={() => setShowStayGroupModal(false)}>취소</Button>
             </>
           )}
         </ModalFooter>

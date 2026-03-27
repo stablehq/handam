@@ -280,11 +280,11 @@ export default function UserManagement() {
           </div>
         </ModalBody>
         <ModalFooter>
+          <Button color="light" onClick={() => setCreateOpen(false)}>취소</Button>
           <Button color="blue" onClick={handleCreate} disabled={createLoading}>
             {createLoading && <Spinner size="sm" className="mr-2" />}
             {createLoading ? '저장 중...' : '생성'}
           </Button>
-          <Button color="light" onClick={() => setCreateOpen(false)}>취소</Button>
         </ModalFooter>
       </Modal>
 
