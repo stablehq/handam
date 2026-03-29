@@ -9,6 +9,7 @@ import {
   Users,
   Clock,
   RefreshCw,
+  LayoutDashboard,
 } from 'lucide-react'
 import { dashboardAPI } from '@/services/api'
 import { normalizeUtcString } from '../lib/utils'
@@ -154,8 +155,15 @@ const Dashboard = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="page-title">대시보드</h1>
-        <p className="page-subtitle">SMS 예약 시스템 현황을 한눈에 확인하세요.</p>
+        <div className="flex items-center gap-2.5">
+          <div className="stat-icon bg-[#E8F3FF] text-[#3182F6] dark:bg-[#3182F6]/15 dark:text-[#3182F6]">
+            <LayoutDashboard size={20} />
+          </div>
+          <div>
+            <h1 className="page-title">대시보드</h1>
+            <p className="page-subtitle">SMS 예약 시스템 현황을 한눈에 확인하세요.</p>
+          </div>
+        </div>
       </div>
 
       {/* Metric cards */}

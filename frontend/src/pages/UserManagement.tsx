@@ -6,7 +6,7 @@ import { Select } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
-import { UserPlus, TriangleAlert, Pencil } from 'lucide-react'
+import { UserPlus, TriangleAlert, Pencil, Users } from 'lucide-react'
 import { authAPI } from '@/services/api'
 import { normalizeUtcString } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -162,9 +162,14 @@ export default function UserManagement() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <h1 className="page-title">계정 관리</h1>
-          <p className="page-subtitle">사용자 계정을 관리합니다</p>
+        <div className="flex items-center gap-2.5">
+          <div className="stat-icon bg-[#E8F3FF] text-[#3182F6] dark:bg-[#3182F6]/15 dark:text-[#3182F6]">
+            <Users size={20} />
+          </div>
+          <div>
+            <h1 className="page-title">계정 관리</h1>
+            <p className="page-subtitle">사용자 계정을 관리합니다</p>
+          </div>
         </div>
         <Button color="blue" size="sm" onClick={openCreate}>
           <UserPlus className="mr-1.5 h-3.5 w-3.5" />

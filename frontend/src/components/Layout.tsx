@@ -384,9 +384,6 @@ function AppHeader({
     <header className="sticky top-0 z-20 flex h-14 items-center justify-between bg-[#FAFBFC]/90 px-4 py-2.5 backdrop-blur-md dark:bg-[#17171C]/90">
       <div className="flex items-center gap-3">
         {isMobile && <MobileSidebar />}
-        <h1 className="text-subheading font-semibold text-[#191F28] dark:text-white">
-          {pageTitle}
-        </h1>
       </div>
       <div className="flex items-center gap-2">
         {user && (
@@ -442,9 +439,6 @@ export default function Layout({ children }: LayoutProps) {
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#3182F6] text-white">
               <span className="text-label font-bold">S</span>
             </div>
-            <h1 className="text-subheading font-semibold text-[#191F28] dark:text-white">
-              {pageTitle}
-            </h1>
           </div>
           <div className="flex items-center gap-2">
             {user && (

@@ -340,9 +340,14 @@ export default function Reservations() {
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <h1 className="page-title">예약 관리</h1>
-          <p className="page-subtitle">예약 현황을 확인하고 네이버 예약을 동기화합니다.</p>
+        <div className="flex items-center gap-2.5">
+          <div className="stat-icon bg-[#E8F3FF] text-[#3182F6] dark:bg-[#3182F6]/15 dark:text-[#3182F6]">
+            <CalendarDays size={20} />
+          </div>
+          <div>
+            <h1 className="page-title">예약 관리</h1>
+            <p className="page-subtitle">예약 현황을 확인하고 네이버 예약을 동기화합니다.</p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button color="light" size="sm" className="whitespace-nowrap" onClick={openCreate}>

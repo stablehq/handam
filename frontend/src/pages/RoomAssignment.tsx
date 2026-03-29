@@ -1930,10 +1930,15 @@ const RoomAssignment = () => {
     <div className={`space-y-4 pb-14 min-w-max ${processing ? 'opacity-60 pointer-events-none' : ''}`}>
 
       {/* Page header */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <h1 className="page-title">객실 배정</h1>
-          <p className="page-subtitle">날짜별 객실을 배정하고 SMS를 발송하세요</p>
+      <div>
+        <div className="flex items-center gap-2.5">
+          <div className="stat-icon bg-[#E8F3FF] text-[#3182F6] dark:bg-[#3182F6]/15 dark:text-[#3182F6]">
+            <BedDouble size={20} />
+          </div>
+          <div>
+            <h1 className="page-title">객실 배정</h1>
+            <p className="page-subtitle">날짜별 객실을 배정하고 SMS를 발송하세요</p>
+          </div>
         </div>
       </div>
 

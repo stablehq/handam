@@ -2245,8 +2245,15 @@ const Templates: React.FC = () => {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="page-title">템플릿 관리</h1>
-        <p className="page-subtitle">메시지 템플릿을 만들고 자동 발송 스케줄을 설정합니다.</p>
+        <div className="flex items-center gap-2.5">
+          <div className="stat-icon bg-[#E8F3FF] text-[#3182F6] dark:bg-[#3182F6]/15 dark:text-[#3182F6]">
+            <FileText size={20} />
+          </div>
+          <div>
+            <h1 className="page-title">템플릿 관리</h1>
+            <p className="page-subtitle">메시지 템플릿을 만들고 자동 발송 스케줄을 설정합니다.</p>
+          </div>
+        </div>
       </div>
 
       {/* Tab card */}

@@ -18,6 +18,7 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
+  ScrollText,
 } from 'lucide-react'
 import { activityLogsAPI } from '@/services/api'
 import { normalizeUtcString } from '../lib/utils'
@@ -213,9 +214,14 @@ const ActivityLogs = () => {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <h1 className="page-title">활동 로그</h1>
-          <p className="page-subtitle">시스템 작업 이력을 타입·상태·날짜로 조회합니다.</p>
+        <div className="flex items-center gap-2.5">
+          <div className="stat-icon bg-[#E8F3FF] text-[#3182F6] dark:bg-[#3182F6]/15 dark:text-[#3182F6]">
+            <ScrollText size={20} />
+          </div>
+          <div>
+            <h1 className="page-title">활동 로그</h1>
+            <p className="page-subtitle">시스템 작업 이력을 타입·상태·날짜로 조회합니다.</p>
+          </div>
         </div>
         <Button
           color="light"
