@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 import logging
 
+import re
+
 from app.db.models import Reservation, ReservationStatus, NaverBizItem, RoomBizItemLink, Room
 from app.services import room_assignment
 from app.services.consecutive_stay import compute_is_long_stay
@@ -15,6 +17,23 @@ from app.services.room_auto_assign import auto_assign_rooms
 from app.config import KST
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_gender_from_custom_form(text: str, total: int = 0) -> tuple[int, int] | None:
+    """Parse gender counts from free-form text like '남 24 여 25 남 21'.
+    Returns (male_count, female_count) or None if unparseable.
+    total > 0이면 파싱 결과 합이 total과 일치할 때만 반환 (보조 도구).
+    '남자'를 '남'보다 먼저 매칭하여 중복 카운트 방지."""
+    if not text or not text.strip():
+        return None
+    males = len(re.findall(r'남자|남', text))
+    females = len(re.findall(r'여자|여', text))
+    if males == 0 and females == 0:
+        return None
+    # total이 지정되면 파싱 결과와 일치할 때만 신뢰
+    if total > 0 and males + females != total:
+        return None
+    return (males, females)
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -27,7 +46,7 @@ def _parse_datetime(value: str | None) -> datetime | None:
         return None
 
 
-async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, from_date: str = None, reconcile_date: str = None) -> Dict[str, Any]:
+async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, from_date: str = None, reconcile_date: str = None, source: str = "stable") -> Dict[str, Any]:
     """
     Fetch reservations from Naver and upsert into DB.
 
@@ -75,21 +94,49 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
     # Enrich res_data with DB-based names and capacity
     for res_data in reservations:
         bid = res_data.get("naver_biz_item_id", "")
-        # 이름 enrichment (DB에 없으면 biz_item_id 그대로)
-        name = biz_name_map.get(bid, bid)
-        res_data["room_type"] = name
-        res_data["biz_item_name"] = name
-        # 인원 enrichment: 도미토리 vs 일반실 분기
-        if biz_dormitory_map.get(bid, False):
-            # 도미토리: bookingCount = 인원 (인원수 옵션 무시)
+
+        if source == "unstable":
+            # 언스테이블: NaverBizItem 매핑 없음 — 직접 설정
+            name = res_data.get("biz_item_name") or bid
+            res_data["room_type"] = name
+            res_data["biz_item_name"] = name
+            # 인원: bookingCount가 곧 인원수 (도미토리와 동일 방식)
             res_data["people_count"] = res_data.get("booking_count") or 1
+            # section: 항상 unstable
+            res_data["_section_hint"] = "unstable"
+            # 성별: customFormInputJson 파싱 → fallback으로 기존 gender(userId API)
+            total = res_data["people_count"]
+            parsed = _parse_gender_from_custom_form(res_data.get("custom_form_input"), total)
+            if parsed:
+                # 파싱 성공 = 남+여 합계가 total과 일치
+                res_data["_unstable_male"] = parsed[0]
+                res_data["_unstable_female"] = parsed[1]
+            else:
+                # fallback: userId API 성별로 전체 인원 배정
+                booker_gender = res_data.get("gender", "")
+                if booker_gender == "남":
+                    res_data["_unstable_male"] = total
+                    res_data["_unstable_female"] = 0
+                elif booker_gender == "여":
+                    res_data["_unstable_male"] = 0
+                    res_data["_unstable_female"] = total
+                # else: None으로 남겨서 _init_gender_counts fallback
         else:
-            # 일반실: 인원수 옵션 우선, 없으면 기준인원(base_capacity)
-            pc = res_data.get("people_count")
-            if not pc:
-                res_data["people_count"] = biz_capacity_map.get(bid, 1)
-        # section_hint enrichment (res_data에 저장해서 _create_reservation에서 사용)
-        res_data["_section_hint"] = biz_section_map.get(bid)
+            # 스테이블: 기존 로직 그대로
+            name = biz_name_map.get(bid, bid)
+            res_data["room_type"] = name
+            res_data["biz_item_name"] = name
+            # 인원 enrichment: 도미토리 vs 일반실 분기
+            if biz_dormitory_map.get(bid, False):
+                # 도미토리: bookingCount = 인원 (인원수 옵션 무시)
+                res_data["people_count"] = res_data.get("booking_count") or 1
+            else:
+                # 일반실: 인원수 옵션 우선, 없으면 기준인원(base_capacity)
+                pc = res_data.get("people_count")
+                if not pc:
+                    res_data["people_count"] = biz_capacity_map.get(bid, 1)
+            # section_hint enrichment (res_data에 저장해서 _create_reservation에서 사용)
+            res_data["_section_hint"] = biz_section_map.get(bid)
 
     # Bulk-fetch existing reservations by external_id/naver_booking_id in one query
     all_ext_ids = [
@@ -181,6 +228,10 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
 
 def _init_gender_counts(res_data: Dict[str, Any]) -> tuple:
     """Derive initial male_count/female_count from Naver gender + people_count."""
+    # 언스테이블: customFormInputJson 파싱 결과 우선
+    if "_unstable_male" in res_data:
+        return (res_data["_unstable_male"], res_data["_unstable_female"])
+
     gender = res_data.get("gender", "")
     people = res_data.get("people_count", 1) or 1
     if gender == "남":
@@ -202,7 +253,7 @@ def _create_reservation(res_data: Dict[str, Any]) -> Reservation:
 
     naver_room_type = res_data.get("room_type", "")
     section_hint = res_data.get("_section_hint")
-    section = section_hint if section_hint in ('party', 'room') else 'unassigned'
+    section = section_hint if section_hint in ('party', 'room', 'unstable') else 'unassigned'
 
     reservation = Reservation(
         external_id=res_data.get("external_id"),

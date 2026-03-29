@@ -97,7 +97,7 @@ export const reservationsAPI = {
   assignRoom: (id: number, data: { room_id: number | null; date?: string; apply_subsequent?: boolean; apply_group?: boolean }) =>
     api.put(`/api/reservations/${id}/room`, data),
   syncNaver: (fromDate?: string) => api.post('/api/reservations/sync/naver', null, { params: fromDate ? { from_date: fromDate } : undefined }),
-  updateDailyInfo: (id: number, data: { date: string; party_type?: string | null; notes?: string | null }) =>
+  updateDailyInfo: (id: number, data: { date: string; party_type?: string | null; notes?: string | null; unstable_party?: boolean }) =>
     api.put(`/api/reservations/${id}/daily-info`, data),
 };
 
@@ -225,11 +225,17 @@ export const settingsAPI = {
   updateNaverCookie: (cookie: string) =>
     api.post('/api/settings/naver/cookie', { cookie }),
   clearNaverCookie: () => api.delete('/api/settings/naver/cookie'),
+  // Unstable
+  getUnstableStatus: () => api.get('/api/settings/unstable/status'),
+  updateUnstableSettings: (data: { business_id?: string; cookie?: string }) =>
+    api.post('/api/settings/unstable/settings', data),
+  syncUnstable: () => api.post('/api/settings/unstable/sync'),
 };
 
 // Party Check-in API
 export const partyCheckinAPI = {
-  getList: (date: string) => api.get('/api/party-checkin', { params: { date } }),
+  getList: (date: string, partySource?: string) =>
+    api.get('/api/party-checkin', { params: { date, ...(partySource ? { party_source: partySource } : {}) } }),
   toggle: (reservationId: number, date: string) =>
     api.patch(`/api/party-checkin/${reservationId}/toggle`, null, { params: { date } }),
 };

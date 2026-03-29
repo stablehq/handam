@@ -48,12 +48,15 @@ PARTY_TYPE_VALUES = {'1', '2', '2차만'}
 @router.get("", response_model=List[PartyCheckinItem])
 async def get_party_checkin_list(
     date: str,
+    party_source: str = "stable",
     db: Session = Depends(get_tenant_scoped_db),
     current_user=Depends(require_any_role),
 ):
     """해당 날짜의 파티 참여 예약자 목록 조회 (가나다순)
 
-    파티 참여자: party_type이 '1', '2', '2차만' 중 하나인 예약자
+    party_source:
+      - "stable": 스테이블 파티 (party_type이 '1', '2', '2차만')
+      - "unstable": 언스테이블 파티 (section="unstable" OR unstable_party=true)
     """
     # 해당 날짜에 숙박 중인 예약 조회 (연박 포함)
     reservations = (
@@ -72,19 +75,31 @@ async def get_party_checkin_list(
         .all()
     )
 
-    # party_type 필터: ReservationDailyInfo 우선, Reservation.party_type 폴백
-    daily_infos = {
-        di.reservation_id: di.party_type
-        for di in db.query(ReservationDailyInfo).filter(
+    # daily info 조회 (party_type + unstable_party)
+    daily_info_rows = (
+        db.query(ReservationDailyInfo).filter(
             ReservationDailyInfo.reservation_id.in_([r.id for r in reservations]),
             ReservationDailyInfo.date == date,
         ).all()
-    } if reservations else {}
+    ) if reservations else []
 
-    party_reservations = [
-        r for r in reservations
-        if (daily_infos.get(r.id) or r.party_type) in PARTY_TYPE_VALUES
-    ]
+    daily_infos = {di.reservation_id: di.party_type for di in daily_info_rows}
+    daily_unstable = {di.reservation_id for di in daily_info_rows if di.unstable_party}
+
+    if party_source == "unstable":
+        # 언스테이블: section="unstable" (순수 네이버) OR unstable_party=true (복사된 스테이블)
+        party_reservations = [
+            r for r in reservations
+            if r.section == 'unstable' or r.id in daily_unstable
+        ]
+    else:
+        # 스테이블: party_type 필터 + 언스테이블 제외 + unstable_party=true도 제외
+        party_reservations = [
+            r for r in reservations
+            if r.section != 'unstable'
+            and r.id not in daily_unstable
+            and (daily_infos.get(r.id) or r.party_type) in PARTY_TYPE_VALUES
+        ]
 
     # 가나다순 정렬
     party_reservations.sort(key=lambda r: r.customer_name or "")

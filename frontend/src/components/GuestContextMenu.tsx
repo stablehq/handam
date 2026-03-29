@@ -1,17 +1,20 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Undo2, Music, Trash2, Link2, X } from 'lucide-react';
+import { Undo2, Music, Trash2, Link2, X, Zap, XCircle } from 'lucide-react';
 
 interface GuestContextMenuProps {
   position: { x: number; y: number };
   targetCount: number;
-  currentSection: 'room' | 'unassigned' | 'party';
+  currentSection: 'room' | 'unassigned' | 'party' | 'unstable';
   hasStayGroup: boolean;
+  isUnstableCopy?: boolean;
   onMoveToPool: () => void;
   onMoveToParty: () => void;
   onDelete: () => void;
   onLinkStayGroup: () => void;
   onSetColor: (color: string | null) => void;
+  onCopyToUnstable?: () => void;
+  onRemoveFromUnstable?: () => void;
   onClose: () => void;
 }
 
@@ -33,11 +36,14 @@ export default function GuestContextMenu({
   targetCount,
   currentSection,
   hasStayGroup,
+  isUnstableCopy,
   onMoveToPool,
   onMoveToParty,
   onDelete,
   onLinkStayGroup,
   onSetColor,
+  onCopyToUnstable,
+  onRemoveFromUnstable,
   onClose,
 }: GuestContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -79,6 +85,26 @@ export default function GuestContextMenu({
       disabled: false,
     },
   ];
+
+  // 언스테이블 복사/제거 항목
+  if (isUnstableCopy && onRemoveFromUnstable) {
+    // 언스테이블 행의 복사본 → "제거"만 보임
+    items.length = 0; // 기존 항목 제거 (복사본에는 이동/연박 불필요)
+    items.push({
+      icon: <XCircle className="h-4 w-4" />,
+      label: '언스테이블 복사본 제거',
+      onClick: onRemoveFromUnstable,
+      disabled: false,
+    });
+  } else if (currentSection !== 'unstable' && onCopyToUnstable) {
+    // 객실/미배정/파티만 → "언스테이블에 복사" 추가
+    items.push({
+      icon: <Zap className="h-4 w-4" />,
+      label: `언스테이블에 복사${plural}`,
+      onClick: onCopyToUnstable,
+      disabled: false,
+    });
+  }
 
   return createPortal(
     <div
@@ -124,15 +150,19 @@ export default function GuestContextMenu({
         </button>
       </div>
 
-      <div className="border-t border-[#E5E8EB] dark:border-gray-800 my-1" />
+      {!isUnstableCopy && (
+        <>
+          <div className="border-t border-[#E5E8EB] dark:border-gray-800 my-1" />
 
-      <button
-        onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        className="w-full px-3 py-2 text-body flex items-center gap-2 text-[#F04452] hover:bg-[#FFF0F0] dark:hover:bg-[#F04452]/10 cursor-pointer transition-colors"
-      >
-        <Trash2 className="h-4 w-4" />
-        게스트 삭제{plural}
-      </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="w-full px-3 py-2 text-body flex items-center gap-2 text-[#F04452] hover:bg-[#FFF0F0] dark:hover:bg-[#F04452]/10 cursor-pointer transition-colors"
+          >
+            <Trash2 className="h-4 w-4" />
+            게스트 삭제{plural}
+          </button>
+        </>
+      )}
     </div>,
     document.body,
   );

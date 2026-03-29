@@ -36,7 +36,7 @@ class ReservationCreate(BaseModel):
     party_type: Optional[str] = None
     booking_source: str = "manual"
     naver_room_type: Optional[str] = None  # Original reservation room type
-    section: Optional[str] = None  # 'room', 'unassigned', 'party'
+    section: Optional[str] = None  # 'room', 'unassigned', 'party', 'unstable'
 
 class ReservationUpdate(BaseModel):
     customer_name: Optional[str] = None
@@ -51,7 +51,7 @@ class ReservationUpdate(BaseModel):
     party_size: Optional[int] = None
     party_type: Optional[str] = None
     naver_room_type: Optional[str] = None  # Original reservation room type
-    section: Optional[str] = None  # 'room', 'unassigned', 'party'
+    section: Optional[str] = None  # 'room', 'unassigned', 'party', 'unstable'
     highlight_color: Optional[str] = None
 
 
@@ -109,11 +109,13 @@ class ReservationResponse(BaseModel):
     total_price: Optional[int] = None
     confirmed_at: Optional[str] = None
     cancelled_at: Optional[str] = None
-    section: Optional[str] = None  # 'room', 'unassigned', 'party'
+    section: Optional[str] = None  # 'room', 'unassigned', 'party', 'unstable'
     stay_group_id: Optional[str] = None
     stay_group_order: Optional[int] = None
     is_long_stay: bool = False
     bed_order: int = 0
+    unstable_party: bool = False
+    has_unstable_booking: bool = False
     highlight_color: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -123,7 +125,7 @@ class ReservationResponse(BaseModel):
         from_attributes = True
 
 
-def _to_response(res: Reservation, override_room: Optional[str] = None, override_password: Optional[str] = None, override_assigned_by: Optional[str] = None, override_party_type: Optional[str] = None, override_room_id: Optional[int] = None, override_bed_order: Optional[int] = None, db: Session = None, filter_date: Optional[str] = None, daily_keys: Optional[set] = None, override_notes: Optional[str] = None) -> ReservationResponse:
+def _to_response(res: Reservation, override_room: Optional[str] = None, override_password: Optional[str] = None, override_assigned_by: Optional[str] = None, override_party_type: Optional[str] = None, override_room_id: Optional[int] = None, override_bed_order: Optional[int] = None, db: Session = None, filter_date: Optional[str] = None, daily_keys: Optional[set] = None, override_notes: Optional[str] = None, override_unstable_party: Optional[bool] = None, override_has_unstable_booking: bool = False) -> ReservationResponse:
     assignments = []
     if db is not None and hasattr(res, 'sms_assignments'):
         source = [a for a in res.sms_assignments if a.assigned_by != 'excluded']
@@ -182,6 +184,8 @@ def _to_response(res: Reservation, override_room: Optional[str] = None, override
         stay_group_order=res.stay_group_order,
         is_long_stay=bool(res.is_long_stay),
         bed_order=override_bed_order if override_bed_order is not None else 0,
+        unstable_party=override_unstable_party if override_unstable_party is not None else False,
+        has_unstable_booking=override_has_unstable_booking,
         highlight_color=res.highlight_color,
         created_at=res.created_at,
         updated_at=res.updated_at,
@@ -284,6 +288,7 @@ async def get_reservations(
             )
             daily_party_map = {di.reservation_id: di.party_type for di in daily_infos}
             daily_notes_map = {di.reservation_id: di.notes for di in daily_infos if di.notes is not None}
+            daily_unstable_map = {di.reservation_id: di.unstable_party for di in daily_infos if di.unstable_party}
         else:
             # date 없음: 각 예약의 check-in date 기준으로 조회
             # (reservation_id, date) 쌍을 한 번에 가져온 뒤 매핑
@@ -305,6 +310,7 @@ async def get_reservations(
                     room_map[ra.reservation_id] = (info["room_id"], info["room_number"] or '', info["room_password"], info["assigned_by"], info.get("bed_order", 0))
             daily_party_map = {}
             daily_notes_map = {}
+            daily_unstable_map = {}
     else:
         room_map = {}
         daily_party_map = {}
@@ -319,6 +325,12 @@ async def get_reservations(
             for s in db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True, TemplateSchedule.target_mode == 'daily').all()
             if s.template
         }
+
+    # 언스테이블 예약 전화번호 매칭: 같은 날짜에 숙박 중인 스테이블 예약자 중 언스테이블도 예약한 사람 감지
+    unstable_phone_set: set = set()
+    if date:
+        unstable_phones = [r.phone for r in reservations if r.section == 'unstable' and r.phone]
+        unstable_phone_set = set(unstable_phones)
 
     results = []
     for res in reservations:
@@ -342,7 +354,13 @@ async def get_reservations(
         else:
             override_notes = None
 
-        results.append(_to_response(res, override_room=override_room, override_password=override_password, override_assigned_by=override_assigned_by, override_party_type=override_party_type, override_room_id=override_room_id, override_bed_order=override_bed_order, db=db, filter_date=date, daily_keys=_daily_keys, override_notes=override_notes))
+        # Resolve per-date unstable_party
+        override_unstable = daily_unstable_map.get(res.id) if date else None
+
+        # 언스테이블 예약 매칭 (스테이블 예약자 중 언스테이블도 예약한 사람)
+        has_unstable = res.section != 'unstable' and bool(res.phone) and res.phone in unstable_phone_set
+
+        results.append(_to_response(res, override_room=override_room, override_password=override_password, override_assigned_by=override_assigned_by, override_party_type=override_party_type, override_room_id=override_room_id, override_bed_order=override_bed_order, db=db, filter_date=date, daily_keys=_daily_keys, override_notes=override_notes, override_unstable_party=override_unstable, override_has_unstable_booking=has_unstable))
     return {"items": results, "total": total_count}
 
 
@@ -412,7 +430,7 @@ async def update_reservation(
     if section_changed:
         old_section = db_reservation.section or "unassigned"
         new_section = update_data["section"]
-        section_labels = {"room": "객실", "unassigned": "미배정", "party": "파티만"}
+        section_labels = {"room": "객실", "unassigned": "미배정", "party": "파티만", "unstable": "언스테이블"}
         log_activity(
             db, type="room_move",
             title=f"[{db_reservation.customer_name}] 섹션이동 {section_labels.get(old_section, old_section)} → {section_labels.get(new_section, new_section)}",
@@ -539,6 +557,7 @@ class DailyInfoUpdate(BaseModel):
     date: str  # YYYY-MM-DD
     party_type: Optional[str] = None
     notes: Optional[str] = None
+    unstable_party: Optional[bool] = None
 
 
 @router.put("/{reservation_id}/daily-info", response_model=ReservationResponse)
@@ -553,6 +572,11 @@ async def update_daily_info(
     if not db_reservation:
         raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다")
 
+    # section="unstable" 예약에 unstable_party 설정 방지 (이미 언스테이블이므로 복사 불필요)
+    sent_fields_check = request.dict(exclude_unset=True)
+    if "unstable_party" in sent_fields_check and sent_fields_check["unstable_party"] and db_reservation.section == "unstable":
+        raise HTTPException(status_code=400, detail="언스테이블 예약에는 unstable_party를 설정할 수 없습니다")
+
     existing = db.query(ReservationDailyInfo).filter(
         ReservationDailyInfo.reservation_id == reservation_id,
         ReservationDailyInfo.date == request.date,
@@ -564,6 +588,8 @@ async def update_daily_info(
             existing.party_type = request.party_type
         if "notes" in sent_fields:
             existing.notes = request.notes
+        if "unstable_party" in sent_fields:
+            existing.unstable_party = request.unstable_party
         existing.updated_at = datetime.now(timezone.utc)
     else:
         db.add(ReservationDailyInfo(
@@ -571,6 +597,7 @@ async def update_daily_info(
             date=request.date,
             party_type=request.party_type,
             notes=request.notes,
+            unstable_party=request.unstable_party or False,
         ))
 
     db.flush()

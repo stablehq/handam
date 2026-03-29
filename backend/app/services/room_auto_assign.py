@@ -108,7 +108,7 @@ def _get_unassigned_reservations(db: Session, target_date: str) -> List[Reservat
         .filter(
             Reservation.naver_biz_item_id.isnot(None),
             Reservation.status == ReservationStatus.CONFIRMED,
-            Reservation.section != 'party',
+            Reservation.section.notin_(['party', 'unstable']),
             Reservation.check_in_date <= target_date,
         )
         .filter(

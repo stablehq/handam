@@ -44,6 +44,7 @@ function formatGender(male: number | null, female: number | null): string {
 
 export default function PartyCheckin() {
   const [selectedDate, setSelectedDate] = useState(getTodayStr())
+  const [partySource, setPartySource] = useState<'stable' | 'unstable'>('stable')
   const [guests, setGuests] = useState<PartyGuest[]>([])
   const [loading, setLoading] = useState(false)
   const [toggling, setToggling] = useState<number | null>(null)
@@ -53,10 +54,10 @@ export default function PartyCheckin() {
     guest: null,
   })
 
-  const fetchGuests = useCallback(async (date: string) => {
+  const fetchGuests = useCallback(async (date: string, source: string = 'stable') => {
     setLoading(true)
     try {
-      const res = await partyCheckinAPI.getList(date)
+      const res = await partyCheckinAPI.getList(date, source)
       setGuests(res.data)
     } catch {
       toast.error('파티 예약자 목록을 불러오지 못했습니다')
@@ -66,8 +67,8 @@ export default function PartyCheckin() {
   }, [])
 
   useEffect(() => {
-    fetchGuests(selectedDate)
-  }, [selectedDate, fetchGuests])
+    fetchGuests(selectedDate, partySource)
+  }, [selectedDate, partySource, fetchGuests])
 
   const handleRowClick = (guest: PartyGuest) => {
     if (toggling === guest.id) return
@@ -168,6 +169,26 @@ export default function PartyCheckin() {
             </>
           );
         })()}
+      </div>
+
+      {/* 파티 소스 탭 */}
+      <div className="flex items-center justify-center gap-1">
+        {[
+          { value: 'stable' as const, label: '스테이블' },
+          { value: 'unstable' as const, label: '언스테이블' },
+        ].map(tab => (
+          <button
+            key={tab.value}
+            onClick={() => setPartySource(tab.value)}
+            className={`px-4 py-2 rounded-lg text-body font-medium transition-colors cursor-pointer ${
+              partySource === tab.value
+                ? tab.value === 'unstable' ? 'bg-[#FF6B2C] text-white' : 'bg-[#3182F6] text-white'
+                : 'bg-[#F2F4F6] text-[#8B95A1] hover:bg-[#E5E8EB] dark:bg-[#2C2C34] dark:text-gray-400 dark:hover:bg-[#35353E]'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* 카운터 */}

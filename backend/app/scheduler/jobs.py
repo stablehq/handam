@@ -199,8 +199,65 @@ async def reconcile_today_reservations_job():
                 logger.info(f"[{tenant.slug}] Reconciliation complete: {total_added} added")
             else:
                 logger.info(f"[{tenant.slug}] Reconciliation: no missing reservations")
+
+            # 언스테이블 reconciliation (USEDATE 기반)
+            if tenant.unstable_business_id and tenant.unstable_cookie:
+                from app.real.reservation import RealReservationProvider
+                unstable_provider = RealReservationProvider(
+                    business_id=tenant.unstable_business_id,
+                    cookie=tenant.unstable_cookie,
+                )
+                unstable_added = 0
+                for target_date in [today, tomorrow]:
+                    result = await sync_naver_to_db(unstable_provider, db, reconcile_date=target_date, source="unstable")
+                    added = result.get("added", 0)
+                    unstable_added += added
+                    if added > 0:
+                        logger.info(f"[{tenant.slug}] Unstable reconcile {target_date}: +{added} reservations")
+                if unstable_added > 0:
+                    logger.info(f"[{tenant.slug}] Unstable reconciliation complete: {unstable_added} added")
+
         except Exception as e:
             logger.error(f"[{tenant.slug}] Reconciliation error: {e}")
+            db.rollback()
+        finally:
+            db.close()
+            current_tenant_id.reset(token)
+
+
+async def sync_unstable_reservations_job():
+    """
+    Sync reservations from Unstable Naver Smart Place.
+    Runs every 6 hours. Only for tenants with unstable_business_id configured.
+    """
+    from app.real.reservation import RealReservationProvider
+    from app.services.naver_sync import sync_naver_to_db
+
+    logger.info("Running Unstable reservations sync job")
+
+    token_bypass = bypass_tenant_filter.set(True)
+    db = SessionLocal()
+    try:
+        tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
+    finally:
+        db.close()
+        bypass_tenant_filter.reset(token_bypass)
+
+    for tenant in tenants:
+        if not tenant.unstable_business_id or not tenant.unstable_cookie:
+            continue
+
+        token = current_tenant_id.set(tenant.id)
+        db = SessionLocal()
+        try:
+            provider = RealReservationProvider(
+                business_id=tenant.unstable_business_id,
+                cookie=tenant.unstable_cookie,
+            )
+            result = await sync_naver_to_db(provider, db, source="unstable")
+            logger.info(f"[{tenant.slug}] Unstable sync result: {result['message']}")
+        except Exception as e:
+            logger.error(f"[{tenant.slug}] Error in unstable sync job: {e}")
             db.rollback()
         finally:
             db.close()
@@ -240,6 +297,15 @@ def setup_scheduler():
         id='sync_naver_reservations',
         name='Sync Naver Reservations',
         replace_existing=True
+    )
+
+    # Unstable reservations sync - every 6 hours
+    scheduler.add_job(
+        sync_unstable_reservations_job,
+        trigger=CronTrigger(hour='0,6,12,18', minute=5, timezone='Asia/Seoul'),
+        id='sync_unstable_reservations',
+        name='언스테이블 예약 동기화 (6시간)',
+        replace_existing=True,
     )
 
     # Daily room auto-assignment - 10am KST (당일+내일)

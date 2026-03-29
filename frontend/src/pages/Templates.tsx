@@ -1749,6 +1749,7 @@ const Templates: React.FC = () => {
                   { value: 'room', label: '객실배정' },
                   { value: 'party', label: '파티만' },
                   { value: 'unassigned', label: '미배정' },
+                  { value: 'unstable', label: '언스테이블' },
                 ].map(opt => {
                   const isActive = isFilterActive('assignment', opt.value);
                   return (

@@ -24,13 +24,29 @@ from app.db.models import (
 # ---------------------------------------------------------------------------
 
 def _condition_by_assignment(value, ctx):
-    """Return condition for assignment status: room / party / unassigned."""
+    """Return condition for assignment status: room / party / unassigned / unstable."""
     if value == "room":
         return Reservation.section == 'room'
     elif value == "party":
         return Reservation.section == 'party'
     elif value == "unassigned":
         return Reservation.section == 'unassigned'
+    elif value == "unstable":
+        target_date = ctx.get("target_date")
+        if target_date:
+            # section="unstable" (순수 네이버) OR 해당 날짜에 unstable_party=true (복사된 예약자)
+            sub = (
+                ctx["db"].query(ReservationDailyInfo.reservation_id)
+                .filter(
+                    ReservationDailyInfo.date == target_date,
+                    ReservationDailyInfo.unstable_party == True,
+                )
+            ).subquery()
+            return or_(
+                Reservation.section == 'unstable',
+                Reservation.id.in_(sub),
+            )
+        return Reservation.section == 'unstable'
     return None
 
 

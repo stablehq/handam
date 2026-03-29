@@ -88,7 +88,7 @@ class Reservation(TenantMixin, Base):
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
     booking_source = Column("source", String(20), default="manual")  # 'naver', 'manual', 'phone'
-    section = Column(String(20), default="unassigned")  # 'room', 'unassigned', 'party'
+    section = Column(String(20), default="unassigned")  # 'room', 'unassigned', 'party', 'unstable'
 
     # Naver Booking integration fields
     naver_booking_id = Column(String(50), nullable=True, index=True)
@@ -500,6 +500,7 @@ class ReservationDailyInfo(TenantMixin, Base):
     date = Column(String(20), nullable=False)  # YYYY-MM-DD
     party_type = Column(String(20), nullable=True)  # '1'=1차만, '2'=1+2차, '2차만'=2차만, 'X'=미참여
     notes = Column(Text, nullable=True)
+    unstable_party = Column(Boolean, default=False)  # 이 날짜에 언스테이블 파티 참여 여부
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
@@ -552,6 +553,8 @@ class Tenant(Base):
     naver_cookie = Column(Text, nullable=True)
     naver_email = Column(String(200), nullable=True)
     naver_password = Column(String(200), nullable=True)
+    unstable_business_id = Column(String(50), nullable=True)  # 언스테이블 네이버 business_id
+    unstable_cookie = Column(Text, nullable=True)              # 언스테이블 네이버 쿠키
     aligo_sender = Column(String(20), nullable=True)  # 펜션별 발신번호
     aligo_testmode = Column(Boolean, default=True)  # True=테스트모드(실제 미발송), False=실제 발송
     chip_priority_keys = Column(Text, nullable=True)  # JSON array of template_keys for chip display order

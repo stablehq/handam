@@ -331,6 +331,19 @@ def init_db():
             if "notes" not in cols:
                 conn.execute(text("ALTER TABLE reservation_daily_info ADD COLUMN notes TEXT"))
                 print("AUTO-MIGRATE: Added notes column to reservation_daily_info table")
+            if "unstable_party" not in cols:
+                conn.execute(text("ALTER TABLE reservation_daily_info ADD COLUMN unstable_party BOOLEAN DEFAULT FALSE NOT NULL"))
+                print("AUTO-MIGRATE: Added unstable_party column to reservation_daily_info table")
+
+        # tenants: unstable fields
+        if "tenants" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("tenants")]
+            if "unstable_business_id" not in cols:
+                conn.execute(text("ALTER TABLE tenants ADD COLUMN unstable_business_id VARCHAR(50)"))
+                print("AUTO-MIGRATE: Added unstable_business_id column to tenants table")
+            if "unstable_cookie" not in cols:
+                conn.execute(text("ALTER TABLE tenants ADD COLUMN unstable_cookie TEXT"))
+                print("AUTO-MIGRATE: Added unstable_cookie column to tenants table")
 
     # Task 1.5: admin 기본 비밀번호 환경변수화
     db = SessionLocal()

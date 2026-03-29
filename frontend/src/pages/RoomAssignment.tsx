@@ -52,7 +52,8 @@ interface Reservation {
   room_password: string | null;
   room_assigned_by: string | null;
   naver_room_type: string | null;
-  section: string;  // 'room', 'unassigned', 'party'
+  section: string;  // 'room', 'unassigned', 'party', 'unstable'
+  unstable_party?: boolean;
   gender: string | null;
   male_count: number | null;
   female_count: number | null;
@@ -67,6 +68,7 @@ interface Reservation {
   is_long_stay?: boolean;
   bed_order?: number;
   highlight_color?: string | null;
+  has_unstable_booking?: boolean;
 }
 
 
@@ -370,7 +372,7 @@ const RoomAssignment = () => {
   const [collapsedBuildings, setCollapsedBuildings] = useState<Set<number | null>>(new Set());
 
   // ===== Context menu state =====
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; targetIds: number[] } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; targetIds: number[]; zone?: string } | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTriggered = useRef(false);
   const longPressStart = useRef<{ x: number; y: number } | null>(null);
@@ -439,7 +441,7 @@ const RoomAssignment = () => {
     }
     if (field === 'notes') {
       try {
-        await reservationsAPI.updateDailyInfo(resId, { date: selectedDate.format('YYYY-MM-DD'), notes: value || null });
+        await reservationsAPI.updateDailyInfo(resId, { date: selectedDate.format('YYYY-MM-DD'), notes: value });
         setReservations(prev => prev.map(r => r.id === resId ? { ...r, notes: value } : r));
       } catch {
         toast.error('저장 실패');
@@ -793,10 +795,11 @@ const RoomAssignment = () => {
   };
 
 
-  const { assignedRooms, unassigned, partyOnly } = useMemo(() => {
+  const { assignedRooms, unassigned, partyOnly, unstableGuests } = useMemo(() => {
     const assigned = new Map<number, Reservation[]>();
     const unassignedList: Reservation[] = [];
     const partyOnlyList: Reservation[] = [];
+    const unstableList: Reservation[] = [];
 
     reservations.forEach((res) => {
       if (res.room_id) {
@@ -806,8 +809,18 @@ const RoomAssignment = () => {
         assigned.set(res.room_id, list);
       } else if (sectionOverrides[res.id] === 'party' || (sectionOverrides[res.id] === undefined && res.section === 'party')) {
         partyOnlyList.push(res);
+      } else if (res.section === 'unstable') {
+        // 순수 언스테이블 네이버 예약자
+        unstableList.push(res);
       } else {
         unassignedList.push(res);
+      }
+    });
+
+    // 스테이블 예약자 중 unstable_party=true인 경우 → 언스테이블 행에 복사본 추가
+    reservations.forEach((res) => {
+      if (res.section !== 'unstable' && res.unstable_party) {
+        unstableList.push({ ...res, _isCopied: true } as Reservation & { _isCopied?: boolean });
       }
     });
 
@@ -828,6 +841,7 @@ const RoomAssignment = () => {
       assignedRooms: assigned,
       unassigned: unassignedList,
       partyOnly: partyOnlyList,
+      unstableGuests: unstableList,
     };
   }, [reservations, sectionOverrides]);
 
@@ -1236,7 +1250,7 @@ const RoomAssignment = () => {
   };
 
   // ===== Context menu handlers =====
-  const onGuestContextMenu = useCallback((e: React.MouseEvent, resId: number) => {
+  const onGuestContextMenu = useCallback((e: React.MouseEvent, resId: number, zone?: string) => {
     e.preventDefault();
     e.stopPropagation();
     if (dragActive) return;
@@ -1247,7 +1261,7 @@ const RoomAssignment = () => {
         ? [...selectedGuestIds]
         : [resId];
 
-    setContextMenu({ x: e.clientX, y: e.clientY, targetIds });
+    setContextMenu({ x: e.clientX, y: e.clientY, targetIds, zone });
   }, [dragActive, modalVisible, showStayGroupModal, multiNightConfirm?.open, interactionMode, selectedGuestIds]);
 
   const onGuestLongPressDown = useCallback((e: React.PointerEvent, resId: number) => {
@@ -1380,11 +1394,13 @@ const RoomAssignment = () => {
     if (!firstRes) return null;
 
     const effectiveSection = firstRes.room_id ? 'room' : (sectionOverrides[firstRes.id] ?? firstRes.section ?? 'unassigned');
+    const isCopied = contextMenu.zone === 'unstable' && firstRes.section !== 'unstable';
 
     return {
       targetCount: targetIds.length,
-      currentSection: effectiveSection as 'room' | 'unassigned' | 'party',
+      currentSection: effectiveSection as 'room' | 'unassigned' | 'party' | 'unstable',
       hasStayGroup: !!firstRes.stay_group_id,
+      isUnstableCopy: isCopied,
       onMoveToPool: () => {
         targetIds.forEach((id) => handleDropOnPool(id));
         setContextMenu(null);
@@ -1424,6 +1440,32 @@ const RoomAssignment = () => {
         setReservations(prev => prev.map(r =>
           targetIds.includes(r.id) ? { ...r, highlight_color: color } : r
         ));
+        setContextMenu(null);
+      },
+      onCopyToUnstable: async () => {
+        const dateStr = selectedDate.format('YYYY-MM-DD');
+        for (const id of targetIds) {
+          try {
+            await reservationsAPI.updateDailyInfo(id, { date: dateStr, unstable_party: true });
+          } catch { /* skip */ }
+        }
+        setReservations(prev => prev.map(r =>
+          targetIds.includes(r.id) ? { ...r, unstable_party: true } : r
+        ));
+        toast.success(`언스테이블에 복사${targetIds.length > 1 ? ` (${targetIds.length}명)` : ''}`);
+        setContextMenu(null);
+      },
+      onRemoveFromUnstable: async () => {
+        const dateStr = selectedDate.format('YYYY-MM-DD');
+        for (const id of targetIds) {
+          try {
+            await reservationsAPI.updateDailyInfo(id, { date: dateStr, unstable_party: false });
+          } catch { /* skip */ }
+        }
+        setReservations(prev => prev.map(r =>
+          targetIds.includes(r.id) ? { ...r, unstable_party: false } : r
+        ));
+        toast.success('언스테이블 복사본 제거');
         setContextMenu(null);
       },
     };
@@ -1672,7 +1714,7 @@ const RoomAssignment = () => {
     'purple-dark': { bg: 'bg-[#CE93D8] dark:bg-[#CE93D8]/25', hover: 'hover:bg-[#BA68C8] dark:hover:bg-[#CE93D8]/35' },
   };
 
-  const renderGuestRow = (res: Reservation, showGrip: boolean) => {
+  const renderGuestRow = (res: Reservation, showGrip: boolean, zone?: string) => {
     const genderPeople = formatGenderPeople(res);
     const longStay = !!res.is_long_stay;
     const isSelected = interactionMode === 'select' && selectedGuestIds.has(res.id);
@@ -1687,7 +1729,7 @@ const RoomAssignment = () => {
               ? `${highlightStyle.bg} ${highlightStyle.hover}`
               : longStay ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15 hover:bg-[#FFE4CC] dark:hover:bg-[#FF9500]/20' : 'hover:bg-[#E8F3FF] dark:hover:bg-[#3182F6]/8'
         } ${guestAreaCursor()}`}
-        onContextMenu={(e) => onGuestContextMenu(e, res.id)}
+        onContextMenu={(e) => onGuestContextMenu(e, res.id, zone)}
       >
         {showGrip && (
           <div
@@ -1717,7 +1759,10 @@ const RoomAssignment = () => {
           onPointerCancel={onGuestLongPressEnd}
         >
           <div className="overflow-hidden px-1.5 flex items-center gap-0.5">
-            <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className="font-medium text-[#191F28] dark:text-white" placeholder="이름" autoFocus={res.id === quickAddedId} />
+            <span className="flex items-center gap-1">
+              <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className="font-medium text-[#191F28] dark:text-white" placeholder="이름" autoFocus={res.id === quickAddedId} />
+              {res.has_unstable_booking && <span className="inline-block h-[6px] w-[6px] rounded-full bg-[#7B61FF] flex-shrink-0" title="언스테이블 파티 예약 확인" />}
+            </span>
           </div>
           <div className="overflow-hidden px-1.5">
             <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className="text-[#8B95A1] dark:text-[#8B95A1] tabular-nums" placeholder="연락처" />
@@ -1911,9 +1956,10 @@ const RoomAssignment = () => {
 
   // Summary stats
   const summary = useMemo(() => {
-    // Room guest totals
+    // Room guest totals (복사본 = unstable_party=true인 비-unstable 예약자 제외)
     let roomTotal = 0, roomMale = 0, roomFemale = 0;
     for (const r of reservations) {
+      if (r.section !== 'unstable' && r.unstable_party) continue; // 복사본 제외
       const m = r.male_count || 0;
       const f = r.female_count || 0;
       roomMale += m;
@@ -1953,14 +1999,23 @@ const RoomAssignment = () => {
     const conversionRate = firstTotal > 0 ? Math.round((bothTotal / firstTotal) * 100) : 0;
     const genderRatio = firstFemale > 0 ? `${(firstMale / firstFemale).toFixed(1)}:1` : firstMale > 0 ? `${firstMale}:0` : '-';
 
+    // Unstable guest totals (순수 section="unstable" + 복사된 unstable_party=true)
+    let unstableMale = 0, unstableFemale = 0;
+    for (const r of unstableGuests) {
+      unstableMale += r.male_count || 0;
+      unstableFemale += r.female_count || 0;
+    }
+    const unstableTotal = unstableMale + unstableFemale;
+
     return {
       roomTotal, roomMale, roomFemale,
       partyTotal, partyMale, partyFemale,
       firstTotal, firstMale, firstFemale,
       secondOnlyTotal, secondOnlyMale, secondOnlyFemale,
       conversionRate, genderRatio,
+      unstableTotal, unstableMale, unstableFemale,
     };
-  }, [reservations]);
+  }, [reservations, unstableGuests]);
 
   return (
     <div className={`space-y-4 pb-14 min-w-max ${processing ? 'opacity-60 pointer-events-none' : ''}`}>
@@ -2013,6 +2068,19 @@ const RoomAssignment = () => {
               <span className="stat-value tabular-nums text-[#E05263]">{summary.secondOnlyFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
             </div>
           </div>
+          {summary.unstableTotal > 0 && (
+            <>
+              <div className="w-px bg-[#E5E8EB] dark:bg-[#2C2C34] my-3" />
+              <div className="w-[130px] flex flex-col items-center justify-center px-3 py-4">
+                <span className="stat-label whitespace-nowrap text-[#FF6B2C]">언스테이블</span>
+                <div className="flex items-center justify-center gap-2.5 mt-1">
+                  <span className="stat-value tabular-nums text-[#4A90D9]">{summary.unstableMale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+                  <span className="h-3 w-px bg-[#E5E8EB] dark:bg-[#2C2C34]" />
+                  <span className="stat-value tabular-nums text-[#E05263]">{summary.unstableFemale}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span></span>
+                </div>
+              </div>
+            </>
+          )}
           <div className="w-px bg-[#E5E8EB] dark:bg-[#2C2C34] my-3" />
           <div className="w-[130px] flex flex-col items-center justify-center px-3 py-4">
             <span className="stat-label whitespace-nowrap">전체</span>
@@ -2372,6 +2440,27 @@ const RoomAssignment = () => {
                 {/* Next day column - empty */}
                 <div className="flex-shrink-0 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700" style={{ width: colWidths.nextDay }} />
               </div>
+
+              {/* Unstable */}
+              {unstableGuests.length > 0 && (
+                <div
+                  className="group flex select-none bg-white dark:bg-[#1E1E24]"
+                  style={{ minHeight: `${Math.max(1, unstableGuests.length) * 40}px` }}
+                >
+                  {/* Room label */}
+                  <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
+                    <span className="font-semibold text-[#FF6B2C] dark:text-[#FF8A50] text-body">언스테이블</span>
+                  </div>
+
+                  {/* Guest area */}
+                  <div className="flex-1 divide-y divide-[#F2F4F6] dark:divide-[#2C2C34] border-b border-[#E5E8EB] dark:border-[#2C2C34]">
+                    {unstableGuests.map((res) => renderGuestRow(res, true, 'unstable'))}
+                  </div>
+
+                  {/* Next day column - empty */}
+                  <div className="flex-shrink-0 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700" style={{ width: colWidths.nextDay }} />
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -2889,11 +2978,11 @@ const RoomAssignment = () => {
             {stayGroupChain.length > 0 && (
               <div className="rounded-xl bg-[#E8F3FF] dark:bg-[#3182F6]/10 p-3">
                 <p className="text-caption font-medium text-[#3182F6] mb-2">연박 체인</p>
-                <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-2">
                   {/* Left + button */}
                   <button
                     onClick={() => handleStayGroupDirectionChange('left')}
-                    className={`w-7 h-7 rounded-lg border-2 border-dashed flex items-center justify-center transition-colors ${
+                    className={`w-7 h-7 flex-shrink-0 rounded-lg border-2 border-dashed flex items-center justify-center transition-colors ${
                       stayGroupDirection === 'left'
                         ? 'border-[#3182F6] text-[#3182F6] bg-[#3182F6]/10'
                         : 'border-[#B0B8C1] text-[#B0B8C1] hover:border-[#3182F6] hover:text-[#3182F6]'
@@ -2902,20 +2991,25 @@ const RoomAssignment = () => {
                     <Plus className="h-3.5 w-3.5" />
                   </button>
 
+                  <Link2 className="h-3.5 w-3.5 text-[#3182F6]" />
+
                   {/* Chain items */}
                   {stayGroupChain.map((item, idx) => (
-                    <span key={item.id} className="flex items-center gap-1.5">
-                      {idx > 0 && <span className="text-[#3182F6]">&rarr;</span>}
-                      <span className="rounded-lg bg-white dark:bg-[#1E1E24] px-2 py-1 text-caption font-medium text-[#191F28] dark:text-white shadow-sm">
-                        {item.check_in_date.slice(5)}~{item.check_out_date?.slice(5)} {item.customer_name}
+                    <span key={item.id} className="flex items-center gap-2">
+                      {idx > 0 && <Link2 className="h-3.5 w-3.5 text-[#3182F6]" />}
+                      <span className="rounded-lg bg-white dark:bg-[#1E1E24] px-3 py-1.5 shadow-sm text-center">
+                        <span className="block text-caption text-[#8B95A1] tabular-nums">{item.check_in_date.slice(5)}~{item.check_out_date?.slice(5)}</span>
+                        <span className="block text-caption font-medium text-[#191F28] dark:text-white">{item.customer_name}</span>
                       </span>
                     </span>
                   ))}
 
+                  <Link2 className="h-3.5 w-3.5 text-[#3182F6]" />
+
                   {/* Right + button */}
                   <button
                     onClick={() => handleStayGroupDirectionChange('right')}
-                    className={`w-7 h-7 rounded-lg border-2 border-dashed flex items-center justify-center transition-colors ${
+                    className={`w-7 h-7 flex-shrink-0 rounded-lg border-2 border-dashed flex items-center justify-center transition-colors ${
                       stayGroupDirection === 'right'
                         ? 'border-[#3182F6] text-[#3182F6] bg-[#3182F6]/10'
                         : 'border-[#B0B8C1] text-[#B0B8C1] hover:border-[#3182F6] hover:text-[#3182F6]'
@@ -3014,11 +3108,14 @@ const RoomAssignment = () => {
           targetCount={contextMenuActions.targetCount}
           currentSection={contextMenuActions.currentSection}
           hasStayGroup={contextMenuActions.hasStayGroup}
+          isUnstableCopy={contextMenuActions.isUnstableCopy}
           onMoveToPool={contextMenuActions.onMoveToPool}
           onMoveToParty={contextMenuActions.onMoveToParty}
           onDelete={contextMenuActions.onDelete}
           onLinkStayGroup={contextMenuActions.onLinkStayGroup}
           onSetColor={contextMenuActions.onSetColor}
+          onCopyToUnstable={contextMenuActions.onCopyToUnstable}
+          onRemoveFromUnstable={contextMenuActions.onRemoveFromUnstable}
           onClose={() => setContextMenu(null)}
         />
       )}

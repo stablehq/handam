@@ -118,3 +118,127 @@ async def clear_naver_cookie(
     return {"success": True, "message": "Cookie cleared."}
 
 
+# ── Unstable Naver Settings ──────────────────────────────────────
+
+
+class UnstableSettingsRequest(BaseModel):
+    business_id: str | None = None
+    cookie: str | None = None
+
+
+@router.get("/unstable/status", response_model=NaverCookieStatus)
+async def get_unstable_status(
+    current_user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
+):
+    """Get unstable Naver cookie status and validate it"""
+    cookie = tenant.unstable_cookie or ""
+    business_id = tenant.unstable_business_id or ""
+    source = "tenant_db" if tenant.unstable_cookie else "none"
+
+    status = NaverCookieStatus(
+        has_cookie=bool(cookie),
+        cookie_length=len(cookie),
+        cookie_preview=cookie[:10] + "***" + cookie[-5:] if len(cookie) > 20 else "***",
+        is_valid=None,
+        source=source,
+        business_id=business_id,
+    )
+
+    if cookie and business_id:
+        try:
+            provider = RealReservationProvider(
+                business_id=business_id,
+                cookie=cookie,
+            )
+            reservations = await provider.sync_reservations()
+            status.is_valid = True
+            logger.info(f"Unstable cookie validation: OK ({len(reservations)} reservations)")
+        except Exception as e:
+            status.is_valid = False
+            logger.warning(f"Unstable cookie validation failed: {e}")
+
+    return status
+
+
+@router.post("/unstable/settings")
+async def update_unstable_settings(
+    req: UnstableSettingsRequest,
+    current_user: User = Depends(require_admin_or_above),
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_tenant_scoped_db),
+):
+    """Update unstable Naver business_id and/or cookie"""
+    updated = []
+
+    if req.business_id is not None:
+        tenant.unstable_business_id = req.business_id.strip() or None
+        updated.append("business_id")
+
+    if req.cookie is not None:
+        tenant.unstable_cookie = req.cookie.strip() or None
+        updated.append("cookie")
+
+    if not updated:
+        return {"success": False, "message": "변경할 항목이 없습니다."}
+
+    db.commit()
+
+    # Validate if both business_id and cookie are present
+    business_id = tenant.unstable_business_id or ""
+    cookie = tenant.unstable_cookie or ""
+
+    if cookie and business_id:
+        try:
+            provider = RealReservationProvider(
+                business_id=business_id,
+                cookie=cookie,
+            )
+            reservations = await provider.sync_reservations()
+            logger.info(f"Unstable settings updated and validated: {len(reservations)} reservations")
+            return {
+                "success": True,
+                "message": f"설정 저장 완료. {len(reservations)}건의 예약을 확인했습니다.",
+                "reservation_count": len(reservations),
+            }
+        except Exception as e:
+            logger.warning(f"Unstable settings saved but validation failed: {e}")
+            return {
+                "success": True,
+                "message": "설정이 저장되었지만 연결 테스트에 실패했습니다.",
+                "warning": str(e),
+            }
+
+    return {"success": True, "message": f"설정 저장 완료 ({', '.join(updated)})"}
+
+
+@router.post("/unstable/sync")
+async def sync_unstable_reservations(
+    current_user: User = Depends(require_admin_or_above),
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_tenant_scoped_db),
+):
+    """Manually trigger unstable Naver reservation sync"""
+    if not tenant.unstable_business_id or not tenant.unstable_cookie:
+        return {"success": False, "message": "언스테이블 Business ID와 쿠키를 먼저 설정해주세요."}
+
+    from app.real.reservation import RealReservationProvider
+    from app.services.naver_sync import sync_naver_to_db
+
+    try:
+        provider = RealReservationProvider(
+            business_id=tenant.unstable_business_id,
+            cookie=tenant.unstable_cookie,
+        )
+        result = await sync_naver_to_db(provider, db, source="unstable")
+        return {
+            "success": True,
+            "message": result["message"],
+            "added": result["added"],
+            "updated": result["updated"],
+        }
+    except Exception as e:
+        logger.error(f"Unstable manual sync failed: {e}")
+        return {"success": False, "message": f"동기화 실패: {str(e)}"}
+
+
