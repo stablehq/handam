@@ -54,23 +54,38 @@ async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), curre
         for d in date_strs
     ]
 
-    # Naver sync status — from APScheduler job info (no DB query)
+    # Naver sync status — from last ActivityLog + APScheduler next run
     from app.scheduler.jobs import scheduler as apscheduler
-    from datetime import timedelta
+    last_sync_log = (
+        db.query(ActivityLog)
+        .filter(ActivityLog.activity_type == "naver_sync")
+        .order_by(ActivityLog.created_at.desc())
+        .first()
+    )
     sync_job = apscheduler.get_job('sync_naver_reservations')
-    if sync_job and sync_job.next_run_time:
-        next_run = sync_job.next_run_time
-        last_run = next_run - timedelta(minutes=5)
+    next_sync_at = sync_job.next_run_time.isoformat() if sync_job and sync_job.next_run_time else None
+
+    if last_sync_log:
+        error_detail = None
+        if last_sync_log.status == "failed" and last_sync_log.detail:
+            detail = last_sync_log.detail if isinstance(last_sync_log.detail, dict) else {}
+            error_msg = detail.get("error", "")
+            if "cookie" in error_msg.lower() or "401" in error_msg or "403" in error_msg:
+                error_detail = "네이버 쿠키가 만료되었을 수 있습니다. 설정에서 쿠키를 갱신하세요."
+            else:
+                error_detail = error_msg or "동기화 실패"
         naver_sync = {
-            "last_sync_at": last_run.isoformat(),
-            "next_sync_at": next_run.isoformat(),
-            "status": "success",
+            "last_sync_at": last_sync_log.created_at.isoformat() if last_sync_log.created_at else None,
+            "next_sync_at": next_sync_at,
+            "status": last_sync_log.status,
+            "error": error_detail,
         }
     else:
         naver_sync = {
             "last_sync_at": None,
-            "next_sync_at": None,
+            "next_sync_at": next_sync_at,
             "status": None,
+            "error": None,
         }
 
     return {

@@ -110,7 +110,15 @@ class TemplateScheduleExecutor:
                     rooms_with_building = self.db.query(Room).filter(Room.id.in_(room_ids)).all()
                     for rm in rooms_with_building:
                         building_name = rm.building.name if rm.building else ""
-                        room_name_map[rm.id] = f"{building_name} {rm.room_number}호" if building_name else f"{rm.room_number}호"
+                        rn = rm.room_number or ""
+                        # room_number에 이미 건물명이나 '호'가 포함된 경우 그대로 사용
+                        if building_name and building_name in rn:
+                            room_name_map[rm.id] = rn
+                        elif building_name:
+                            suffix = rn if rn.endswith("호") else f"{rn}호"
+                            room_name_map[rm.id] = f"{building_name} {suffix}"
+                        else:
+                            room_name_map[rm.id] = rn if rn.endswith("호") else f"{rn}호"
                 for res_id, rid in assign_room_id_map.items():
                     room_building_map[res_id] = room_name_map.get(rid, str(rid))
 
@@ -192,7 +200,7 @@ class TemplateScheduleExecutor:
                     "schedule_id": schedule.id,
                     "template_key": schedule.template.template_key,
                     "targets": send_results,
-                    "message": schedule.template.content,
+                    "message": next((r["message"] for r in send_results if r.get("status") == "success" and r.get("message")), schedule.template.content),
                 },
                 target_count=len(targets),
                 success_count=sent_count,

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, DragEvent } from 'react';
-import { Home, Plus, Pencil, Trash2, GripVertical, RefreshCw, Building2, ArrowUpDown, Settings } from 'lucide-react';
+import { Home, Plus, Pencil, Trash2, GripVertical, RefreshCw, Building2, ArrowUpDown, Settings, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { roomsAPI, buildingsAPI } from '@/services/api';
 
@@ -943,7 +943,20 @@ const RoomSettings = () => {
 
       {/* ── Building Manage Modal (inline edit) ── */}
       <Modal show={buildingManageOpen} onClose={() => setBuildingManageOpen(false)} size="md">
-        <ModalHeader>건물 관리</ModalHeader>
+        <ModalHeader className="[&>h3]:w-full">
+          <div className="flex w-full items-center justify-between">
+            <span>건물 관리</span>
+            <button
+              disabled={buildingHistory.length === 0}
+              onClick={handleBuildingUndo}
+              className="flex items-center gap-1 rounded-lg px-2 py-1 text-caption font-normal text-[#8B95A1] transition-colors hover:bg-[#F2F4F6] disabled:opacity-30 disabled:cursor-not-allowed dark:text-gray-500 dark:hover:bg-[#2C2C34]"
+              title="되돌리기"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+              되돌리기
+            </button>
+          </div>
+        </ModalHeader>
         <ModalBody>
           <div className="flex flex-col gap-2">
             {/* Header row */}
@@ -996,30 +1009,20 @@ const RoomSettings = () => {
           </div>
         </ModalBody>
         <ModalFooter>
-          <div className="flex w-full items-center justify-between">
+          <div className="flex w-full items-center justify-end gap-2">
             <Button color="light" size="sm" onClick={() => setBuildingManageOpen(false)}>
               취소
             </Button>
-            <div className="flex items-center gap-2">
-              <Button
-                color="light"
-                size="sm"
-                disabled={buildingHistory.length === 0}
-                onClick={handleBuildingUndo}
-              >
-                되돌리기
-              </Button>
-              <Button color="blue" size="sm" onClick={handleBuildingSaveAll} disabled={savingBuildings}>
-                {savingBuildings ? (
-                  <>
-                    <Spinner size="sm" className="mr-2" />
-                    저장 중...
-                  </>
-                ) : (
-                  '저장'
+            <Button color="blue" size="sm" onClick={handleBuildingSaveAll} disabled={savingBuildings}>
+              {savingBuildings ? (
+                <>
+                  <Spinner size="sm" className="mr-2" />
+                  저장 중...
+                </>
+              ) : (
+                '저장'
                 )}
               </Button>
-            </div>
           </div>
         </ModalFooter>
       </Modal>
@@ -1105,6 +1108,7 @@ const RoomSettings = () => {
           )}
         </ModalBody>
         <ModalFooter>
+          <Button color="light" onClick={() => setPriorityOpen(false)}>취소</Button>
           <Button color="blue" onClick={handlePrioritySave} disabled={savingPriority}>
             {savingPriority ? (
               <>
@@ -1115,7 +1119,6 @@ const RoomSettings = () => {
               '저장'
             )}
           </Button>
-          <Button color="light" onClick={() => setPriorityOpen(false)}>취소</Button>
         </ModalFooter>
       </Modal>
 

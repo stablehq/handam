@@ -17,6 +17,7 @@ interface PartyGuest {
   checked_in: boolean
   checked_in_at: string | null
   room_number: string | null
+  notes: string | null
   stay_group_id?: string | null
   stay_group_order?: number | null
   is_long_stay?: boolean
@@ -40,10 +41,6 @@ function formatGender(male: number | null, female: number | null): string {
   return parts.join(' ')
 }
 
-function formatRoom(roomNumber: string | null): string {
-  if (!roomNumber) return '파티만'
-  return roomNumber
-}
 
 export default function PartyCheckin() {
   const [selectedDate, setSelectedDate] = useState(getTodayStr())
@@ -122,7 +119,7 @@ export default function PartyCheckin() {
   const notCheckedInPeople = totalPeople - checkedInPeople
 
   return (
-    <div className="mx-auto max-w-lg space-y-5">
+    <div className="mx-auto min-w-lg w-fit space-y-5">
       {/* 날짜 선택 — Toss style */}
       <div className="flex flex-col items-center pt-2">
         {(() => {
@@ -176,8 +173,8 @@ export default function PartyCheckin() {
       {/* 카운터 */}
       <div className="flex items-center justify-center gap-[15px] text-body tabular-nums">
         <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-[5px] rounded-full bg-[#191F28] dark:bg-white" /><span>전체 <span className="font-bold text-[#191F28] dark:text-white">{totalPeople}</span><span className="text-[#B0B8C1]">명</span></span></span>
-        <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-[5px] rounded-full bg-[#00C9A7]" /><span>입장 <span className="font-bold text-[#00C9A7]">{checkedInPeople}</span><span className="text-[#B0B8C1]">명</span></span></span>
-        <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-[5px] rounded-full bg-[#FF9F00]" /><span>미입장 <span className="font-bold text-[#FF9F00]">{notCheckedInPeople}</span><span className="text-[#B0B8C1]">명</span></span></span>
+        <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-[5px] rounded-full bg-[#3182F6]" /><span>입장 <span className="font-bold text-[#3182F6]">{checkedInPeople}</span><span className="text-[#B0B8C1]">명</span></span></span>
+        <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-[5px] rounded-full bg-[#F04452]" /><span>미입장 <span className="font-bold text-[#F04452]">{notCheckedInPeople}</span><span className="text-[#B0B8C1]">명</span></span></span>
       </div>
 
       {/* 테이블 */}
@@ -196,17 +193,20 @@ export default function PartyCheckin() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[#E5E8EB] dark:border-gray-800">
-                  <th className="px-4 py-2.5 text-left text-caption font-medium text-[#8B95A1]">
+                  <th className="whitespace-nowrap px-4 py-2.5 text-left text-caption font-medium text-[#8B95A1]">
                     이름
                   </th>
-                  <th className="px-4 py-2.5 text-center text-caption font-medium text-[#8B95A1]">
+                  <th className="whitespace-nowrap px-4 py-2.5 text-left text-caption font-medium text-[#8B95A1]">
+                    전화번호
+                  </th>
+                  <th className="whitespace-nowrap px-4 py-2.5 text-center text-caption font-medium text-[#8B95A1]">
                     성별
                   </th>
-                  <th className="px-4 py-2.5 text-center text-caption font-medium text-[#8B95A1]">
+                  <th className="whitespace-nowrap px-4 py-2.5 text-center text-caption font-medium text-[#8B95A1]">
                     파티
                   </th>
-                  <th className="px-4 py-2.5 text-center text-caption font-medium text-[#8B95A1]">
-                    구분
+                  <th className="w-full px-4 py-2.5 text-left text-caption font-medium text-[#8B95A1]">
+                    메모
                   </th>
                 </tr>
               </thead>
@@ -222,7 +222,7 @@ export default function PartyCheckin() {
                     } ${toggling === guest.id ? 'opacity-50' : ''}`}
                   >
                     {/* 이름 */}
-                    <td className="px-4 py-3.5">
+                    <td className="whitespace-nowrap px-4 py-3.5">
                       <div className="flex items-center gap-2">
                         {toggling === guest.id ? (
                           <Spinner size="sm" />
@@ -240,8 +240,15 @@ export default function PartyCheckin() {
                       </div>
                     </td>
 
+                    {/* 전화번호 */}
+                    <td className="whitespace-nowrap px-4 py-3.5">
+                      <span className={`text-label tabular-nums ${guest.checked_in ? 'text-[#3182F6]' : 'text-[#4E5968] dark:text-gray-300'}`}>
+                        {guest.phone || '-'}
+                      </span>
+                    </td>
+
                     {/* 성별 */}
-                    <td className="px-4 py-3.5 text-center">
+                    <td className="whitespace-nowrap px-4 py-3.5 text-center">
                       <span
                         className={`text-label tabular-nums ${
                           guest.checked_in
@@ -254,7 +261,7 @@ export default function PartyCheckin() {
                     </td>
 
                     {/* 파티 */}
-                    <td className="px-4 py-3.5 text-center">
+                    <td className="whitespace-nowrap px-4 py-3.5 text-center">
                       <span
                         className={`text-label ${
                           guest.checked_in
@@ -266,20 +273,10 @@ export default function PartyCheckin() {
                       </span>
                     </td>
 
-                    {/* 구분 */}
-                    <td className="px-4 py-3.5 text-center">
-                      <span
-                        className={`text-label ${
-                          guest.room_number
-                            ? guest.checked_in
-                              ? 'font-medium text-[#3182F6]'
-                              : 'font-medium text-[#4E5968] dark:text-gray-300'
-                            : guest.checked_in
-                            ? 'text-[#3182F6]/70'
-                            : 'text-[#8B95A1]'
-                        }`}
-                      >
-                        {formatRoom(guest.room_number)}
+                    {/* 메모 */}
+                    <td className="px-4 py-3.5">
+                      <span className="text-caption text-[#4E5968] dark:text-gray-400">
+                        {guest.notes || ''}
                       </span>
                     </td>
                   </tr>

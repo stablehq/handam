@@ -27,6 +27,7 @@ class PartyCheckinItem(BaseModel):
     checked_in: bool
     checked_in_at: Optional[str]
     room_number: Optional[str]
+    notes: Optional[str] = None
     stay_group_id: Optional[str] = None
     stay_group_order: Optional[int] = None
     is_long_stay: bool = False
@@ -125,6 +126,7 @@ async def get_party_checkin_list(
                     checkin.checked_in_at.isoformat() if checkin and checkin.checked_in_at else None
                 ),
                 room_number=room_map.get(res.id),
+                notes=res.notes,
                 stay_group_id=res.stay_group_id,
                 stay_group_order=res.stay_group_order,
                 is_long_stay=bool(res.is_long_stay),

@@ -121,6 +121,7 @@ const ActivityLogs = () => {
   const [filterType, setFilterType] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterDate, setFilterDate] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Pagination
   const [page, setPage] = useState(0)
@@ -159,6 +160,7 @@ const ActivityLogs = () => {
         if (filterType) params.type = filterType
         if (filterStatus) params.status = filterStatus
         if (filterDate) params.date = filterDate
+        if (searchQuery.trim()) params.search = searchQuery.trim()
 
         const res = await activityLogsAPI.getAll(params)
         const data: ActivityLog[] = res.data ?? []
@@ -171,7 +173,7 @@ const ActivityLogs = () => {
         setLoading(false)
       }
     },
-    [filterType, filterStatus, filterDate],
+    [filterType, filterStatus, filterDate, searchQuery],
   )
 
   useEffect(() => {
@@ -268,6 +270,13 @@ const ActivityLogs = () => {
       <div className="section-card">
         {/* Filter bar */}
         <div className="filter-bar border-b border-[#E5E8EB] dark:border-gray-800">
+          <TextInput
+            sizing="sm"
+            placeholder="제목 검색..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full sm:w-48"
+          />
           <Select
             sizing="sm"
             value={filterType}
@@ -371,17 +380,13 @@ const ActivityLogs = () => {
                         <TableCell>
                           <span className="line-clamp-1 flex items-center gap-1 text-body whitespace-nowrap">
                             {(() => {
-                              // [TENANT] [이름] 나머지 → 색상 뱃지 + 텍스트
-                              const match = log.title.match(/^(?:\[([^\]]+)\]\s*)?(?:\[([^\]]+)\]\s*)?(.*)$/)
-                              if (!match) return <span className="text-[#191F28] dark:text-white">{log.title}</span>
-                              const [, tenant, name, rest] = match
+                              // [이름] 나머지 → 뱃지 + 텍스트 (테넌트 접두어 제거)
+                              const stripped = log.title.replace(/^\[[^\]]+\]\s*/, '')
+                              const match = stripped.match(/^(?:\[([^\]]+)\]\s*)?(.*)$/)
+                              if (!match) return <span className="text-[#191F28] dark:text-white">{stripped}</span>
+                              const [, name, rest] = match
                               return (
                                 <>
-                                  {tenant && (
-                                    <span className="inline-flex items-center rounded px-1.5 py-0.5 text-tiny font-semibold bg-[#F3EEFF] text-[#7C3AED] dark:bg-[#7C3AED]/15 dark:text-[#A78BFA]">
-                                      {tenant}
-                                    </span>
-                                  )}
                                   {name && (
                                     <span className="inline-flex items-center rounded px-3 py-0.5 text-caption font-semibold bg-[#F2F4F6] text-[#191F28] dark:bg-[#2C2C34] dark:text-gray-200">
                                       {name}

@@ -135,7 +135,6 @@ export default function Reservations() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading]           = useState(false);
   const [syncing, setSyncing]           = useState(false);
-  const [syncFromDate, setSyncFromDate] = useState('');
 
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo,   setFilterDateTo]   = useState('');
@@ -211,13 +210,11 @@ export default function Reservations() {
   async function handleSync() {
     setSyncing(true);
     try {
-      const res = await reservationsAPI.syncNaver(syncFromDate || undefined);
+      const res = await reservationsAPI.syncNaver();
       const added = res.data?.added ?? 0;
       const updated = res.data?.updated ?? 0;
       toast.success(`네이버 동기화 완료 — ${added}건 추가, ${updated}건 갱신`);
       fetchReservations();
-
-      setSyncFromDate('');
     } catch {
       toast.error('네이버 동기화에 실패했습니다.');
     } finally {
@@ -352,16 +349,9 @@ export default function Reservations() {
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             예약 등록
           </Button>
-          <input
-            type="date"
-            value={syncFromDate}
-            onChange={(e) => setSyncFromDate(e.target.value)}
-            className="h-[34px] rounded-lg border border-[#E5E8EB] bg-white px-2.5 text-caption text-[#4E5968] dark:border-gray-600 dark:bg-[#1E1E24] dark:text-gray-300"
-            placeholder="시작일"
-          />
           <Button color="blue" size="sm" className="whitespace-nowrap" onClick={handleSync} disabled={syncing}>
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5${syncing ? ' animate-spin' : ''}`} />
-            {syncFromDate ? `${syncFromDate}부터 동기화` : '네이버 동기화'}
+            네이버 동기화
           </Button>
         </div>
       </div>
@@ -588,16 +578,10 @@ export default function Reservations() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-[#F2F4F6] dark:border-gray-800 px-5 py-3">
-            <span className="text-caption text-[#8B95A1] dark:text-gray-500">
-              총 <span className="tabular-nums font-medium">{totalCount}</span>건 중{' '}
-              <span className="tabular-nums font-medium">{(currentPage - 1) * PAGE_SIZE + 1}</span>–
-              <span className="tabular-nums font-medium">{Math.min(currentPage * PAGE_SIZE, totalCount)}</span>건
-            </span>
-            <div className="flex items-center gap-1">
+          <div className="flex items-center justify-center gap-1.5 border-t border-[#F2F4F6] dark:border-gray-800 px-5 py-6">
               <Button
                 color="light"
-                size="xs"
+                size="sm"
                 disabled={currentPage === 1}
                 onClick={() => setCurrentPage((p) => p - 1)}
               >
@@ -607,7 +591,7 @@ export default function Reservations() {
                 <button
                   key={page}
                   onClick={() => setCurrentPage(page)}
-                  className={`px-2.5 py-1 rounded-lg text-caption font-medium transition-colors cursor-pointer ${
+                  className={`min-w-[36px] h-9 px-3 py-1.5 rounded-lg text-body font-medium transition-colors cursor-pointer ${
                     page === currentPage
                       ? 'bg-[#3182F6] text-white'
                       : 'text-[#8B95A1] hover:bg-[#F2F4F6] dark:text-gray-500 dark:hover:bg-[#2C2C34]'
@@ -618,13 +602,12 @@ export default function Reservations() {
               ))}
               <Button
                 color="light"
-                size="xs"
+                size="sm"
                 disabled={currentPage === totalPages}
                 onClick={() => setCurrentPage((p) => p + 1)}
               >
                 다음
               </Button>
-            </div>
           </div>
         )}
       </div>

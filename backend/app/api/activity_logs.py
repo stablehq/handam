@@ -20,6 +20,7 @@ def get_activity_logs(
     type: Optional[str] = None,
     status: Optional[str] = None,
     date: Optional[str] = None,
+    search: Optional[str] = None,
     skip: int = 0,
     limit: int = 50,
     db: Session = Depends(get_tenant_scoped_db),
@@ -32,6 +33,8 @@ def get_activity_logs(
         query = query.filter(ActivityLog.activity_type == type)
     if status:
         query = query.filter(ActivityLog.status == status)
+    if search:
+        query = query.filter(ActivityLog.title.contains(search))
     if date:
         # Filter by date (YYYY-MM-DD)
         start_kst = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=KST)

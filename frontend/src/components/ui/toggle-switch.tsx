@@ -33,7 +33,7 @@ function ToggleSwitch({ id, checked, onChange, label, disabled, className }: Tog
         <div
           className={cn(
             "h-6 w-11 min-w-11 rounded-full border transition-colors",
-            "after:absolute after:left-px after:top-px after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all",
+            "after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all",
             checked
               ? "border-[#3182F6] bg-[#3182F6] after:translate-x-full"
               : "border-gray-200 bg-gray-200 dark:border-gray-600 dark:bg-gray-600",

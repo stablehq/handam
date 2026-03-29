@@ -176,8 +176,10 @@ const Dashboard = () => {
         />
         <MetricCard
           title="네이버 동기화"
-          value={stats.naver_sync?.status === 'success' ? '실행중' : stats.naver_sync?.status === 'failed' ? '오류' : '-'}
-          subtitle={stats.naver_sync?.last_sync_at
+          value={stats.naver_sync?.status === 'success' ? '정상' : stats.naver_sync?.status === 'partial' ? '부분 성공' : stats.naver_sync?.status === 'failed' ? '오류' : '-'}
+          subtitle={stats.naver_sync?.error
+            ? stats.naver_sync.error
+            : stats.naver_sync?.last_sync_at
             ? `${new Date(normalizeUtcString(stats.naver_sync.last_sync_at)).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' })} · 다음 ${new Date(normalizeUtcString(stats.naver_sync.next_sync_at)).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`
             : '스케줄러 미실행'}
           icon={<RefreshCw size={20} />}

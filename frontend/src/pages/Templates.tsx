@@ -159,10 +159,18 @@ function formatScheduleTime(s: TemplateSchedule): string {
     return `${days}요일 ${s.hour}시 ${String(s.minute ?? 0).padStart(2, '0')}분`;
   }
   if (s.schedule_type === 'hourly') {
-    return `매시간 ${String(s.minute ?? 0).padStart(2, '0')}분`;
+    const base = `매시간 ${String(s.minute ?? 0).padStart(2, '0')}분`;
+    if (s.active_start_hour != null && s.active_end_hour != null) {
+      return `${base} (${s.active_start_hour}시~${s.active_end_hour}시)`;
+    }
+    return base;
   }
   if (s.schedule_type === 'interval') {
-    return `${s.interval_minutes}분마다`;
+    const base = `${s.interval_minutes}분마다`;
+    if (s.active_start_hour != null && s.active_end_hour != null) {
+      return `${base} (${s.active_start_hour}시~${s.active_end_hour}시)`;
+    }
+    return base;
   }
   return '-';
 }
@@ -884,9 +892,9 @@ const Templates: React.FC = () => {
               <TableHead>
                 <TableRow>
                   <TableHeadCell className="w-12 whitespace-nowrap">ID</TableHeadCell>
-                  <TableHeadCell className="w-1 whitespace-nowrap">템플릿 키</TableHeadCell>
                   <TableHeadCell className="w-1 whitespace-nowrap">템플릿 이름</TableHeadCell>
                   <TableHeadCell className="w-1 whitespace-nowrap">축약명</TableHeadCell>
+                  <TableHeadCell className="w-1 whitespace-nowrap">템플릿 키</TableHeadCell>
                   <TableHeadCell className="whitespace-nowrap">사용 변수</TableHeadCell>
                   <TableHeadCell className="w-16 whitespace-nowrap text-center">상태</TableHeadCell>
                   <TableHeadCell className="w-16 whitespace-nowrap text-center">스케줄</TableHeadCell>
@@ -900,11 +908,6 @@ const Templates: React.FC = () => {
                       <span className="tabular-nums text-gray-400 dark:text-gray-500">{t.id}</span>
                     </TableCell>
                     <TableCell>
-                      <code className="rounded bg-[#F2F4F6] px-1.5 py-0.5 font-mono text-caption text-[#3182F6] dark:bg-gray-700 dark:text-blue-400">
-                        {t.template_key}
-                      </code>
-                    </TableCell>
-                    <TableCell>
                       <span className="font-medium text-gray-900 dark:text-white">{t.name}</span>
                     </TableCell>
                     <TableCell>
@@ -915,6 +918,11 @@ const Templates: React.FC = () => {
                       ) : (
                         <span className="text-caption text-gray-400 dark:text-gray-500">-</span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <code className="rounded bg-[#F2F4F6] px-1.5 py-0.5 font-mono text-caption text-[#3182F6] dark:bg-gray-700 dark:text-blue-400">
+                        {t.template_key}
+                      </code>
                     </TableCell>
                     <TableCell>
                       {t.variables ? (() => {
@@ -1051,7 +1059,13 @@ const Templates: React.FC = () => {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge color="purple" size="sm">{getScheduleTypeLabel(s.schedule_type)}</Badge>
+                        <Badge color={
+                          s.schedule_type === 'daily' ? 'info'
+                            : s.schedule_type === 'weekly' ? 'purple'
+                            : s.schedule_type === 'hourly' ? 'success'
+                            : s.schedule_type === 'interval' ? 'warning'
+                            : 'gray'
+                        } size="sm">{getScheduleTypeLabel(s.schedule_type)}</Badge>
                       </TableCell>
                       <TableCell>
                         <span className="text-body text-[#4E5968] dark:text-gray-300">{formatScheduleTime(s)}</span>
@@ -1522,7 +1536,7 @@ const Templates: React.FC = () => {
             </div>
           </div>
 
-          <div className="border-t border-[#F2F4F6] dark:border-gray-800" />
+          <div className="border-t border-[#E5E8EB] dark:border-gray-700" />
 
           {/* Schedule type + time in one row */}
           <div className="space-y-3">
@@ -1634,7 +1648,7 @@ const Templates: React.FC = () => {
           {/* 발송 조건 — 표준 모드에서만 */}
           {sCategory === 'standard' && (
           <>
-          <div className="border-t border-[#F2F4F6] dark:border-gray-800" />
+          <div className="border-t border-[#E5E8EB] dark:border-gray-700" />
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <Label className="!mb-0">발송 조건</Label>
@@ -1691,7 +1705,7 @@ const Templates: React.FC = () => {
           {/* Multi-filter target — 표준 모드에서만 표시 */}
           {sCategory === 'standard' && (
           <>
-          <div className="border-t border-[#F2F4F6] dark:border-gray-800" />
+          <div className="border-t border-[#E5E8EB] dark:border-gray-700" />
 
           <div className="space-y-3">
             <Label>발송 대상 필터</Label>
@@ -1790,7 +1804,7 @@ const Templates: React.FC = () => {
                   onClick={addCmRow}
                   className="text-caption font-medium text-[#3182F6] hover:text-[#1B64DA] cursor-pointer dark:text-blue-400"
                 >
-                  + 추가
+                  + 컬럼 조건 추가
                 </button>
               </div>
               {cmRows.map((row, i) => (
@@ -1855,7 +1869,7 @@ const Templates: React.FC = () => {
           {/* 이벤트 조건 — 이벤트 모드에서만 표시 */}
           {sCategory === 'event' && (
           <>
-          <div className="border-t border-[#F2F4F6] dark:border-gray-800" />
+          <div className="border-t border-[#E5E8EB] dark:border-gray-700" />
           <div className="space-y-3">
             <Label>이벤트 조건</Label>
 
@@ -1923,7 +1937,7 @@ const Templates: React.FC = () => {
           </div>
 
           {/* 운영 기간 */}
-          <div className="border-t border-[#F2F4F6] dark:border-gray-800" />
+          <div className="border-t border-[#E5E8EB] dark:border-gray-700" />
           <div className="space-y-3">
             <Label>운영 기간</Label>
             <div className="space-y-1.5">
@@ -1945,7 +1959,7 @@ const Templates: React.FC = () => {
           </div>
 
           {/* 연박자 설정 — 이벤트 모드 (포함/제외만) */}
-          <div className="border-t border-[#F2F4F6] dark:border-gray-800" />
+          <div className="border-t border-[#E5E8EB] dark:border-gray-700" />
           <div className="space-y-3">
             <Label>연박자 설정</Label>
             <div className="flex gap-2">
@@ -1981,7 +1995,7 @@ const Templates: React.FC = () => {
           {/* 연박자 발송 설정 — 표준 모드에서만 표시 */}
           {sCategory === 'standard' && (
           <>
-          <div className="border-t border-[#F2F4F6] dark:border-gray-800" />
+          <div className="border-t border-[#E5E8EB] dark:border-gray-700" />
 
           <div className="space-y-3">
             <Label>연박자 발송 설정</Label>
@@ -2045,7 +2059,7 @@ const Templates: React.FC = () => {
           </>
           )}
 
-          <div className="border-t border-[#F2F4F6] dark:border-gray-800" />
+          <div className="border-t border-[#E5E8EB] dark:border-gray-700" />
 
         </div>
       </ModalBody>
