@@ -633,14 +633,40 @@ async def sync_from_naver(request: Request, from_date: Optional[str] = None, rec
     log_activity(
         db,
         type="naver_sync",
-        title=f"네이버 예약 동기화 : 수동 실행{f' ({from_date}~)' if from_date else ''}",
+        title=f"[스테이블] 네이버 예약 동기화 : 수동 실행{f' ({from_date}~)' if from_date else ''}",
         detail=result,
         target_count=result.get("total", 0),
         success_count=result.get("synced", 0),
         created_by=current_user.username,
     )
+
+    # 언스테이블 동기화도 같이 실행
+    unstable_result = None
+    if tenant.unstable_business_id and tenant.unstable_cookie:
+        from app.real.reservation import RealReservationProvider
+        unstable_provider = RealReservationProvider(
+            business_id=tenant.unstable_business_id,
+            cookie=tenant.unstable_cookie,
+        )
+        try:
+            unstable_result = await sync_naver_to_db(unstable_provider, db, from_date=from_date, source="unstable")
+            log_activity(
+                db,
+                type="naver_sync",
+                title=f"[언스테이블] 네이버 예약 동기화 : 수동 실행{f' ({from_date}~)' if from_date else ''}",
+                detail=unstable_result,
+                target_count=unstable_result.get("total", 0),
+                success_count=unstable_result.get("synced", 0),
+                created_by=current_user.username,
+            )
+        except Exception as e:
+            logger.warning(f"Unstable sync failed during manual sync: {e}")
+
     db.commit()
 
+    # 응답에 언스테이블 결과도 포함
+    if unstable_result:
+        result["unstable"] = unstable_result
     return result
 
 
