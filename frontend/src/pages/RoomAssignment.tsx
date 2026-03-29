@@ -420,7 +420,6 @@ const RoomAssignment = () => {
   const [savingGroups, setSavingGroups] = useState(false);
 
   const [showStayGroupModal, setShowStayGroupModal] = useState(false);
-  const [stayGroupStep, setStayGroupStep] = useState<1 | 2>(1);
   const [stayGroupChain, setStayGroupChain] = useState<Array<{id: number; customer_name: string; phone: string; check_in_date: string; check_out_date: string; stay_group_id?: string | null}>>([]);
   const [stayGroupDateReservations, setStayGroupDateReservations] = useState<any[]>([]);
   const [stayGroupSelectedId, setStayGroupSelectedId] = useState<number | null>(null);
@@ -1123,36 +1122,30 @@ const RoomAssignment = () => {
     }
   };
 
-  const openStayGroupModal = () => {
+  const openStayGroupModalForRes = (resId: number) => {
+    const res = reservations.find(r => r.id === resId);
+    if (!res) return;
+
+    const initialEntry = {
+      id: res.id,
+      customer_name: res.customer_name,
+      phone: res.phone,
+      check_in_date: res.check_in_date,
+      check_out_date: res.check_out_date || res.check_in_date,
+      stay_group_id: res.stay_group_id,
+    };
+
     setShowStayGroupModal(true);
-    setStayGroupStep(1);
-    setStayGroupChain([]);
+    setStayGroupChain([initialEntry]);
     setStayGroupSelectedId(null);
-    loadReservationsForDate(selectedDate.format('YYYY-MM-DD'));
-  };
 
-  const handleStayGroupNext = () => {
-    const selected = stayGroupDateReservations.find((r: any) => r.id === stayGroupSelectedId);
-    if (!selected) return;
-
-    const newChain = [...stayGroupChain, {
-      id: selected.id,
-      customer_name: selected.customer_name,
-      phone: selected.phone,
-      check_in_date: selected.check_in_date,
-      check_out_date: selected.check_out_date || selected.check_in_date,
-      stay_group_id: selected.stay_group_id,
-    }];
-    setStayGroupChain(newChain);
-    setStayGroupSelectedId(null);
-    setStayGroupStep(2);
-
-    // Load next date's reservations based on check_out_date
-    const nextDate = selected.check_out_date || selected.check_in_date;
+    // 다음날 예약자 목록 로드 (check_out_date 기준)
+    const nextDate = res.check_out_date || res.check_in_date;
     if (nextDate) {
       loadReservationsForDate(nextDate);
     }
   };
+
 
   const handleStayGroupAddMore = () => {
     const selected = stayGroupDateReservations.find((r: any) => r.id === stayGroupSelectedId);
@@ -1390,7 +1383,7 @@ const RoomAssignment = () => {
         if (firstRes.stay_group_id) {
           handleStayGroupUnlink(firstRes.id);
         } else {
-          openStayGroupModal();
+          openStayGroupModalForRes(firstRes.id);
         }
         setContextMenu(null);
       },
@@ -1406,7 +1399,7 @@ const RoomAssignment = () => {
         setContextMenu(null);
       },
     };
-  }, [contextMenu, reservations, sectionOverrides, handleDropOnPool, handleDropOnParty, handleDeleteGuest, selectedDate, fetchReservations, handleStayGroupUnlink, openStayGroupModal, showConfirm]);
+  }, [contextMenu, reservations, sectionOverrides, handleDropOnPool, handleDropOnParty, handleDeleteGuest, selectedDate, fetchReservations, handleStayGroupUnlink, openStayGroupModalForRes, showConfirm]);
 
   const handleSubmit = async () => {
     if (savingReservation) return;
@@ -2110,14 +2103,7 @@ const RoomAssignment = () => {
                 <Layers className="h-3.5 w-3.5 mr-1.5" />
                 그룹 설정
               </Button>
-              <Button
-                color="light"
-                size="sm"
-                onClick={openStayGroupModal}
-              >
-                <Link2 className="h-3.5 w-3.5 mr-1.5" />
-                연박 묶기
-              </Button>
+
               <Button
                 color="light"
                 size="sm"
@@ -2867,7 +2853,7 @@ const RoomAssignment = () => {
       {/* Stay Group Link Modal */}
       <Modal show={showStayGroupModal} onClose={() => setShowStayGroupModal(false)} size="md">
         <ModalHeader>
-          연박 묶기 {stayGroupStep === 1 ? '— 기준 예약자 선택' : '— 연결할 예약자 선택'}
+          연박 묶기 — 연결할 예약자 선택
         </ModalHeader>
         <ModalBody>
           <div className="space-y-4">
@@ -2900,18 +2886,8 @@ const RoomAssignment = () => {
             {/* Date label */}
             <div className="flex items-center gap-2">
               <span className="text-label font-semibold text-[#191F28] dark:text-white">
-                {stayGroupStep === 1 ? '날짜 선택' : `${stayGroupChain[stayGroupChain.length - 1]?.check_out_date || ''} 예약자`}
+                {`${stayGroupChain[stayGroupChain.length - 1]?.check_out_date || ''} 예약자`}
               </span>
-              {stayGroupStep === 1 && (
-                <input
-                  type="date"
-                  defaultValue={selectedDate.format('YYYY-MM-DD')}
-                  onChange={(e) => {
-                    if (e.target.value) loadReservationsForDate(e.target.value);
-                  }}
-                  className="rounded-lg border border-[#E5E8EB] bg-white px-2 py-1 text-caption dark:border-gray-600 dark:bg-[#1E1E24] dark:text-gray-300"
-                />
-              )}
             </div>
 
             {/* Reservation list */}
@@ -2960,15 +2936,7 @@ const RoomAssignment = () => {
           </div>
         </ModalBody>
         <ModalFooter>
-          {stayGroupStep === 1 ? (
-            <>
-              <Button color="light" onClick={() => setShowStayGroupModal(false)}>취소</Button>
-              <Button color="blue" disabled={!stayGroupSelectedId} onClick={handleStayGroupNext}>
-                다음
-              </Button>
-            </>
-          ) : (
-            <>
+          <>
               <Button color="light" onClick={() => setShowStayGroupModal(false)}>취소</Button>
               <Button color="light" disabled={!stayGroupSelectedId} onClick={handleStayGroupAddMore}>
                 {stayGroupSelectedId ? '+ 선택 추가' : '예약자를 선택하세요'}
@@ -2979,7 +2947,6 @@ const RoomAssignment = () => {
                 </Button>
               )}
             </>
-          )}
         </ModalFooter>
       </Modal>
 
