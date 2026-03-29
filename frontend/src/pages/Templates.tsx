@@ -6,7 +6,7 @@ import {
   Trash2,
   Play,
   Eye,
-  RefreshCw,
+
   CheckCircle,
   XCircle,
   FileText,
@@ -780,16 +780,6 @@ const Templates: React.FC = () => {
     }
   };
 
-  const handleSyncSchedules = async () => {
-    const tid = toast.loading('동기화 중...');
-    try {
-      const res = await templateSchedulesAPI.sync();
-      toast.success(res.data.message, { id: tid, duration: 3000 });
-      fetchSchedules();
-    } catch {
-      toast.error('동기화 실패', { id: tid });
-    }
-  };
 
   // ---------------------------------------------------------------------------
   // Day-of-week toggle helper
@@ -993,10 +983,7 @@ const Templates: React.FC = () => {
           템플릿을 자동으로 발송할 시간을 설정합니다. 매일, 매주, 매시간, 또는 N분마다 발송할 수 있습니다.
         </span>
         <div className="flex items-center gap-2 shrink-0">
-          <Button size="sm" color="light" className="whitespace-nowrap" onClick={handleSyncSchedules}>
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-            동기화
-          </Button>
+          {/* 동기화 버튼: 비상용 API만 유지, UI 숨김 (서버 시작 시 자동 로드 + CRUD 시 개별 반영됨) */}
           <Button color="blue" size="sm" className="whitespace-nowrap" onClick={openCreateSchedule}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             새 스케줄

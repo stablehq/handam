@@ -5,7 +5,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Literal, Optional
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
 
 from app.api.deps import get_tenant_scoped_db, _remap_active_field
@@ -454,7 +454,14 @@ def auto_assign(
 
 @router.post("/sync")
 def sync_schedules(db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
-    """Sync all active schedules to APScheduler"""
+    """Sync all active schedules to APScheduler
+
+    [사용 가이드 작성 시 포함할 내용]
+    - 정상 운영 시 이 API를 수동 호출할 필요 없음
+    - 스케줄 CRUD 시 개별 APScheduler 반영이 자동으로 됨
+    - 서버 시작(startup) 시 전체 스케줄 일괄 로드됨 (load_template_schedules)
+    - 이 API는 비상용: DB 직접 수정, APScheduler-DB 불일치 의심, 디버깅 시 사용
+    """
     try:
         schedule_manager = ScheduleManager(scheduler)
         schedule_manager.sync_all_schedules(db)

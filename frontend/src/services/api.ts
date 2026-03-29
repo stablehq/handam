@@ -152,28 +152,10 @@ export const documentsAPI = {
   delete: (id: number) => api.delete(`/api/documents/${id}`),
 };
 
-// Auto-response API
-export const autoResponseAPI = {
-  generate: (messageId: number) =>
-    api.post('/api/auto-response/generate', { message_id: messageId }),
-  test: (message: string) =>
-    api.post('/api/auto-response/test', { message }),
-  reloadRules: () => api.post('/api/auto-response/reload-rules'),
-};
-
 // Dashboard API
 export const dashboardAPI = {
   getStats: () => api.get('/api/dashboard/stats'),
   getTodaySchedules: () => api.get('/api/dashboard/today-schedules'),
-};
-
-// Scheduler API
-export const schedulerAPI = {
-  getJobs: () => api.get('/api/scheduler/jobs'),
-  runJob: (jobId: string) => api.post(`/api/scheduler/jobs/${jobId}/run`),
-  pauseJob: (jobId: string) => api.post(`/api/scheduler/jobs/${jobId}/pause`),
-  resumeJob: (jobId: string) => api.post(`/api/scheduler/jobs/${jobId}/resume`),
-  getStatus: () => api.get('/api/scheduler/status'),
 };
 
 // Templates API

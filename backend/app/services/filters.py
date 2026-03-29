@@ -8,8 +8,6 @@ from collections import defaultdict
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 
-from app.config import today_kst
-
 from app.db.models import (
     Reservation,
     Room,

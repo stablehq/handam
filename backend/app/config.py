@@ -20,8 +20,6 @@ def today_kst_date():
     return datetime.now(KST).date()
 
 
-_config_logger = logging.getLogger(__name__)
-
 # 자동 생성 여부 추적 (Settings 모델 오염 방지)
 _auto_generated = {"jwt_key": False, "admin_pw": False, "staff_pw": False}
 

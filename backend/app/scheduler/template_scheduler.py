@@ -12,7 +12,6 @@ from app.services.filters import (
     apply_structural_filters as _standalone_structural_filters,
 )
 from app.factory import get_sms_provider_for_tenant
-from app.templates.renderer import TemplateRenderer
 from app.services.sms_tracking import record_sms_sent
 from app.services.activity_logger import log_activity
 from app.services.event_bus import publish as publish_event
@@ -30,7 +29,6 @@ class TemplateScheduleExecutor:
     def __init__(self, db: Session, tenant=None):
         self.db = db
         self.sms_provider = get_sms_provider_for_tenant(tenant)
-        self.template_renderer = TemplateRenderer(db)
 
     async def execute_schedule(self, schedule_id: int, manual: bool = False) -> Dict[str, Any]:
         """

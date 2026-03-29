@@ -52,7 +52,6 @@ def init_db():
     from app.auth.utils import hash_password
     from app.db.tenant_context import bypass_tenant_filter
     from sqlalchemy import inspect as sa_inspect, text
-    import json
 
     # init_db는 전역 작업이므로 테넌트 필터 우회
     _bypass_token = bypass_tenant_filter.set(True)

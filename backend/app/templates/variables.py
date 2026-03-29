@@ -4,7 +4,7 @@ Template Variable Definitions and Auto-calculation
 Defines all available template variables and provides functions to calculate them.
 """
 from typing import Dict, Any, Optional
-from datetime import datetime, date
+from datetime import datetime
 import math
 import json as _json
 from sqlalchemy import func

@@ -3,7 +3,7 @@ Schedule manager for APScheduler and DB synchronization
 """
 import logging
 from datetime import datetime, timezone as tz
-from typing import Optional
+
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.base import JobLookupError
@@ -266,31 +266,6 @@ class ScheduleManager:
             logger.error(f"Unknown schedule_type: {schedule.schedule_type}")
             return None
 
-    def get_schedule_info(self, schedule_id: int) -> Optional[dict]:
-        """
-        Get APScheduler job info for a schedule
-
-        Args:
-            schedule_id: Template schedule ID
-
-        Returns:
-            Job info dict or None
-        """
-        job_id = f"template_schedule_{schedule_id}"
-
-        try:
-            job = self.scheduler.get_job(job_id)
-            if job:
-                return {
-                    "id": job.id,
-                    "name": job.name,
-                    "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
-                    "trigger": str(job.trigger)
-                }
-        except Exception as e:
-            logger.error(f"Error getting job info for {job_id}: {str(e)}")
-
-        return None
 
     def get_all_jobs(self) -> list:
         """
