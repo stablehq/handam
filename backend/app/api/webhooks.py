@@ -5,11 +5,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.api.deps import get_tenant_scoped_db, get_current_tenant
-from app.db.models import Message, MessageDirection, MessageStatus, User, Tenant, Rule
+from app.db.models import Message, MessageDirection, MessageStatus, User, Tenant
 from app.auth.dependencies import get_current_user
 from app.factory import get_sms_provider_for_tenant
-from app.router.message_router import MessageRouter
-from datetime import datetime, timezone
 import logging
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -26,7 +24,7 @@ class SMSReceiveRequest(BaseModel):
 async def receive_sms(request: SMSReceiveRequest, db: Session = Depends(get_tenant_scoped_db), tenant: Tenant = Depends(get_current_tenant), current_user: User = Depends(get_current_user)):
     """
     Webhook for receiving SMS (simulated in demo mode).
-    Saves inbound message, runs auto-response pipeline, and auto-sends if confident.
+    Saves inbound message to DB.
     """
     sms_provider = get_sms_provider_for_tenant(tenant)
 
@@ -50,59 +48,7 @@ async def receive_sms(request: SMSReceiveRequest, db: Session = Depends(get_tena
 
     logger.info(f"SMS received and saved to DB: {msg.id}")
 
-    # Auto-response pipeline
-    rules = db.query(Rule).filter(Rule.is_active == True).order_by(Rule.priority.desc()).all()
-    msg_router = MessageRouter()
-    auto_result = await msg_router.generate_auto_response(request.message, rules=rules)
-
-    # Store auto-response metadata on inbound message
-    msg.auto_response = auto_result["response"]
-    msg.auto_response_confidence = auto_result["confidence"]
-    msg.needs_review = auto_result["needs_review"]
-    msg.response_source = auto_result["source"]
-    db.commit()
-
-    response = {
-        "success": True,
-        "message_id": msg.id,
-        "result": result,
-        "auto_response": {
-            "response": auto_result["response"],
-            "confidence": auto_result["confidence"],
-            "needs_review": auto_result["needs_review"],
-            "source": auto_result["source"],
-            "sent": False,
-        },
-    }
-
-    # Auto-send if no review needed
-    if not auto_result["needs_review"]:
-        await sms_provider.send_sms(to=request.from_, message=auto_result["response"])
-
-        outbound_msg = Message(
-            message_id=f"auto_{msg.id}_{int(datetime.now(timezone.utc).timestamp())}",
-            direction=MessageDirection.OUTBOUND,
-            from_=request.to,
-            to=request.from_,
-            content=auto_result["response"],
-            status=MessageStatus.SENT,
-            response_source=auto_result["source"],
-            auto_response_confidence=auto_result["confidence"],
-        )
-        db.add(outbound_msg)
-        db.commit()
-        db.refresh(outbound_msg)
-
-        response["auto_response"]["sent"] = True
-        response["outbound_message"] = {
-            "id": outbound_msg.id,
-            "message": outbound_msg.content,
-        }
-        logger.info(f"Auto-response sent: {outbound_msg.id} (source={auto_result['source']})")
-    else:
-        logger.info(f"Auto-response needs review (confidence={auto_result['confidence']:.2f})")
-
-    return response
+    return {"success": True, "message_id": msg.id}
 
 
 # TODO: Implement Naver Smart Place Webhook for real-time reservation updates

@@ -53,7 +53,6 @@ class ContactResponse(BaseModel):
     customer_name: Optional[str] = None
 
 
-# IMPORTANT: /contacts must be defined BEFORE /review-queue for correct route matching
 @router.get("/contacts", response_model=List[ContactResponse])
 async def get_contacts(db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user), tenant: Tenant = Depends(get_current_tenant)):
     """Get unique contact list with last message preview"""
@@ -186,30 +185,3 @@ async def send_sms(request: SendSMSRequest, db: Session = Depends(get_tenant_sco
     return {"success": True, "result": result}
 
 
-@router.get("/review-queue")
-async def get_review_queue(db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
-    """Get messages that need human review"""
-    messages = (
-        db.query(Message)
-        .filter(Message.needs_review == True, Message.direction == MessageDirection.INBOUND)
-        .order_by(Message.created_at.desc())
-        .all()
-    )
-
-    return [
-        MessageResponse(
-            id=msg.id,
-            message_id=msg.message_id,
-            direction=msg.direction.value,
-            from_=msg.from_,
-            to=msg.to,
-            content=msg.content,
-            status=msg.status.value,
-            created_at=msg.created_at,
-            auto_response=msg.auto_response,
-            auto_response_confidence=msg.auto_response_confidence,
-            needs_review=msg.needs_review,
-            response_source=msg.response_source,
-        )
-        for msg in messages
-    ]

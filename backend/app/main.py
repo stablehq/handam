@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from app.rate_limit import limiter
 
 
-from app.api import messages, webhooks, auto_response, rules, documents, reservations, dashboard, scheduler, rooms, templates, template_schedules, auth, settings, activity_logs, buildings, party_checkin, events, tenants
+from app.api import messages, webhooks, reservations, dashboard, scheduler, rooms, templates, template_schedules, auth, settings, activity_logs, buildings, party_checkin, events, tenants
 from app.config import settings as app_settings
 from app.db.database import init_db, get_db
 from app.scheduler.jobs import start_scheduler, stop_scheduler
@@ -107,9 +107,6 @@ async def shutdown_event():
 app.include_router(auth.router)
 app.include_router(messages.router)
 app.include_router(webhooks.router)
-app.include_router(auto_response.router)
-app.include_router(rules.router)
-app.include_router(documents.router)
 app.include_router(reservations.router)
 app.include_router(rooms.router)
 app.include_router(dashboard.router)

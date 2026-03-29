@@ -75,19 +75,4 @@ class ReservationProvider(Protocol):
         ...
 
 
-class LLMProvider(Protocol):
-    """LLM (Claude) abstraction for auto-response generation"""
-
-    async def generate_response(
-        self, message: str, context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        Generate response to customer message.
-        Returns: {
-            "response": str,
-            "confidence": float (0-1),
-            "needs_review": bool
-        }
-        """
-        ...
 

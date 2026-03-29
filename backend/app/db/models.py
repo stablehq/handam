@@ -141,6 +141,7 @@ class Reservation(TenantMixin, Base):
     )
 
 
+# DEACTIVATED: LLM/RAG auto-response feature — preserved for Alembic migration compatibility
 class Rule(TenantMixin, Base):
     """Auto-response rules"""
 
@@ -156,6 +157,7 @@ class Rule(TenantMixin, Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
+# DEACTIVATED: LLM/RAG auto-response feature — preserved for Alembic migration compatibility
 class Document(TenantMixin, Base):
     """Knowledge base documents for RAG"""
 

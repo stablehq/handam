@@ -7,8 +7,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useTenantStore } from '@/stores/tenant-store'
 import Dashboard from './pages/Dashboard'
 import Reservations from './pages/Reservations'
-import Messages from './pages/Messages'
-import AutoResponse from './pages/AutoResponse'
+
 import RoomAssignment from './pages/RoomAssignment'
 import RoomSettings from './pages/RoomSettings'
 import Templates from './pages/Templates'
@@ -55,8 +54,6 @@ function App() {
               <Route path="/reservations" element={<StaffRedirect><Reservations /></StaffRedirect>} />
               <Route path="/rooms" element={<StaffRedirect><RoomAssignment /></StaffRedirect>} />
               <Route path="/rooms/manage" element={<StaffRedirect><RoomSettings /></StaffRedirect>} />
-              <Route path="/messages" element={<StaffRedirect><Messages /></StaffRedirect>} />
-              <Route path="/auto-response" element={<StaffRedirect><AutoResponse /></StaffRedirect>} />
               <Route path="/templates" element={<StaffRedirect><Templates /></StaffRedirect>} />
               <Route path="/settings" element={<StaffRedirect><Settings /></StaffRedirect>} />
               <Route path="/activity-logs" element={<StaffRedirect><ActivityLogs /></StaffRedirect>} />

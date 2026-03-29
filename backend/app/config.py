@@ -41,9 +41,6 @@ class Settings(BaseSettings):
     ALIGO_USER_ID: str = ""
     ALIGO_SENDER: str = ""
 
-    # Claude API (only needed when DEMO_MODE=false)
-    CLAUDE_API_KEY: str = ""
-
     # JWT Authentication
     JWT_SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"

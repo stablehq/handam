@@ -86,17 +86,6 @@ api.interceptors.response.use(
   }
 )
 
-// Messages API
-export const messagesAPI = {
-  getAll: (params?: { skip?: number; limit?: number; direction?: string; phone?: string }) =>
-    api.get('/api/messages', { params }),
-  getContacts: () => api.get('/api/messages/contacts'),
-  send: (data: { to: string; content: string }) =>
-    api.post('/api/messages/send', data),
-  getReviewQueue: () => api.get('/api/messages/review-queue'),
-  simulateReceive: (data: { from_: string; to: string; content: string }) =>
-    api.post('/webhooks/sms/receive', data),
-};
 
 // Reservations API
 export const reservationsAPI = {
@@ -129,27 +118,6 @@ export const roomsAPI = {
   createGroup: (data: { name: string; sort_order?: number; color?: string; room_ids?: number[] }) => api.post('/api/rooms/groups', data),
   updateGroup: (id: number, data: { name?: string; sort_order?: number; color?: string; room_ids?: number[] }) => api.put(`/api/rooms/groups/${id}`, data),
   deleteGroup: (id: number) => api.delete(`/api/rooms/groups/${id}`),
-};
-
-// Rules API
-export const rulesAPI = {
-  getAll: () => api.get('/api/rules'),
-  create: (data: any) => api.post('/api/rules', data),
-  update: (id: number, data: any) => api.put(`/api/rules/${id}`, data),
-  delete: (id: number) => api.delete(`/api/rules/${id}`),
-};
-
-// Documents API
-export const documentsAPI = {
-  getAll: () => api.get('/api/documents'),
-  upload: (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    return api.post('/api/documents/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-  },
-  delete: (id: number) => api.delete(`/api/documents/${id}`),
 };
 
 // Dashboard API

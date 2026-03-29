@@ -2,10 +2,9 @@
 Provider factory for creating tenant-aware provider instances.
 
 SMS and Reservation providers are always Real (no mock).
-LLM provider uses DEMO_MODE to switch between Mock and Real.
 """
 from app.config import settings
-from app.providers.base import SMSProvider, ReservationProvider, LLMProvider
+from app.providers.base import SMSProvider, ReservationProvider
 import logging
 
 logger = logging.getLogger(__name__)
@@ -37,11 +36,3 @@ def get_reservation_provider_for_tenant(tenant=None) -> ReservationProvider:
     )
 
 
-def get_llm_provider() -> LLMProvider:
-    """Get LLM provider based on DEMO_MODE."""
-    if settings.DEMO_MODE:
-        from app.mock.llm import MockLLMProvider
-        return MockLLMProvider()
-    logger.info("🚀 Using RealLLMProvider")
-    from app.real.llm import RealLLMProvider
-    return RealLLMProvider(api_key=settings.CLAUDE_API_KEY)
