@@ -425,6 +425,7 @@ const RoomAssignment = () => {
   const [stayGroupSelectedId, setStayGroupSelectedId] = useState<number | null>(null);
   const [stayGroupLoading, setStayGroupLoading] = useState(false);
   const [stayGroupLinking, setStayGroupLinking] = useState(false);
+  const [stayGroupDirection, setStayGroupDirection] = useState<'left' | 'right'>('right');
 
   const handleFieldSave = async (resId: number, field: string, value: string) => {
     if (field === 'party_type') {
@@ -1138,6 +1139,7 @@ const RoomAssignment = () => {
     setShowStayGroupModal(true);
     setStayGroupChain([initialEntry]);
     setStayGroupSelectedId(null);
+    setStayGroupDirection('right');
 
     // 다음날 예약자 목록 로드 (check_out_date 기준)
     const nextDate = res.check_out_date || res.check_in_date;
@@ -1151,28 +1153,54 @@ const RoomAssignment = () => {
     const selected = stayGroupDateReservations.find((r: any) => r.id === stayGroupSelectedId);
     if (!selected) return;
 
-    const lastInChain = stayGroupChain[stayGroupChain.length - 1];
-    // Validate: check_in must equal previous check_out
-    if (lastInChain && selected.check_in_date !== lastInChain.check_out_date) {
-      toast.error('체크인 날짜가 이전 예약의 체크아웃과 일치하지 않습니다');
-      return;
-    }
-
-    const newChain = [...stayGroupChain, {
+    const entry = {
       id: selected.id,
       customer_name: selected.customer_name,
       phone: selected.phone,
       check_in_date: selected.check_in_date,
       check_out_date: selected.check_out_date || selected.check_in_date,
       stay_group_id: selected.stay_group_id,
-    }];
-    setStayGroupChain(newChain);
-    setStayGroupSelectedId(null);
+    };
 
-    // Load next date
-    const nextDate = selected.check_out_date || selected.check_in_date;
-    if (nextDate) {
-      loadReservationsForDate(nextDate);
+    if (stayGroupDirection === 'left') {
+      const firstInChain = stayGroupChain[0];
+      if (firstInChain && selected.check_out_date !== firstInChain.check_in_date) {
+        toast.error('체크아웃 날짜가 다음 예약의 체크인과 일치하지 않습니다');
+        return;
+      }
+      setStayGroupChain([entry, ...stayGroupChain]);
+      setStayGroupSelectedId(null);
+      const prevDate = dayjs(selected.check_in_date).subtract(1, 'day').format('YYYY-MM-DD');
+      loadReservationsForDate(prevDate);
+    } else {
+      const lastInChain = stayGroupChain[stayGroupChain.length - 1];
+      if (lastInChain && selected.check_in_date !== lastInChain.check_out_date) {
+        toast.error('체크인 날짜가 이전 예약의 체크아웃과 일치하지 않습니다');
+        return;
+      }
+      setStayGroupChain([...stayGroupChain, entry]);
+      setStayGroupSelectedId(null);
+      const nextDate = selected.check_out_date || selected.check_in_date;
+      if (nextDate) {
+        loadReservationsForDate(nextDate);
+      }
+    }
+  };
+
+  const handleStayGroupDirectionChange = (dir: 'left' | 'right') => {
+    setStayGroupDirection(dir);
+    setStayGroupSelectedId(null);
+    if (dir === 'left') {
+      const first = stayGroupChain[0];
+      if (first) {
+        const prevDate = dayjs(first.check_in_date).subtract(1, 'day').format('YYYY-MM-DD');
+        loadReservationsForDate(prevDate);
+      }
+    } else {
+      const last = stayGroupChain[stayGroupChain.length - 1];
+      if (last) {
+        loadReservationsForDate(last.check_out_date || last.check_in_date);
+      }
     }
   };
 
@@ -2851,25 +2879,50 @@ const RoomAssignment = () => {
       </Modal>
 
       {/* Stay Group Link Modal */}
-      <Modal show={showStayGroupModal} onClose={() => setShowStayGroupModal(false)} size="md">
+      <Modal show={showStayGroupModal} onClose={() => setShowStayGroupModal(false)} size="lg">
         <ModalHeader>
           연박 묶기 — 연결할 예약자 선택
         </ModalHeader>
         <ModalBody>
           <div className="space-y-4">
-            {/* Chain preview */}
+            {/* Chain with bidirectional + buttons */}
             {stayGroupChain.length > 0 && (
               <div className="rounded-xl bg-[#E8F3FF] dark:bg-[#3182F6]/10 p-3">
                 <p className="text-caption font-medium text-[#3182F6] mb-2">연박 체인</p>
                 <div className="flex flex-wrap items-center gap-1.5">
+                  {/* Left + button */}
+                  <button
+                    onClick={() => handleStayGroupDirectionChange('left')}
+                    className={`w-7 h-7 rounded-lg border-2 border-dashed flex items-center justify-center transition-colors ${
+                      stayGroupDirection === 'left'
+                        ? 'border-[#3182F6] text-[#3182F6] bg-[#3182F6]/10'
+                        : 'border-[#B0B8C1] text-[#B0B8C1] hover:border-[#3182F6] hover:text-[#3182F6]'
+                    }`}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+
+                  {/* Chain items */}
                   {stayGroupChain.map((item, idx) => (
                     <span key={item.id} className="flex items-center gap-1.5">
                       {idx > 0 && <span className="text-[#3182F6]">&rarr;</span>}
                       <span className="rounded-lg bg-white dark:bg-[#1E1E24] px-2 py-1 text-caption font-medium text-[#191F28] dark:text-white shadow-sm">
-                        {item.check_in_date.slice(5)} {item.customer_name}
+                        {item.check_in_date.slice(5)}~{item.check_out_date?.slice(5)} {item.customer_name}
                       </span>
                     </span>
                   ))}
+
+                  {/* Right + button */}
+                  <button
+                    onClick={() => handleStayGroupDirectionChange('right')}
+                    className={`w-7 h-7 rounded-lg border-2 border-dashed flex items-center justify-center transition-colors ${
+                      stayGroupDirection === 'right'
+                        ? 'border-[#3182F6] text-[#3182F6] bg-[#3182F6]/10'
+                        : 'border-[#B0B8C1] text-[#B0B8C1] hover:border-[#3182F6] hover:text-[#3182F6]'
+                    }`}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               </div>
             )}
@@ -2886,7 +2939,10 @@ const RoomAssignment = () => {
             {/* Date label */}
             <div className="flex items-center gap-2">
               <span className="text-label font-semibold text-[#191F28] dark:text-white">
-                {`${stayGroupChain[stayGroupChain.length - 1]?.check_out_date || ''} 예약자`}
+                {stayGroupDirection === 'left'
+                  ? `${dayjs(stayGroupChain[0]?.check_in_date).subtract(1, 'day').format('YYYY-MM-DD')} 예약자`
+                  : `${stayGroupChain[stayGroupChain.length - 1]?.check_out_date || ''} 예약자`
+                }
               </span>
             </div>
 
@@ -2895,7 +2951,8 @@ const RoomAssignment = () => {
               <div className="flex justify-center py-8">
                 <Spinner size="md" />
               </div>
-            ) : stayGroupDateReservations.length === 0 ? (
+            ) : stayGroupDateReservations
+                  .filter((r: any) => !stayGroupChain.some(c => c.id === r.id)).length === 0 ? (
               <div className="py-8 text-center text-label text-[#B0B8C1]">해당 날짜에 예약이 없습니다</div>
             ) : (
               <div className="divide-y divide-[#F2F4F6] dark:divide-gray-800 rounded-xl border border-[#E5E8EB] dark:border-gray-700">
