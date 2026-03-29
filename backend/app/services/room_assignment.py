@@ -130,8 +130,15 @@ def assign_room(
                 .first()
             )
             if existing:
-                raise ValueError(
-                    f"Room {room_obj.room_number} is already occupied on {d} by reservation {existing.reservation_id}"
+                if assigned_by == "auto":
+                    raise ValueError(
+                        f"Room {room_obj.room_number} is already occupied on {d} by reservation {existing.reservation_id}"
+                    )
+                # 수동배정: 잠금은 유지한 채 경고 로그만 남기고 진행
+                logger.warning(
+                    f"Manual multi-assign: room {room_obj.room_number} on {d} "
+                    f"already has reservation {existing.reservation_id}, "
+                    f"adding reservation {reservation_id} (by {assigned_by})"
                 )
 
     # Capture old room for move logging
@@ -381,6 +388,8 @@ def check_capacity_all_dates(
     """
     Check if a room has capacity for ALL dates in [from_date, end_date).
     Used by auto-assign to ensure multi-night guests get the same room every night.
+    Note: For non-dormitory rooms, capacity is hardcoded to 1 (auto-assign policy).
+    Manual assignments bypass this check via assign_room()'s assigned_by guard.
     """
     room = db.query(Room).filter(
         Room.id == room_id, Room.is_active == True

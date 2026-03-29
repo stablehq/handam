@@ -1704,7 +1704,9 @@ const RoomAssignment = () => {
     const hasGuests = guests.length > 0;
     const rowHeight = hasGuests ? 40 : 36;
     const stripeKey = groupInfo ? groupInfo.groupIndex : rowIndex;
-    const stripeBg = stripeKey % 2 === 0 ? 'bg-white dark:bg-[#1E1E24]' : 'bg-[#F8F9FA] dark:bg-[#17171C]';
+    const stripeBg = (!isDormitory && guests.length >= 2)
+      ? 'bg-[#FFF8E1] dark:bg-[#FFF8E1]/10'
+      : stripeKey % 2 === 0 ? 'bg-white dark:bg-[#1E1E24]' : 'bg-[#F8F9FA] dark:bg-[#17171C]';
 
     const groupLast = groupInfo?.isLast;
     const borderColor = groupLast ? 'border-b-[#D1D5DB] dark:border-b-[#4E5968]' : 'border-b-[#E5E8EB] dark:border-b-[#2C2C34]';
