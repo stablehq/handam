@@ -169,6 +169,9 @@ def init_db():
             if "stay_group_order" not in cols:
                 conn.execute(text("ALTER TABLE reservations ADD COLUMN stay_group_order INTEGER"))
                 print("AUTO-MIGRATE: Added stay_group_order column to reservations table")
+            if "highlight_color" not in cols:
+                conn.execute(text("ALTER TABLE reservations ADD COLUMN highlight_color VARCHAR(20)"))
+                print("AUTO-MIGRATE: Added highlight_color column to reservations table")
 
         # template_schedules.is_once_per_stay
         if "template_schedules" in inspector.get_table_names():
