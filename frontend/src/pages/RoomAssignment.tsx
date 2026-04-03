@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import GuestContextMenu from '../components/GuestContextMenu';
 import TableSettingsModal from '../components/TableSettingsModal';
+import { useLongPress, TOUCH_STYLE } from '../hooks/useLongPress';
 import {
   PRESET_HIGHLIGHT_STYLES,
   isCustomHexColor,
@@ -424,10 +425,6 @@ const RoomAssignment = () => {
 
   // ===== Context menu state =====
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; targetIds: number[]; zone?: string } | null>(null);
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressTriggered = useRef(false);
-  const longPressStart = useRef<{ x: number; y: number } | null>(null);
-  const longPressTarget = useRef<HTMLElement | null>(null);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [savingReservation, setSavingReservation] = useState(false);
@@ -491,6 +488,30 @@ const RoomAssignment = () => {
   const [isDarkMode, setIsDarkMode] = useState(() => document.documentElement.classList.contains('dark'));
 
   const [showStayGroupModal, setShowStayGroupModal] = useState(false);
+
+  const { handlers: longPressHandlers } = useLongPress({
+    onLongPress: useCallback((e: React.PointerEvent, resId: number) => {
+      const targetIds =
+        selectedGuestIds.size > 0 && selectedGuestIds.has(resId)
+          ? [...selectedGuestIds]
+          : [resId];
+      setContextMenu({ x: e.clientX, y: e.clientY, targetIds });
+    }, [selectedGuestIds]),
+    onShortTap: useCallback((target: HTMLElement, _e: React.PointerEvent, resId: number, showGrip: boolean) => {
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+        target.focus();
+      } else if (showGrip) {
+        setSelectedGuestIds(prev => {
+          const next = new Set(prev);
+          if (next.has(resId) && next.size === 1) next.clear();
+          else { next.clear(); next.add(resId); }
+          return next;
+        });
+      }
+    }, []),
+    disabled: modalVisible || showStayGroupModal || !!multiNightConfirm?.open,
+  });
+
   const [stayGroupChain, setStayGroupChain] = useState<Array<{id: number; customer_name: string; phone: string; check_in_date: string; check_out_date: string; stay_group_id?: string | null}>>([]);
   const [stayGroupDateReservations, setStayGroupDateReservations] = useState<any[]>([]);
   const [stayGroupSelectedId, setStayGroupSelectedId] = useState<number | null>(null);
@@ -1341,97 +1362,16 @@ const RoomAssignment = () => {
     setContextMenu({ x: e.clientX, y: e.clientY, targetIds, zone });
   }, [modalVisible, showStayGroupModal, multiNightConfirm?.open, selectedGuestIds]);
 
-  const onGuestLongPressDown = useCallback((e: React.PointerEvent, resId: number) => {
-    if (e.pointerType === 'mouse') return;
-    if (modalVisible || showStayGroupModal || multiNightConfirm?.open) return;
-    const target = e.target as HTMLElement;
-    const nonTouchInteractive = target.closest('button, a, select, [role="button"], [data-interactive]');
-    if (nonTouchInteractive) return;
-
-    // 브라우저 기본 long-press 동작(텍스트 선택) 차단 — 탭 시 수동 포커스로 보완
-    e.preventDefault();
-    longPressTriggered.current = false;
-    longPressTarget.current = target;
-    longPressStart.current = { x: e.clientX, y: e.clientY };
-    longPressTimer.current = setTimeout(() => {
-      longPressTriggered.current = true;
-      longPressTarget.current = null;
-      // 포커스된 input blur + 브라우저 텍스트 선택 해제
-      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-      window.getSelection()?.removeAllRanges();
-      if (navigator.vibrate) navigator.vibrate(50);
-
-      const targetIds =
-        selectedGuestIds.size > 0 && selectedGuestIds.has(resId)
-          ? [...selectedGuestIds]
-          : [resId];
-
-      setContextMenu({ x: e.clientX, y: e.clientY, targetIds });
-    }, 500);
-  }, [modalVisible, showStayGroupModal, multiNightConfirm?.open, selectedGuestIds]);
-
-  const onGuestLongPressMove = useCallback((e: React.PointerEvent) => {
-    if (!longPressTimer.current || !longPressStart.current) return;
-    const dx = e.clientX - longPressStart.current.x;
-    const dy = e.clientY - longPressStart.current.y;
-    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-      longPressStart.current = null;
-      longPressTarget.current = null;
-    }
-  }, []);
-
-  const onGuestLongPressEnd = useCallback((e?: React.PointerEvent, resId?: number, showGrip?: boolean) => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-    // 짧은 탭이었으면 기본 동작 수동 보완 (preventDefault로 차단된 포커스/클릭)
-    if (!longPressTriggered.current && longPressTarget.current && e) {
-      const t = longPressTarget.current;
-      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
-        t.focus();
-      } else if (showGrip && resId !== undefined) {
-        // 원(grip) 영역이나 비-input 영역 탭 → 선택 토글
-        setSelectedGuestIds(prev => {
-          const next = new Set(prev);
-          if (next.has(resId) && next.size === 1) next.clear();
-          else { next.clear(); next.add(resId); }
-          return next;
-        });
-      }
-    }
-    longPressStart.current = null;
-    longPressTarget.current = null;
-  }, []);
-
-  // Suppress native context menu right after long-press triggers our custom one
-  useEffect(() => {
-    if (!longPressTriggered) return;
-    const suppress = (e: Event) => {
-      if (longPressTriggered.current) {
-        e.preventDefault();
-        longPressTriggered.current = false;
-      }
-    };
-    document.addEventListener('contextmenu', suppress, true);
-    return () => document.removeEventListener('contextmenu', suppress, true);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Close context menu on outside click / scroll / Escape
   useEffect(() => {
     if (!contextMenu) return;
-    const close = () => setContextMenu(null);
-    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
-    // Use timeout to prevent immediate close from the same click that opened the menu
-    const timer = setTimeout(() => {
-      document.addEventListener('click', close);
-      document.addEventListener('scroll', close, true);
-      document.addEventListener('keydown', onKeyDown);
-    }, 0);
+    const openTime = Date.now();
+    const close = () => { if (Date.now() - openTime > 300) setContextMenu(null); };
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setContextMenu(null); };
+    document.addEventListener('click', close);
+    document.addEventListener('scroll', close, true);
+    document.addEventListener('keydown', onKeyDown);
     return () => {
-      clearTimeout(timer);
       document.removeEventListener('click', close);
       document.removeEventListener('scroll', close, true);
       document.removeEventListener('keydown', onKeyDown);
@@ -1807,8 +1747,9 @@ const RoomAssignment = () => {
   };
 
   // ===== Select mode handlers =====
-  const onGripClick = useCallback((e: React.PointerEvent, resId: number) => {
-    if (e.button !== 0 && e.pointerType === 'mouse') return;
+  const onGripClick = useCallback((e: React.MouseEvent | React.PointerEvent, resId: number) => {
+    const pe = e as React.PointerEvent;
+    if (pe.button !== 0 && pe.pointerType === 'mouse') return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -1936,14 +1877,11 @@ const RoomAssignment = () => {
                 ? `${highlightStyle.bg} ${highlightStyle.hover} ${highlightStyle.text || ''}`
                 : longStay ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15 hover:bg-[#FFE4CC] dark:hover:bg-[#FF9500]/20' : 'hover:bg-[#E8F3FF] dark:hover:bg-[#3182F6]/8'
         } cursor-pointer`}
-        style={{ ...(isCustomHex && !isSelected ? getCustomBgStyle(res.highlight_color!, isDarkMode) : {}), touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' } as React.CSSProperties}
+        style={{ ...(isCustomHex && !isSelected ? getCustomBgStyle(res.highlight_color!, isDarkMode) : {}), ...TOUCH_STYLE }}
         onContextMenu={(e) => onGuestContextMenu(e, res.id, zone)}
-        onPointerDownCapture={(e) => onGuestLongPressDown(e, res.id)}
-        onPointerMoveCapture={onGuestLongPressMove}
-        onPointerUpCapture={(e) => onGuestLongPressEnd(e, res.id, showGrip)}
-        onPointerCancelCapture={() => onGuestLongPressEnd()}
-        onClick={(e: any) => {
-          if (e.pointerType === 'touch') return; // 터치는 pointerUp에서 처리
+        {...longPressHandlers(res.id, showGrip)}
+        onClick={(e: React.MouseEvent) => {
+          if (!(e.nativeEvent as PointerEvent).pointerType || (e.nativeEvent as PointerEvent).pointerType === 'touch') return;
           if (showGrip && !(e.target as HTMLElement).closest('input, textarea, select, [data-interactive], button, a, [role="button"]')) {
             if (selectionActive && !selectedGuestIds.has(res.id)) {
               return;
@@ -1970,7 +1908,7 @@ const RoomAssignment = () => {
         )}
         <div
           className="flex-1 grid items-center py-1"
-          style={{ gridTemplateColumns: GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' }}
+          style={{ gridTemplateColumns: GUEST_COLS }}
         >
           <div className="overflow-hidden px-1.5 flex items-center gap-0.5">
             <span className="flex items-center gap-1">
@@ -2121,10 +2059,14 @@ const RoomAssignment = () => {
                 <div key={`next-${i}`} className={`flex items-center ${nextDayExpanded ? 'justify-start' : 'justify-center'} ${hasGuests ? 'h-10' : 'h-9'} px-1 ${nextGuest?.is_long_stay ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15' : ''}`}>
                   {nextGuest ? (
                     nextDayExpanded ? (
-                      <div className="group/guest flex items-center h-10 w-full">
+                      <div className="group/guest flex items-center h-10 w-full"
+                        style={TOUCH_STYLE}
+                        {...longPressHandlers(nextGuest.id, true)}
+                        onContextMenu={(e) => onGuestContextMenu(e, nextGuest.id)}
+                      >
                         {/* Selection grip */}
                         <div
-                          onClick={(e: any) => onGripClick(e, nextGuest.id)}
+                          onClick={(e: React.MouseEvent) => onGripClick(e, nextGuest.id)}
                           className={`flex items-center justify-center w-8 px-0.5 flex-shrink-0 cursor-pointer text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${
                             selectedGuestIds.has(nextGuest.id)
                               ? 'text-[#3182F6] dark:text-[#3182F6]'
@@ -2141,12 +2083,7 @@ const RoomAssignment = () => {
                         {/* Editable fields */}
                         <div
                           className="flex-1 grid items-center py-1"
-                          style={{ gridTemplateColumns: NEXT_GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' }}
-                          onPointerDownCapture={(e) => onGuestLongPressDown(e, nextGuest.id)}
-                          onPointerMoveCapture={onGuestLongPressMove}
-                          onPointerUpCapture={onGuestLongPressEnd}
-                          onPointerCancelCapture={onGuestLongPressEnd}
-                          onContextMenu={(e) => onGuestContextMenu(e, nextGuest.id)}
+                          style={{ gridTemplateColumns: NEXT_GUEST_COLS }}
                         >
                           <div className="overflow-hidden px-1">
                             <InlineInput value={nextGuest.customer_name} field="customer_name" resId={nextGuest.id}
@@ -2678,9 +2615,13 @@ const RoomAssignment = () => {
                         return (
                           <div key={`next-pool-${res.id}`} className={`flex items-center h-10 px-1 ${!nextDayExpanded ? 'justify-center' : ''}`}>
                             {nextDayExpanded ? (
-                              <div className="group/guest flex items-center h-10 w-full">
+                              <div className="group/guest flex items-center h-10 w-full"
+                                style={TOUCH_STYLE}
+                                {...longPressHandlers(res.id, true)}
+                                onContextMenu={(e) => onGuestContextMenu(e, res.id)}
+                              >
                                 <div
-                                  onClick={(e: any) => onGripClick(e, res.id)}
+                                  onClick={(e: React.MouseEvent) => onGripClick(e, res.id)}
                                   className={`flex items-center justify-center w-8 px-0.5 flex-shrink-0 cursor-pointer text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${
                                     selectedGuestIds.has(res.id) ? 'text-[#3182F6]' : 'group-hover/guest:text-[#3182F6]'
                                   }`}
@@ -2692,13 +2633,7 @@ const RoomAssignment = () => {
                                     <Circle size={16} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${selectedGuestIds.has(res.id) ? 'text-[#3182F6]' : ''}`} />
                                   </span>
                                 </div>
-                                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' }}
-                                  onPointerDownCapture={(e) => onGuestLongPressDown(e, res.id)}
-                                  onPointerMoveCapture={onGuestLongPressMove}
-                                  onPointerUpCapture={onGuestLongPressEnd}
-                                  onPointerCancelCapture={onGuestLongPressEnd}
-                                  onContextMenu={(e) => onGuestContextMenu(e, res.id)}
-                                >
+                                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS }}>
                                   <div className="overflow-hidden px-1">
                                     <InlineInput value={res.customer_name} field="customer_name" resId={res.id}
                                       onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
@@ -2792,9 +2727,13 @@ const RoomAssignment = () => {
                         return (
                           <div key={`next-party-${res.id}`} className={`flex items-center h-10 px-1 ${!nextDayExpanded ? 'justify-center' : ''}`}>
                             {nextDayExpanded ? (
-                              <div className="group/guest flex items-center h-10 w-full">
+                              <div className="group/guest flex items-center h-10 w-full"
+                                style={TOUCH_STYLE}
+                                {...longPressHandlers(res.id, true)}
+                                onContextMenu={(e) => onGuestContextMenu(e, res.id)}
+                              >
                                 <div
-                                  onClick={(e: any) => onGripClick(e, res.id)}
+                                  onClick={(e: React.MouseEvent) => onGripClick(e, res.id)}
                                   className={`flex items-center justify-center w-8 px-0.5 flex-shrink-0 cursor-pointer text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${
                                     selectedGuestIds.has(res.id) ? 'text-[#3182F6]' : 'group-hover/guest:text-[#3182F6]'
                                   }`}
@@ -2806,12 +2745,7 @@ const RoomAssignment = () => {
                                     <Circle size={16} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${selectedGuestIds.has(res.id) ? 'text-[#3182F6]' : ''}`} />
                                   </span>
                                 </div>
-                                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' }}
-                                  onPointerDownCapture={(e) => onGuestLongPressDown(e, res.id)}
-                                  onPointerMoveCapture={onGuestLongPressMove}
-                                  onPointerUpCapture={onGuestLongPressEnd}
-                                  onPointerCancelCapture={onGuestLongPressEnd}
-                                  onContextMenu={(e) => onGuestContextMenu(e, res.id)}
+                                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS }}
                                 >
                                   <div className="overflow-hidden px-1">
                                     <InlineInput value={res.customer_name} field="customer_name" resId={res.id}

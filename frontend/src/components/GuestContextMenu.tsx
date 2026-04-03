@@ -184,8 +184,8 @@ export default function GuestContextMenu({
         {/* Palette submenu */}
         {paletteOpen && (
           <div
-            className="absolute left-full top-0 ml-1 p-2 rounded-xl border border-[#E5E8EB] dark:border-gray-800 bg-white dark:bg-[#1E1E24] shadow-lg z-[10001] animate-in fade-in zoom-in-95 duration-100"
-            style={{ minWidth: '228px' }}
+            className={`${window.innerWidth < 500 ? 'absolute left-0 top-full mt-1' : 'absolute left-full top-0 ml-1'} p-2 rounded-xl border border-[#E5E8EB] dark:border-gray-800 bg-white dark:bg-[#1E1E24] shadow-lg z-[10001] animate-in fade-in zoom-in-95 duration-100`}
+            style={{ minWidth: window.innerWidth < 500 ? undefined : '228px', maxWidth: window.innerWidth < 500 ? 'calc(100vw - 16px)' : undefined }}
             onMouseEnter={() => { if (paletteTimerRef.current) clearTimeout(paletteTimerRef.current); }}
             onMouseLeave={() => { paletteTimerRef.current = setTimeout(() => setPaletteOpen(false), 200); }}
           >
