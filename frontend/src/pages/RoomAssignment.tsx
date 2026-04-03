@@ -427,6 +427,7 @@ const RoomAssignment = () => {
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTriggered = useRef(false);
   const longPressStart = useRef<{ x: number; y: number } | null>(null);
+  const longPressTarget = useRef<HTMLElement | null>(null);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [savingReservation, setSavingReservation] = useState(false);
@@ -1343,17 +1344,18 @@ const RoomAssignment = () => {
   const onGuestLongPressDown = useCallback((e: React.PointerEvent, resId: number) => {
     if (e.pointerType === 'mouse') return;
     if (modalVisible || showStayGroupModal || multiNightConfirm?.open) return;
-    // input/select 등에서도 long-press 허용 — 포커스된 input이 활발히 편집 중이면 제외
-    const activeEl = document.activeElement;
     const target = e.target as HTMLElement;
-    if (activeEl === target && activeEl instanceof HTMLInputElement && activeEl.selectionStart !== activeEl.selectionEnd) return;
     const nonTouchInteractive = target.closest('button, a, select, [role="button"], [data-interactive]');
     if (nonTouchInteractive) return;
 
+    // 브라우저 기본 long-press 동작(텍스트 선택) 차단 — 탭 시 수동 포커스로 보완
+    e.preventDefault();
     longPressTriggered.current = false;
+    longPressTarget.current = target;
     longPressStart.current = { x: e.clientX, y: e.clientY };
     longPressTimer.current = setTimeout(() => {
       longPressTriggered.current = true;
+      longPressTarget.current = null;
       // 포커스된 input blur + 브라우저 텍스트 선택 해제
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       window.getSelection()?.removeAllRanges();
@@ -1376,6 +1378,7 @@ const RoomAssignment = () => {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
       longPressStart.current = null;
+      longPressTarget.current = null;
     }
   }, []);
 
@@ -1384,7 +1387,15 @@ const RoomAssignment = () => {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
     }
+    // 짧은 탭이었으면 input 수동 포커스 (preventDefault로 차단된 기본 포커스 보완)
+    if (!longPressTriggered.current && longPressTarget.current) {
+      const t = longPressTarget.current;
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
+        t.focus();
+      }
+    }
     longPressStart.current = null;
+    longPressTarget.current = null;
   }, []);
 
   // Suppress native context menu right after long-press triggers our custom one
