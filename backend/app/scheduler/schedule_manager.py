@@ -38,7 +38,7 @@ class ScheduleManager:
 
         # Remove only THIS tenant's schedule jobs (active + inactive)
         all_tenant_schedules = db.query(TemplateSchedule.id).all()
-        tenant_job_ids = {f"template_schedule_{s.id}" for (s,) in all_tenant_schedules}
+        tenant_job_ids = {f"template_schedule_{s}" for (s,) in all_tenant_schedules}
         existing_jobs = self.scheduler.get_jobs()
         for job in existing_jobs:
             if job.id in tenant_job_ids:
