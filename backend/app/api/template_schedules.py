@@ -8,7 +8,7 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
 
-from app.api.deps import get_tenant_scoped_db, _remap_active_field
+from app.api.deps import get_tenant_scoped_db, get_current_tenant, _remap_active_field
 from app.db.models import TemplateSchedule, MessageTemplate, User
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.scheduler.template_scheduler import TemplateScheduleExecutor
@@ -393,7 +393,7 @@ def delete_schedule(schedule_id: int, db: Session = Depends(get_tenant_scoped_db
 
 
 @router.post("/{schedule_id}/run", response_model=ScheduleExecutionResponse)
-async def run_schedule(schedule_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(require_admin_or_above)):
+async def run_schedule(schedule_id: int, db: Session = Depends(get_tenant_scoped_db), tenant=Depends(get_current_tenant), current_user: User = Depends(require_admin_or_above)):
     """Manually execute a template schedule"""
     schedule = db.query(TemplateSchedule).filter(TemplateSchedule.id == schedule_id).first()
 
@@ -401,7 +401,7 @@ async def run_schedule(schedule_id: int, db: Session = Depends(get_tenant_scoped
         raise HTTPException(status_code=404, detail="스케줄을 찾을 수 없습니다")
 
     # Execute schedule
-    executor = TemplateScheduleExecutor(db)
+    executor = TemplateScheduleExecutor(db, tenant=tenant)
     result = await executor.execute_schedule(schedule_id, manual=True)
 
     return result

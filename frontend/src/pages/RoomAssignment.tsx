@@ -1343,13 +1343,19 @@ const RoomAssignment = () => {
   const onGuestLongPressDown = useCallback((e: React.PointerEvent, resId: number) => {
     if (e.pointerType === 'mouse') return;
     if (modalVisible || showStayGroupModal || multiNightConfirm?.open) return;
-    const interactive = (e.target as HTMLElement).closest('button, a, input, select, textarea, [role="button"], [data-interactive]');
-    if (interactive) return;
+    // input/select 등에서도 long-press 허용 — 포커스된 input이 활발히 편집 중이면 제외
+    const activeEl = document.activeElement;
+    const target = e.target as HTMLElement;
+    if (activeEl === target && activeEl instanceof HTMLInputElement && activeEl.selectionStart !== activeEl.selectionEnd) return;
+    const nonTouchInteractive = target.closest('button, a, select, [role="button"], [data-interactive]');
+    if (nonTouchInteractive) return;
 
     longPressTriggered.current = false;
     longPressStart.current = { x: e.clientX, y: e.clientY };
     longPressTimer.current = setTimeout(() => {
       longPressTriggered.current = true;
+      // 포커스된 input이 있으면 blur하여 키보드 닫기
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       if (navigator.vibrate) navigator.vibrate(50);
 
       const targetIds =
@@ -1379,6 +1385,19 @@ const RoomAssignment = () => {
     }
     longPressStart.current = null;
   }, []);
+
+  // Suppress native context menu right after long-press triggers our custom one
+  useEffect(() => {
+    if (!longPressTriggered) return;
+    const suppress = (e: Event) => {
+      if (longPressTriggered.current) {
+        e.preventDefault();
+        longPressTriggered.current = false;
+      }
+    };
+    document.addEventListener('contextmenu', suppress, true);
+    return () => document.removeEventListener('contextmenu', suppress, true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close context menu on outside click / scroll / Escape
   useEffect(() => {
@@ -1927,7 +1946,7 @@ const RoomAssignment = () => {
         )}
         <div
           className="flex-1 grid items-center py-1"
-          style={{ gridTemplateColumns: GUEST_COLS }}
+          style={{ gridTemplateColumns: GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' }}
           onPointerDown={(e) => onGuestLongPressDown(e, res.id)}
           onPointerMove={onGuestLongPressMove}
           onPointerUp={onGuestLongPressEnd}
@@ -2102,7 +2121,7 @@ const RoomAssignment = () => {
                         {/* Editable fields */}
                         <div
                           className="flex-1 grid items-center py-1"
-                          style={{ gridTemplateColumns: NEXT_GUEST_COLS }}
+                          style={{ gridTemplateColumns: NEXT_GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' }}
                           onPointerDown={(e) => onGuestLongPressDown(e, nextGuest.id)}
                           onPointerMove={onGuestLongPressMove}
                           onPointerUp={onGuestLongPressEnd}
@@ -2653,7 +2672,7 @@ const RoomAssignment = () => {
                                     <Circle size={16} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${selectedGuestIds.has(res.id) ? 'text-[#3182F6]' : ''}`} />
                                   </span>
                                 </div>
-                                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS }}
+                                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' }}
                                   onPointerDown={(e) => onGuestLongPressDown(e, res.id)}
                                   onPointerMove={onGuestLongPressMove}
                                   onPointerUp={onGuestLongPressEnd}
@@ -2767,7 +2786,7 @@ const RoomAssignment = () => {
                                     <Circle size={16} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${selectedGuestIds.has(res.id) ? 'text-[#3182F6]' : ''}`} />
                                   </span>
                                 </div>
-                                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS }}
+                                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' }}
                                   onPointerDown={(e) => onGuestLongPressDown(e, res.id)}
                                   onPointerMove={onGuestLongPressMove}
                                   onPointerUp={onGuestLongPressEnd}
