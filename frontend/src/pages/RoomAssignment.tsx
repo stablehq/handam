@@ -1936,7 +1936,7 @@ const RoomAssignment = () => {
                 ? `${highlightStyle.bg} ${highlightStyle.hover} ${highlightStyle.text || ''}`
                 : longStay ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15 hover:bg-[#FFE4CC] dark:hover:bg-[#FF9500]/20' : 'hover:bg-[#E8F3FF] dark:hover:bg-[#3182F6]/8'
         } cursor-pointer`}
-        style={{ ...(isCustomHex && !isSelected ? getCustomBgStyle(res.highlight_color!, isDarkMode) : {}), touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' } as React.CSSProperties}
+        style={{ ...(isCustomHex && !isSelected ? getCustomBgStyle(res.highlight_color!, isDarkMode) : {}), touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' } as React.CSSProperties}
         onContextMenu={(e) => onGuestContextMenu(e, res.id, zone)}
         onPointerDown={(e) => onGuestLongPressDown(e, res.id)}
         onPointerMove={onGuestLongPressMove}
@@ -1970,7 +1970,7 @@ const RoomAssignment = () => {
         )}
         <div
           className="flex-1 grid items-center py-1"
-          style={{ gridTemplateColumns: GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' }}
+          style={{ gridTemplateColumns: GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' }}
         >
           <div className="overflow-hidden px-1.5 flex items-center gap-0.5">
             <span className="flex items-center gap-1">
@@ -2141,7 +2141,7 @@ const RoomAssignment = () => {
                         {/* Editable fields */}
                         <div
                           className="flex-1 grid items-center py-1"
-                          style={{ gridTemplateColumns: NEXT_GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' }}
+                          style={{ gridTemplateColumns: NEXT_GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' }}
                           onPointerDown={(e) => onGuestLongPressDown(e, nextGuest.id)}
                           onPointerMove={onGuestLongPressMove}
                           onPointerUp={onGuestLongPressEnd}
@@ -2692,7 +2692,7 @@ const RoomAssignment = () => {
                                     <Circle size={16} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${selectedGuestIds.has(res.id) ? 'text-[#3182F6]' : ''}`} />
                                   </span>
                                 </div>
-                                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' }}
+                                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' }}
                                   onPointerDown={(e) => onGuestLongPressDown(e, res.id)}
                                   onPointerMove={onGuestLongPressMove}
                                   onPointerUp={onGuestLongPressEnd}
@@ -2806,7 +2806,7 @@ const RoomAssignment = () => {
                                     <Circle size={16} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${selectedGuestIds.has(res.id) ? 'text-[#3182F6]' : ''}`} />
                                   </span>
                                 </div>
-                                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none' }}
+                                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS, touchAction: 'manipulation', WebkitUserSelect: 'none', userSelect: 'none', WebkitTouchCallout: 'none' }}
                                   onPointerDown={(e) => onGuestLongPressDown(e, res.id)}
                                   onPointerMove={onGuestLongPressMove}
                                   onPointerUp={onGuestLongPressEnd}

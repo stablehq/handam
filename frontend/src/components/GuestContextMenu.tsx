@@ -142,7 +142,7 @@ export default function GuestContextMenu({
   return createPortal(
     <div
       ref={menuRef}
-      style={{ position: 'fixed', left: adjusted.x, top: adjusted.y, zIndex: 10000 }}
+      style={{ position: 'fixed', left: adjusted.x, top: adjusted.y, zIndex: 10000, WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' } as React.CSSProperties}
       className="w-48 rounded-xl border border-[#E5E8EB] dark:border-gray-800 bg-white dark:bg-[#1E1E24] shadow-lg py-1 animate-in fade-in zoom-in-95 duration-100 select-none"
       onContextMenu={(e) => e.preventDefault()}
     >
