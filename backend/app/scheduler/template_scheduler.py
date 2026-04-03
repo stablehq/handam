@@ -439,12 +439,8 @@ class TemplateScheduleExecutor:
             for res in results:
                 if not res.confirmed_at:
                     continue  # 수동 예약 (confirmed_at=NULL) 제외
-                try:
-                    confirmed = datetime.fromisoformat(str(res.confirmed_at))
-                    if confirmed >= cutoff:
-                        filtered.append(res)
-                except (ValueError, TypeError):
-                    continue  # 파싱 실패 시 안전하게 제외
+                if res.confirmed_at >= cutoff:
+                    filtered.append(res)
             results = filtered
 
         # 5) 연박 필터 (stay_filter)

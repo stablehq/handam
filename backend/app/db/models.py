@@ -133,8 +133,8 @@ class Reservation(TenantMixin, Base):
     booking_options = Column(Text, nullable=True)  # JSON string from bookingOptionJson
     special_requests = Column("custom_form_input", Text, nullable=True)  # JSON string from customFormInputJson (요청사항)
     total_price = Column(Integer, nullable=True)  # total payment amount
-    confirmed_at = Column(String(50), nullable=True)  # ISO string — TODO: Alembic 마이그레이션 후 DateTime 전환
-    cancelled_at = Column(String(50), nullable=True)  # ISO string — TODO: Alembic 마이그레이션 후 DateTime 전환
+    confirmed_at = Column(DateTime, nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
 
     # Per-date room assignments relationship
     room_assignments = relationship("RoomAssignment", back_populates="reservation", cascade="all, delete-orphan")

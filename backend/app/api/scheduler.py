@@ -101,8 +101,7 @@ async def run_job_manual(
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
 
     try:
-        # Run job immediately (non-blocking)
-        job.modify(next_run_time=None)
+        # Run job immediately (non-blocking) — 원본 job은 건드리지 않음
         scheduler.add_job(
             job.func,
             id=f"{job_id}_manual",

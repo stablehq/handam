@@ -108,8 +108,8 @@ class ReservationResponse(BaseModel):
     booking_options: Optional[str] = None
     special_requests: Optional[str] = None
     total_price: Optional[int] = None
-    confirmed_at: Optional[str] = None
-    cancelled_at: Optional[str] = None
+    confirmed_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
     section: Optional[str] = None  # 'room', 'unassigned', 'party', 'unstable'
     stay_group_id: Optional[str] = None
     stay_group_order: Optional[int] = None
