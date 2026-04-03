@@ -280,7 +280,11 @@ async def update_highlight_colors(
     import json
     import re
     valid_colors = [c for c in req.colors if re.match(r'^#[0-9A-Fa-f]{6}$', c)]
-    tenant.custom_highlight_colors = json.dumps(valid_colors)
+    # tenant is from a different session (get_db), so merge into tenant-scoped session
+    merged_tenant = db.merge(tenant)
+    merged_tenant.custom_highlight_colors = json.dumps(valid_colors)
     db.commit()
     return {"success": True, "colors": valid_colors}
+
+
 

@@ -4,7 +4,7 @@ Ported from stable-clasp-main/03_trigger.js
 """
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 
 from app.db.database import SessionLocal
@@ -317,6 +317,31 @@ async def daily_room_assign_job():
     _for_each_tenant(_assign)
 
 
+def refresh_snapshots_job():
+    """Refresh participant snapshots for all tenants (today + tomorrow).
+    Called at specific cron times (e.g., 08:50, 11:50).
+    """
+    from app.templates.variables import refresh_snapshot
+
+    logger.info("[Scheduler] Refreshing participant snapshots...")
+
+    def _job(db, tenant):
+        now = datetime.now(KST)
+        today_str = now.strftime('%Y-%m-%d')
+        tomorrow_str = (now + timedelta(days=1)).strftime('%Y-%m-%d')
+
+        refreshed = []
+        for date_str in [today_str, tomorrow_str]:
+            result = refresh_snapshot(db, date_str)
+            if result:
+                refreshed.append(date_str)
+
+        if refreshed:
+            logger.info(f"[Snapshot Refresh] tenant={tenant.slug}: refreshed {', '.join(refreshed)}")
+
+    _for_each_tenant(_job)
+
+
 def setup_scheduler():
     """
     Setup all scheduled jobs
@@ -379,6 +404,22 @@ def setup_scheduler():
         trigger=CronTrigger(hour='0,6,12,18', minute=0, timezone='Asia/Seoul'),
         id='sync_status_log',
         name='동기화 상태 로그 (6시간)',
+        replace_existing=True,
+    )
+
+    # Snapshot refresh - at 08:50 and 11:50 KST
+    scheduler.add_job(
+        refresh_snapshots_job,
+        trigger=CronTrigger(hour=8, minute=50, timezone='Asia/Seoul'),
+        id='refresh_snapshots_morning',
+        name='참여자 스냅샷 갱신 (08:50)',
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        refresh_snapshots_job,
+        trigger=CronTrigger(hour=11, minute=50, timezone='Asia/Seoul'),
+        id='refresh_snapshots_noon',
+        name='참여자 스냅샷 갱신 (11:50)',
         replace_existing=True,
     )
 

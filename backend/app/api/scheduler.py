@@ -2,7 +2,6 @@
 Scheduler API endpoints for managing automated jobs
 """
 from fastapi import APIRouter, HTTPException, Depends
-from typing import List, Dict, Any
 from sqlalchemy.orm import Session
 
 from app.scheduler.jobs import scheduler, get_job_info

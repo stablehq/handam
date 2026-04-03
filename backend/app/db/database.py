@@ -163,7 +163,7 @@ def init_db():
                 print("AUTO-MIGRATE: Renamed reservations.cancelled_datetime to cancelled_at")
             # Consecutive stay (연박) columns
             if "stay_group_id" not in cols:
-                conn.execute(text("ALTER TABLE reservations ADD COLUMN stay_group_id VARCHAR(36)"))
+                conn.execute(text("ALTER TABLE reservations ADD COLUMN stay_group_id VARCHAR(50)"))
                 conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reservations_stay_group_id ON reservations (stay_group_id)"))
                 print("AUTO-MIGRATE: Added stay_group_id column to reservations table")
             if "stay_group_order" not in cols:
@@ -351,6 +351,9 @@ def init_db():
             if "unstable_cookie" not in cols:
                 conn.execute(text("ALTER TABLE tenants ADD COLUMN unstable_cookie TEXT"))
                 print("AUTO-MIGRATE: Added unstable_cookie column to tenants table")
+            if "snapshot_refresh_times" not in cols:
+                conn.execute(text("ALTER TABLE tenants ADD COLUMN snapshot_refresh_times TEXT"))
+                print("AUTO-MIGRATE: Added snapshot_refresh_times column to tenants table")
 
     # Task 1.5: admin 기본 비밀번호 환경변수화
     db = SessionLocal()

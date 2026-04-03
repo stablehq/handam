@@ -18,6 +18,7 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
+  Cog,
   ScrollText,
 } from 'lucide-react'
 import { activityLogsAPI } from '@/services/api'
@@ -43,7 +44,7 @@ interface ActivityLog {
   success_count?: number | null
   failed_count?: number | null
   status: ActivityStatus
-  actor?: string | null
+  created_by?: string | null
   created_at: string
 }
 
@@ -440,17 +441,16 @@ const ActivityLogs = () => {
 
                         {/* Actor */}
                         <TableCell>
-                          {log.actor ? (
-                            <span className="flex items-center gap-1 text-label text-[#4E5968] dark:text-gray-300">
-                              <User className="h-3 w-3 shrink-0 text-[#B0B8C1]" />
-                              {log.actor}
-                            </span>
-                          ) : (
-                            <span className="flex items-center gap-1 text-label text-[#B0B8C1]">
-                              <AlertCircle className="h-3 w-3" />
-                              시스템
-                            </span>
-                          )}
+                          {(() => {
+                            const name = log.created_by;
+                            const isSystem = !name || ['system', 'scheduler', 'schedule', 'sync', 'reconcile'].includes(name);
+                            return (
+                              <span className={`flex items-center gap-1 text-label ${isSystem ? 'text-[#B0B8C1]' : 'text-[#4E5968] dark:text-gray-300'}`}>
+                                {isSystem ? <Cog className="h-3 w-3 shrink-0" /> : <User className="h-3 w-3 shrink-0 text-[#B0B8C1]" />}
+                                {name || '시스템'}
+                              </span>
+                            );
+                          })()}
                         </TableCell>
                       </TableRow>
 

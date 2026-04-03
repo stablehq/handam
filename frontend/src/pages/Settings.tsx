@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Wifi, WifiOff, RefreshCw, Trash2 } from 'lucide-react';
+import { Wifi, WifiOff, RefreshCw, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { settingsAPI } from '@/services/api';
 import { useTenantStore } from '@/stores/tenant-store';
@@ -38,6 +38,7 @@ export default function Settings() {
   const [unstableBusinessId, setUnstableBusinessId] = useState('');
   const [unstableCookieInput, setUnstableCookieInput] = useState('');
 
+
   const fetchStatus = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     else setChecking(true);
@@ -69,9 +70,11 @@ export default function Settings() {
     }
   };
 
+
   useEffect(() => {
     fetchStatus();
     fetchUnstableStatus(true);
+
   }, []);
 
   const handleSaveCookie = async () => {
@@ -139,6 +142,7 @@ export default function Settings() {
       setUnstableSyncing(false);
     }
   };
+
 
 
   if (loading) {
@@ -331,6 +335,7 @@ export default function Settings() {
           )}
         </div>
       </Card>}
+
 
       {/* Tenant switch */}
       {tenants.length > 1 && (

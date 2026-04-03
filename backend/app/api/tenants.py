@@ -1,11 +1,11 @@
 """Tenant management API endpoints"""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List
 from app.db.database import get_db
 from app.db.models import Tenant, User, UserTenantRole, UserRole
-from app.auth.dependencies import get_current_user, require_role
+from app.auth.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/tenants", tags=["tenants"])
 

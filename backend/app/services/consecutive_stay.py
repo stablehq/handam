@@ -195,7 +195,12 @@ def unlink_from_group(db: Session, reservation_id: int) -> bool:
 
     Returns True if the reservation was unlinked.
     """
-    res = db.query(Reservation).filter(Reservation.id == reservation_id).first()
+    tid = current_tenant_id.get()
+
+    query = db.query(Reservation).filter(Reservation.id == reservation_id)
+    if tid:
+        query = query.filter(Reservation.tenant_id == tid)
+    res = query.first()
     if not res or not res.stay_group_id:
         return False
 
@@ -206,15 +211,16 @@ def unlink_from_group(db: Session, reservation_id: int) -> bool:
     res.is_long_stay = compute_is_long_stay(res)
 
     # Re-order remaining members
-    remaining = (
+    remaining_q = (
         db.query(Reservation)
         .filter(
             Reservation.stay_group_id == group_id,
             Reservation.id != reservation_id,
         )
-        .order_by(Reservation.stay_group_order)
-        .all()
     )
+    if tid:
+        remaining_q = remaining_q.filter(Reservation.tenant_id == tid)
+    remaining = remaining_q.order_by(Reservation.stay_group_order).all()
 
     if len(remaining) <= 1:
         # Dissolve group if only 1 member left

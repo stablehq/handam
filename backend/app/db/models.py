@@ -120,7 +120,7 @@ class Reservation(TenantMixin, Base):
     is_multi_booking = Column(Boolean, default=False)
 
     # Consecutive stay (연박) linking
-    stay_group_id = Column(String(36), nullable=True, index=True)   # UUID — same value for all reservations in a consecutive stay group
+    stay_group_id = Column(String(50), nullable=True, index=True)   # "manual-{uuid}" for manually linked groups
     stay_group_order = Column(Integer, nullable=True)                # Order within group (0, 1, 2...)
     is_last_in_group = Column(Boolean, nullable=True)                # True: last reservation in consecutive stay group
     is_long_stay = Column(Boolean, default=False)                    # 연박자(2박+) OR 연장자(stay_group_id) 통합
@@ -561,6 +561,7 @@ class Tenant(Base):
     aligo_testmode = Column(Boolean, default=True)  # True=테스트모드(실제 미발송), False=실제 발송
     chip_priority_keys = Column(Text, nullable=True)  # JSON array of template_keys for chip display order
     custom_highlight_colors = Column(Text, nullable=True)  # JSON array of custom hex colors e.g. ["#FF5733","#33FF57"]
+    snapshot_refresh_times = Column(Text, nullable=True)  # JSON array of HH:MM strings, e.g. '["09:00","11:50"]'
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)

@@ -36,10 +36,12 @@ class ScheduleManager:
             TemplateSchedule.is_active == True
         ).all()
 
-        # Remove existing template schedule jobs
+        # Remove only THIS tenant's schedule jobs (active + inactive)
+        all_tenant_schedules = db.query(TemplateSchedule.id).all()
+        tenant_job_ids = {f"template_schedule_{s.id}" for (s,) in all_tenant_schedules}
         existing_jobs = self.scheduler.get_jobs()
         for job in existing_jobs:
-            if job.id.startswith('template_schedule_'):
+            if job.id in tenant_job_ids:
                 self.scheduler.remove_job(job.id)
                 logger.info(f"Removed existing job: {job.id}")
 

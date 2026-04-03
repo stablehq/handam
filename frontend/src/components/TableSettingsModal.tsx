@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { Plus, X, RotateCcw, Palette } from 'lucide-react';
+import { Plus, X, RotateCcw, Palette, Pipette } from 'lucide-react';
 import {
-  COLOR_PRESETS,
-  DIVIDER_COLOR_PRESETS,
   DEFAULT_ROW_COLORS,
   DEFAULT_DIVIDER_COLOR,
+  GOOGLE_SHEETS_PALETTE,
   isLightColor,
   type RowColorSettings,
 } from '@/lib/highlight-colors';
@@ -73,6 +73,9 @@ export default function TableSettingsModal({
   const [dividers, setDividers] = useState<Set<number>>(new Set());
   const [dividerColors, setDividerColors] = useState<Map<number, string>>(new Map());
   const [savingDividers, setSavingDividers] = useState(false);
+  const [colorPopupDivIdx, setColorPopupDivIdx] = useState<number | null>(null);
+  const [colorPopupPos, setColorPopupPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const colorPopupRef = useRef<HTMLDivElement>(null);
 
   // --- Tab 3: Row style state ---
   const [localRowColors, setLocalRowColors] = useState<RowColorSettings>({ ...DEFAULT_ROW_COLORS });
@@ -113,7 +116,6 @@ export default function TableSettingsModal({
     // Tab 2: initialize divider colors from roomGroups
     const initColors = new Map<number, string>();
     // Build a map from group boundary index → group color
-    let groupBoundaryIdx = -1;
     for (let gIdx = 0; gIdx < roomGroups.length; gIdx++) {
       const g = roomGroups[gIdx];
       if (g.color) {
@@ -150,10 +152,23 @@ export default function TableSettingsModal({
     setSavingColors(true);
     try {
       await onSaveCustomColors(localCustomColors);
+      onClose();
     } finally {
       setSavingColors(false);
     }
   }
+
+  // Close color popup on outside click
+  useEffect(() => {
+    if (colorPopupDivIdx === null) return;
+    function handleClick(e: MouseEvent) {
+      if (colorPopupRef.current && !colorPopupRef.current.contains(e.target as Node)) {
+        setColorPopupDivIdx(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [colorPopupDivIdx]);
 
   // --- Tab 2 handlers ---
   function toggleDivider(divIdx: number) {
@@ -185,6 +200,7 @@ export default function TableSettingsModal({
     setSavingDividers(true);
     try {
       await onSaveDividers(dividers, dividerColors);
+      onClose();
     } finally {
       setSavingDividers(false);
     }
@@ -201,18 +217,20 @@ export default function TableSettingsModal({
 
   function handleSaveRowColors() {
     onSaveRowColors(localRowColors);
+    onClose();
   }
 
   // --- Render helpers ---
   function renderDividerSlot(divIdx: number) {
     const isActive = dividers.has(divIdx);
     const currentColor = dividerColors.get(divIdx) ?? DEFAULT_DIVIDER_COLOR;
+    const isPopupOpen = colorPopupDivIdx === divIdx;
 
     return (
       <div key={`divider-slot-${divIdx}`}>
         {/* Clickable divider line */}
         <div
-          className="relative py-1.5 flex items-center justify-center cursor-pointer group/divider"
+          className="relative py-1.5 flex items-center cursor-pointer group/divider"
           onClick={() => toggleDivider(divIdx)}
         >
           {isActive ? (
@@ -222,40 +240,39 @@ export default function TableSettingsModal({
                 style={{ borderColor: currentColor }}
               />
               <div
-                className="absolute z-10 text-white rounded-full h-5 w-5 flex items-center justify-center opacity-0 group-hover/divider:opacity-100 transition-opacity"
+                className="absolute left-1/2 -translate-x-1/2 z-10 text-white rounded-full h-5 w-5 flex items-center justify-center opacity-0 group-hover/divider:opacity-100 transition-opacity"
                 style={{ backgroundColor: currentColor }}
               >
                 <X className="h-3 w-3" />
               </div>
+              {/* Color picker icon at right end */}
+              <button
+                className="absolute right-1 z-10 w-5 h-5 rounded-full border border-gray-300 dark:border-gray-600 flex items-center justify-center hover:scale-110 transition-transform"
+                style={{ backgroundColor: currentColor }}
+                title="구분선 색상 변경"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isPopupOpen) {
+                    setColorPopupDivIdx(null);
+                  } else {
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setColorPopupPos({ x: rect.right + 8, y: rect.top + rect.height / 2 });
+                    setColorPopupDivIdx(divIdx);
+                  }
+                }}
+              >
+                <Pipette className={`h-2.5 w-2.5 ${isLightColor(currentColor) ? 'text-[#4E5968]' : 'text-white'}`} />
+              </button>
             </>
           ) : (
             <>
               <div className="absolute inset-x-4 border-t border-dashed border-transparent group-hover/divider:border-[#D1D5DB] dark:group-hover/divider:border-[#4E5968] transition-colors" />
-              <div className="absolute z-10 bg-[#E5E8EB] dark:bg-[#2C2C34] text-[#8B95A1] rounded-full h-5 w-5 flex items-center justify-center opacity-0 group-hover/divider:opacity-100 transition-opacity">
+              <div className="absolute left-1/2 -translate-x-1/2 z-10 bg-[#E5E8EB] dark:bg-[#2C2C34] text-[#8B95A1] rounded-full h-5 w-5 flex items-center justify-center opacity-0 group-hover/divider:opacity-100 transition-opacity">
                 <Plus className="h-3 w-3" />
               </div>
             </>
           )}
         </div>
-
-        {/* Color picker row — only visible when divider is active */}
-        {isActive && (
-          <div className="flex items-center gap-1.5 px-4 pb-1.5">
-            {DIVIDER_COLOR_PRESETS.map(presetHex => (
-              <button
-                key={presetHex}
-                title={presetHex}
-                onClick={() => setDividerColor(divIdx, presetHex)}
-                className={`w-5 h-5 rounded-full border cursor-pointer hover:scale-110 transition-transform flex-shrink-0 ${
-                  currentColor === presetHex
-                    ? 'ring-2 ring-offset-1 ring-[#3182F6]'
-                    : 'border-gray-300 dark:border-gray-600'
-                }`}
-                style={{ backgroundColor: presetHex }}
-              />
-            ))}
-          </div>
-        )}
       </div>
     );
   }
@@ -264,28 +281,9 @@ export default function TableSettingsModal({
   function renderHighlightTab() {
     return (
       <div className="space-y-4">
-        {/* Preset colors — read-only display */}
+        {/* Quick colors — selected from palette */}
         <div>
-          <p className="text-label font-medium text-[#4E5968] dark:text-gray-300 mb-2">기본 색상</p>
-          <div className="flex flex-wrap gap-3">
-            {COLOR_PRESETS.map(preset => (
-              <div key={preset.key} className="flex flex-col items-center gap-1">
-                <div
-                  className="w-6 h-6 rounded-full border border-[#E5E8EB] dark:border-gray-700 flex-shrink-0"
-                  style={{ backgroundColor: preset.hex }}
-                  title={preset.label}
-                />
-                <span className="text-tiny text-[#8B95A1]">{preset.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="border-t border-[#E5E8EB] dark:border-gray-800" />
-
-        {/* Custom colors */}
-        <div>
-          <p className="text-label font-medium text-[#4E5968] dark:text-gray-300 mb-2">커스텀 색상</p>
+          <p className="text-label font-medium text-[#4E5968] dark:text-gray-300 mb-2">퀵 컬러</p>
           <div className="flex flex-wrap items-center gap-2">
             {localCustomColors.map(hex => (
               <div key={hex} className="relative group/swatch flex-shrink-0">
@@ -303,12 +301,11 @@ export default function TableSettingsModal({
                 </button>
               </div>
             ))}
-
-            {/* Native color picker trigger */}
+            {/* Native color picker for truly custom colors */}
             <button
               onClick={() => colorInputRef.current?.click()}
               className="w-6 h-6 rounded-full border-2 border-dashed border-[#D1D5DB] dark:border-gray-600 flex items-center justify-center hover:border-[#3182F6] transition-colors flex-shrink-0"
-              title="색상 추가"
+              title="직접 색상 추가"
             >
               <Plus className="h-3.5 w-3.5 text-[#8B95A1]" />
             </button>
@@ -322,9 +319,55 @@ export default function TableSettingsModal({
           </div>
           {localCustomColors.length === 0 && (
             <p className="text-caption text-[#B0B8C1] dark:text-gray-600 mt-2">
-              + 버튼을 눌러 커스텀 색상을 추가하세요
+              아래 팔레트에서 클릭하여 퀵 컬러를 추가하세요
             </p>
           )}
+        </div>
+
+        <div className="border-t border-[#E5E8EB] dark:border-gray-800" />
+
+        {/* Google Sheets color palette */}
+        <div>
+          <p className="text-label font-medium text-[#4E5968] dark:text-gray-300 mb-2">색상 팔레트</p>
+          <div className="flex flex-col gap-0.5">
+            {GOOGLE_SHEETS_PALETTE.map((row, rowIdx) => (
+              <React.Fragment key={rowIdx}>
+                {rowIdx === 2 && <div className="h-1" />}
+                <div className="flex gap-0.5">
+                  {row.map(hex => {
+                    const isSelected = localCustomColors.includes(hex);
+                    return (
+                      <button
+                        key={hex}
+                        title={isSelected ? `${hex} (추가됨)` : `${hex} — 클릭하여 퀵 컬러 추가`}
+                        onClick={() => {
+                          if (isSelected) {
+                            handleRemoveCustomColor(hex);
+                          } else {
+                            handleAddCustomColor(hex);
+                          }
+                        }}
+                        className={`w-[28px] h-[28px] flex-shrink-0 cursor-pointer hover:scale-110 transition-transform relative ${
+                          rowIdx < 2 ? 'rounded-sm' : 'rounded-sm'
+                        } ${
+                          isSelected
+                            ? 'ring-2 ring-[#3182F6] ring-offset-1 dark:ring-offset-[#1E1E24] z-10'
+                            : 'border border-black/10 dark:border-white/10'
+                        }`}
+                        style={{ backgroundColor: hex }}
+                      >
+                        {isSelected && (
+                          <span className={`absolute inset-0 flex items-center justify-center text-[11px] font-bold ${isLightColor(hex) ? 'text-[#191F28]' : 'text-white'}`}>
+                            ✓
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -344,23 +387,20 @@ export default function TableSettingsModal({
       <div className="space-y-0">
         {activeRoomEntries.map((entry, idx) => (
           <React.Fragment key={entry.room_id}>
-            {/* Divider before first room */}
             {idx === 0 && renderDividerSlot(-1)}
 
-            {/* Room row */}
-            <div className="flex items-center px-4 py-2.5 text-body">
-              <span className="font-medium text-[#191F28] dark:text-white w-16">{entry.room_number}</span>
-              <span className="text-[#8B95A1] dark:text-[#8B95A1] text-caption">
-                {roomInfoMap[entry.room_number] || ''}
-              </span>
+            <div className="flex items-center px-4 py-1.5 text-caption">
               {entry.building_name && (
-                <span className="ml-auto text-caption text-[#B0B8C1] dark:text-[#4E5968]">
+                <span className="text-caption text-[#B0B8C1] dark:text-[#4E5968] w-16">
                   {entry.building_name}
                 </span>
               )}
+              <span className="font-medium text-[#191F28] dark:text-white w-28 truncate">{entry.room_number}</span>
+              <span className="text-[#8B95A1] dark:text-[#8B95A1] text-caption">
+                {roomInfoMap[entry.room_number] || ''}
+              </span>
             </div>
 
-            {/* Divider after each room (including last) */}
             {renderDividerSlot(idx)}
           </React.Fragment>
         ))}
@@ -463,6 +503,7 @@ export default function TableSettingsModal({
   }
 
   return (
+    <>
     <Modal show={show} onClose={onClose} size="md">
       <ModalHeader>테이블 설정</ModalHeader>
       <ModalBody className="p-0">
@@ -494,5 +535,49 @@ export default function TableSettingsModal({
         {renderFooter()}
       </ModalFooter>
     </Modal>
+
+      {/* Divider color popup — portal to escape modal overflow */}
+      {colorPopupDivIdx !== null && (() => {
+        const popupCurrentColor = dividerColors.get(colorPopupDivIdx) ?? DEFAULT_DIVIDER_COLOR;
+        return createPortal(
+          <div
+            ref={colorPopupRef}
+            style={{ position: 'fixed', left: colorPopupPos.x, top: colorPopupPos.y, transform: 'translateY(-50%)', zIndex: 10100 }}
+            className="bg-white dark:bg-[#1E1E24] border border-[#E5E8EB] dark:border-gray-800 rounded-xl shadow-lg p-2.5 animate-in fade-in zoom-in-95 duration-100"
+          >
+            <div className="grid grid-cols-5 gap-2">
+              {popupCurrentColor !== DEFAULT_DIVIDER_COLOR && !localCustomColors.includes(popupCurrentColor) && (
+                <button
+                  title={`${popupCurrentColor} (현재)`}
+                  onClick={() => setColorPopupDivIdx(null)}
+                  className="w-5 h-5 rounded-full border cursor-pointer flex-shrink-0 ring-2 ring-offset-1 ring-[#3182F6] dark:ring-offset-[#1E1E24]"
+                  style={{ backgroundColor: popupCurrentColor }}
+                />
+              )}
+              {localCustomColors.map(hex => (
+                <button
+                  key={hex}
+                  title={hex}
+                  onClick={() => {
+                    setDividerColor(colorPopupDivIdx, hex);
+                    setColorPopupDivIdx(null);
+                  }}
+                  className={`w-5 h-5 rounded-full border cursor-pointer hover:scale-110 transition-transform flex-shrink-0 ${
+                    popupCurrentColor === hex
+                      ? 'ring-2 ring-offset-1 ring-[#3182F6] dark:ring-offset-[#1E1E24]'
+                      : 'border-gray-300 dark:border-gray-600'
+                  }`}
+                  style={{ backgroundColor: hex }}
+                />
+              ))}
+            </div>
+            {localCustomColors.length === 0 && popupCurrentColor === DEFAULT_DIVIDER_COLOR && (
+              <p className="text-caption text-[#B0B8C1] whitespace-nowrap">하이라이트 탭에서 퀵 컬러를 추가하세요</p>
+            )}
+          </div>,
+          document.body,
+        );
+      })()}
+    </>
   );
 }

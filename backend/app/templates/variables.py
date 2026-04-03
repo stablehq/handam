@@ -155,6 +155,38 @@ def get_or_create_snapshot(db: Session, target_date: str) -> ParticipantSnapshot
     return snapshot
 
 
+def refresh_snapshot(db: Session, target_date: str) -> Optional[ParticipantSnapshot]:
+    """Refresh an existing snapshot by recalculating from current DB state.
+    If no snapshot exists for the date, does nothing (returns None).
+    """
+    import logging
+    _logger = logging.getLogger(__name__)
+
+    existing = db.query(ParticipantSnapshot).filter(
+        ParticipantSnapshot.date == target_date
+    ).first()
+    if not existing:
+        return None  # Only refresh existing snapshots, don't create new ones
+
+    # Recalculate from current confirmed reservations
+    result = db.query(
+        func.coalesce(func.sum(Reservation.male_count), 0).label("total_male"),
+        func.coalesce(func.sum(Reservation.female_count), 0).label("total_female"),
+    ).filter(
+        Reservation.check_in_date == target_date,
+        Reservation.status.in_([ReservationStatus.CONFIRMED, ReservationStatus.COMPLETED]),
+    ).first()
+
+    old_male, old_female = existing.male_count, existing.female_count
+    existing.male_count = int(result.total_male) if result else 0
+    existing.female_count = int(result.total_female) if result else 0
+
+    if old_male != existing.male_count or old_female != existing.female_count:
+        _logger.info(f"[Snapshot Refresh] {target_date}: M {old_male}→{existing.male_count}, F {old_female}→{existing.female_count}")
+
+    return existing
+
+
 def calculate_template_variables(
     reservation: Reservation,
     db: Session,

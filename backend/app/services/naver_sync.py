@@ -3,7 +3,7 @@ Shared Naver reservation sync logic.
 Used by both the API endpoint and the scheduler job.
 """
 from datetime import datetime, timezone
-from typing import Dict, Any, List
+from typing import Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 import logging

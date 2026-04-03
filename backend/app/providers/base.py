@@ -3,7 +3,6 @@ Abstract provider interfaces using Protocol (PEP 544).
 This allows hot-swapping between Mock and Real implementations.
 """
 from typing import Protocol, Any, Dict, List, Optional
-from datetime import datetime
 
 
 class SMSProvider(Protocol):

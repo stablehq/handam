@@ -1,7 +1,7 @@
 """
 Message API endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from pydantic import BaseModel

@@ -3,7 +3,6 @@ from pydantic import model_validator
 from functools import lru_cache
 from zoneinfo import ZoneInfo
 import secrets
-import logging
 
 KST = ZoneInfo("Asia/Seoul")
 

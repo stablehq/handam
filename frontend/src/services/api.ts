@@ -234,6 +234,7 @@ export const settingsAPI = {
   getHighlightColors: () => api.get('/api/settings/highlight-colors'),
   updateHighlightColors: (colors: string[]) =>
     api.put('/api/settings/highlight-colors', { colors }),
+
 };
 
 // Party Check-in API

@@ -19,17 +19,17 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  GripVertical,
   Plus,
   UserRoundPlus,
   UserPlus,
   Link2,
   Layers,
-  Check,
-  MousePointer,
+  Circle,
   Minus,
   PanelRightOpen,
   PanelRightClose,
+  ChevronsLeft,
+  ChevronsRight,
 } from 'lucide-react';
 import GuestContextMenu from '../components/GuestContextMenu';
 import TableSettingsModal from '../components/TableSettingsModal';
@@ -367,32 +367,56 @@ const RoomAssignment = () => {
   // Track which section unassigned reservations belong to: 'party' or 'unassigned'
   const [sectionOverrides, setSectionOverrides] = useState<Record<number, 'party' | 'unassigned'>>({});
   const [nextDayReservations, setNextDayReservations] = useState<Reservation[]>([]);
-  const [nextDayExpanded, setNextDayExpanded] = useState(false);
-  const NEXT_DAY_EXPANDED_WIDTH = 280;
+  const [nextDayExpanded, setNextDayExpanded] = useState(() => {
+    const saved = localStorage.getItem('roomAssignment_nextDayExpanded');
+    return saved !== null ? saved === 'true' : true;
+  });
   const [rooms, setRooms] = useState<any[]>([]);
   const [animDirection, setAnimDirection] = useState<'none' | 'left' | 'right'>('none');
   const [loading, setLoading] = useState(false);
   const [dragOverRoom, setDragOverRoom] = useState<number | null>(null);
+  const [dragOverNextRoom, setDragOverNextRoom] = useState<number | null>(null);
   const [dragOverPool, setDragOverPool] = useState(false);
   const [dragOverPartyZone, setDragOverPartyZone] = useState(false);
-  const [dragActive, setDragActive] = useState(false);
-  const [dragOverTrash, setDragOverTrash] = useState(false);
-
-  // ===== Interaction mode toggle (drag vs select) =====
-  const [interactionMode, setInteractionMode] = useState<'drag' | 'select'>(
-    () => (localStorage.getItem('roomAssignMode') as 'drag' | 'select') || 'drag'
-  );
-  useEffect(() => {
-    localStorage.setItem('roomAssignMode', interactionMode);
-  }, [interactionMode]);
+  const [dragOverNextPool, setDragOverNextPool] = useState(false);
+  const [dragOverNextParty, setDragOverNextParty] = useState(false);
 
   // ===== Select mode state =====
   const [selectedGuestIds, setSelectedGuestIds] = useState<Set<number>>(new Set());
-  const selectionActive = interactionMode === 'select' && selectedGuestIds.size > 0;
+  const selectionActive = selectedGuestIds.size > 0;
 
-  const dragScrollRaf = useRef<number | null>(null);
-  const dragResId = useRef<number | null>(null);
-  const dragGhostRef = useRef<HTMLDivElement | null>(null);
+  // Selection mode toast
+  useEffect(() => {
+    localStorage.setItem('roomAssignment_nextDayExpanded', String(nextDayExpanded));
+  }, [nextDayExpanded]);
+
+  useEffect(() => {
+    const TOAST_ID = 'selection-mode';
+    if (selectionActive) {
+      const name = selectedGuestIds.size === 1
+        ? reservations.find(r => r.id === [...selectedGuestIds][0])?.customer_name
+        : undefined;
+      const msg = name
+        ? `${name} — 이동할 방을 클릭하세요`
+        : `${selectedGuestIds.size}명 선택됨 — 이동할 방을 클릭하세요`;
+      toast.info(msg, {
+        id: TOAST_ID,
+        duration: Infinity,
+        position: 'top-center',
+        action: {
+          label: '✕ 취소',
+          onClick: () => setSelectedGuestIds(new Set()),
+        },
+      });
+    } else {
+      toast.dismiss(TOAST_ID);
+    }
+  }, [selectionActive, selectedGuestIds, reservations]);
+
+  // Undo stack for room assignments
+  const [undoStack, setUndoStack] = useState<Array<{ resId: number; prevRoomId: number | null; prevRoomNumber: string | null; prevSection: string | null; date: string; customerName: string }>>([]);
+  const undoInProgress = useRef(false);
+
   const [recentlyMovedId, setRecentlyMovedId] = useState<number | null>(null);
   const [processing, setProcessing] = useState(false);
   const [quickAddedId, setQuickAddedId] = useState<number | null>(null);
@@ -441,6 +465,22 @@ const RoomAssignment = () => {
     onConfirm: (applySubsequent: boolean) => void;
   } | null>(null);
 
+  const [extendStayConflict, setExtendStayConflict] = useState<{
+    open: boolean;
+    newResId: number;
+    roomId: number;
+    roomNumber: string;
+    existingGuests: string[];
+  } | null>(null);
+
+  const [dateChangeModal, setDateChangeModal] = useState<{
+    open: boolean;
+    resId: number;
+    customerName: string;
+    checkIn: string;
+    checkOut: string;
+  } | null>(null);
+
   const [templateLabels, setTemplateLabels] = useState<{template_key: string; name: string; short_label: string | null}[]>([]);
 
   const [roomGroups, setRoomGroups] = useState<Array<{id: number; name: string; sort_order: number; color?: string; room_ids: number[]}>>([]);
@@ -457,10 +497,11 @@ const RoomAssignment = () => {
   const [stayGroupLinking, setStayGroupLinking] = useState(false);
   const [stayGroupDirection, setStayGroupDirection] = useState<'left' | 'right'>('right');
 
-  const handleFieldSave = async (resId: number, field: string, value: string) => {
+  const handleFieldSave = async (resId: number, field: string, value: string, targetDate?: Dayjs) => {
+    const effectiveDate = targetDate || selectedDate;
     if (field === 'party_type') {
       try {
-        await reservationsAPI.updateDailyInfo(resId, { date: selectedDate.format('YYYY-MM-DD'), party_type: value || null });
+        await reservationsAPI.updateDailyInfo(resId, { date: effectiveDate.format('YYYY-MM-DD'), party_type: value || null });
         fetchReservations(selectedDate);
       } catch {
         toast.error('저장 실패');
@@ -469,7 +510,7 @@ const RoomAssignment = () => {
     }
     if (field === 'notes') {
       try {
-        await reservationsAPI.updateDailyInfo(resId, { date: selectedDate.format('YYYY-MM-DD'), notes: value });
+        await reservationsAPI.updateDailyInfo(resId, { date: effectiveDate.format('YYYY-MM-DD'), notes: value });
         fetchReservations(selectedDate);
       } catch {
         toast.error('저장 실패');
@@ -505,6 +546,9 @@ const RoomAssignment = () => {
     } catch { /* ignore */ }
     return defaultColWidths;
   });
+  const NEXT_DAY_EXPANDED_WIDTH = useMemo(() => {
+    return 32 + colWidths.name + colWidths.phone + colWidths.party + colWidths.gender + 16;
+  }, [colWidths]);
   const [resizeCol, setResizeCol] = useState<string | null>(null);
   const [resizeGuideX, setResizeGuideX] = useState<number | null>(null);
   const resizeStartXRef = useRef(0);
@@ -544,6 +588,10 @@ const RoomAssignment = () => {
 
   const GUEST_COLS = useMemo(() => {
     return `${colWidths.name}px ${colWidths.phone}px ${colWidths.party}px ${colWidths.gender}px ${colWidths.roomType}px ${colWidths.notes}px minmax(${colWidths.sms}px, 1fr)`;
+  }, [colWidths]);
+
+  const NEXT_GUEST_COLS = useMemo(() => {
+    return `${colWidths.name}px ${colWidths.phone}px ${colWidths.party}px ${colWidths.gender}px`;
   }, [colWidths]);
 
   const roomInfoMap = useMemo(() => {
@@ -755,15 +803,6 @@ const RoomAssignment = () => {
     }
   }, [quickAddedId]);
 
-  // ===== Select mode: reset on mode switch (BLOCKING FIX) =====
-  useEffect(() => {
-    setSelectedGuestIds(new Set());
-    setDragOverRoom(null);
-    setDragOverPool(false);
-    setDragOverPartyZone(false);
-    setDragOverTrash(false);
-  }, [interactionMode]);
-
   // Select mode: reset on date change
   useEffect(() => {
     setSelectedGuestIds(new Set());
@@ -772,20 +811,49 @@ const RoomAssignment = () => {
   // Select mode: prune invalid IDs on reservations change
   useEffect(() => {
     setSelectedGuestIds(prev => {
-      const validIds = new Set(reservations.map(r => r.id));
+      const validIds = new Set([
+        ...reservations.map(r => r.id),
+        ...nextDayReservations.map(r => r.id),
+      ]);
       const next = new Set([...prev].filter(id => validIds.has(id)));
       return next.size === prev.size ? prev : next;
     });
-  }, [reservations]);
+  }, [reservations, nextDayReservations]);
 
-  // Select mode: ESC to clear selection
+  // Keyboard shortcuts: ESC to clear selection, Ctrl+Z to undo room assignment
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setSelectedGuestIds(new Set());
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        if (undoInProgress.current) return;
+        undoInProgress.current = true;
+        setUndoStack(prev => {
+          if (prev.length === 0) { undoInProgress.current = false; return prev; }
+          const last = prev[prev.length - 1];
+          // Restore previous room assignment
+          reservationsAPI.assignRoom(last.resId, {
+            room_id: last.prevRoomId,
+            date: last.date,
+            apply_subsequent: false,
+          }).then(async () => {
+            if (last.prevRoomId === null && last.prevSection) {
+              await reservationsAPI.update(last.resId, { section: last.prevSection });
+            }
+            toast.success(`되돌리기: ${last.customerName} → ${last.prevRoomId ? last.prevRoomNumber : '미배정'}`);
+            fetchReservations(selectedDate);
+          }).catch(() => {
+            toast.error('되돌리기 실패');
+          }).finally(() => {
+            undoInProgress.current = false;
+          });
+          return prev.slice(0, -1);
+        });
+      }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [selectedDate, fetchReservations]);
 
 
   const loadTargets = () => {
@@ -886,6 +954,27 @@ const RoomAssignment = () => {
     };
   }, [reservations, sectionOverrides]);
 
+  const nextDayUnassigned = useMemo(() =>
+    nextDayReservations.filter(r => !r.room_id && (r.section === 'unassigned' || !r.section)),
+    [nextDayReservations]
+  );
+
+  const nextDayPartyOnly = useMemo(() =>
+    nextDayReservations.filter(r => !r.room_id && r.section === 'party'),
+    [nextDayReservations]
+  );
+
+  const findReservation = useCallback(
+    (resId: number): { res: Reservation; isNextDay: boolean } | null => {
+      const today = reservations.find((r) => r.id === resId);
+      if (today) return { res: today, isNextDay: false };
+      const tomorrow = nextDayReservations.find((r) => r.id === resId);
+      if (tomorrow) return { res: tomorrow, isNextDay: true };
+      return null;
+    },
+    [reservations, nextDayReservations]
+  );
+
   // Group rooms by building for fold/unfold
   const buildingGroups = useMemo(() => {
     const groups: { building_id: number | null; building_name: string | null; entries: typeof activeRoomEntries; assignedCount: number; totalCount: number }[] = [];
@@ -923,142 +1012,63 @@ const RoomAssignment = () => {
     });
   }, []);
 
-  // --- Custom pointer-based drag system (휠 스크롤 + 터치 지원) ---
-  const onCustomDragStart = (e: React.PointerEvent, resId: number) => {
-    // 좌클릭만 (터치는 pointerType === 'touch')
-    if (e.button !== 0 && e.pointerType === 'mouse') return;
-    e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
-
-    dragResId.current = resId;
-    setDragActive(true);
-
-    // 고스트 생성
-    const res = reservations.find((r) => r.id === resId);
-    const ghost = document.createElement('div');
-    ghost.textContent = res?.customer_name || '이동';
-    ghost.style.cssText = `position:fixed;left:${e.clientX + 12}px;top:${e.clientY - 14}px;padding:4px 12px;border-radius:8px;background:#3182F6;color:#fff;font-size:13px;font-weight:600;white-space:nowrap;pointer-events:none;z-index:9999;transform:scale(1);transition:transform 0.15s;`;
-    document.body.appendChild(ghost);
-    dragGhostRef.current = ghost;
-
-    // 텍스트 선택 방지
-    document.body.style.userSelect = 'none';
-
-    const EDGE_ZONE = 80;
-    const MAX_SPEED = 20;
-
-    const onPointerMove = (ev: PointerEvent) => {
-      // 고스트 위치 업데이트
-      if (dragGhostRef.current) {
-        dragGhostRef.current.style.left = `${ev.clientX + 12}px`;
-        dragGhostRef.current.style.top = `${ev.clientY - 14}px`;
-      }
-
-      // elementFromPoint로 드롭 타겟 판별
-      const target = document.elementFromPoint(ev.clientX, ev.clientY);
-      const dropZone = target?.closest<HTMLElement>('[data-drop-zone]');
-      const zoneId = dropZone?.dataset.dropZone || '';
-
-      // 하이라이트 업데이트
-      if (zoneId.startsWith('room-')) {
-        const roomId = Number(zoneId.replace('room-', ''));
-        setDragOverRoom(roomId);
-        setDragOverPool(false);
-        setDragOverPartyZone(false);
-        setDragOverTrash(false);
-      } else if (zoneId === 'pool') {
-        setDragOverRoom(null);
-        setDragOverPool(true);
-        setDragOverPartyZone(false);
-        setDragOverTrash(false);
-      } else if (zoneId === 'party') {
-        setDragOverRoom(null);
-        setDragOverPool(false);
-        setDragOverPartyZone(true);
-        setDragOverTrash(false);
-      } else if (zoneId === 'trash') {
-        setDragOverRoom(null);
-        setDragOverPool(false);
-        setDragOverPartyZone(false);
-        setDragOverTrash(true);
-      } else {
-        setDragOverRoom(null);
-        setDragOverPool(false);
-        setDragOverPartyZone(false);
-        setDragOverTrash(false);
-      }
-
-      // 가장자리 자동 스크롤
-      if (dragScrollRaf.current) cancelAnimationFrame(dragScrollRaf.current);
-      const y = ev.clientY;
-      const vh = window.innerHeight;
-      let speed = 0;
-      if (y < EDGE_ZONE) {
-        speed = -MAX_SPEED * Math.pow(1 - y / EDGE_ZONE, 1.5);
-      } else if (y > vh - EDGE_ZONE) {
-        speed = MAX_SPEED * Math.pow(1 - (vh - y) / EDGE_ZONE, 1.5);
-      }
-      if (speed !== 0) {
-        const scroll = () => {
-          window.scrollBy(0, speed);
-          dragScrollRaf.current = requestAnimationFrame(scroll);
-        };
-        dragScrollRaf.current = requestAnimationFrame(scroll);
-      } else if (dragScrollRaf.current) {
-        cancelAnimationFrame(dragScrollRaf.current);
-        dragScrollRaf.current = null;
-      }
-    };
-
-    const onPointerUp = (ev: PointerEvent) => {
-      document.removeEventListener('pointermove', onPointerMove);
-      document.removeEventListener('pointerup', onPointerUp);
-      document.body.style.userSelect = '';
-
-      // 고스트 제거
-      if (dragGhostRef.current) { dragGhostRef.current.remove(); dragGhostRef.current = null; }
-      if (dragScrollRaf.current) { cancelAnimationFrame(dragScrollRaf.current); dragScrollRaf.current = null; }
-
-      // 드롭 타겟 판별
-      const target = document.elementFromPoint(ev.clientX, ev.clientY);
-      const dropZone = target?.closest<HTMLElement>('[data-drop-zone]');
-      const zoneId = dropZone?.dataset.dropZone || '';
-      const curResId = dragResId.current;
-
-      // 상태 리셋
-      setDragActive(false);
-      setDragOverRoom(null);
-      setDragOverPool(false);
-      setDragOverPartyZone(false);
-      setDragOverTrash(false);
-      dragResId.current = null;
-
-      if (!curResId) return;
-
-      // 드롭 액션 실행
-      if (zoneId.startsWith('room-')) {
-        const roomId = Number(zoneId.replace('room-', ''));
-        handleDropOnRoom(curResId, roomId);
-      } else if (zoneId === 'pool') {
-        handleDropOnPool(curResId);
-      } else if (zoneId === 'party') {
-        handleDropOnParty(curResId);
-      } else if (zoneId === 'trash') {
-        handleDeleteGuest(curResId);
-      }
-    };
-
-    document.addEventListener('pointermove', onPointerMove);
-    document.addEventListener('pointerup', onPointerUp);
-  };
-
   // --- 드롭 액션 (기존 onXxxDrop 비즈니스 로직 보존) ---
-  const handleDropOnRoom = (resId: number, roomId: number) => {
-    const currentList = assignedRooms.get(roomId) || [];
+  const handleDropOnRoom = (resId: number, roomId: number, dropTargetDate?: Dayjs) => {
+    const found = findReservation(resId);
+    if (!found) return;
+    const { res, isNextDay: sourceIsNextDay } = found;
+    const targetDate = dropTargetDate || selectedDate;
+    const dropIsNextDay = !targetDate.isSame(selectedDate, 'day');
+
+    // Duplicate check on correct list
+    const currentList = dropIsNextDay
+      ? (nextDayRoomMap.get(roomId) || [])
+      : (assignedRooms.get(roomId) || []);
     if (currentList.some((r) => r.id === resId)) return;
-    const res = reservations.find((r) => r.id === resId);
-    if (!res) return;
+
     const entry = activeRoomEntries.find((e) => e.room_id === roomId);
+
+    // Cross-day move: change reservation date + room
+    if (sourceIsNextDay !== dropIsNextDay) {
+      // Block cross-day move for stay group guests
+      if (res.stay_group_id) {
+        toast.warning('연박 그룹에 속한 게스트는 날짜 이동이 불가합니다. 연박 해제 후 이동하세요.');
+        return;
+      }
+
+      const sourceDate = sourceIsNextDay ? selectedDate.add(1, 'day') : selectedDate;
+      const destDate = dropIsNextDay ? selectedDate.add(1, 'day') : selectedDate;
+      const destDateStr = destDate.format('YYYY-MM-DD');
+      const destCheckout = destDate.add(1, 'day').format('YYYY-MM-DD');
+      const roomNumber = entry?.room_number || '';
+
+      // Optimistic update: remove from source list, add to target list
+      const sourceSetter = sourceIsNextDay ? setNextDayReservations : setReservations;
+      const targetSetter = dropIsNextDay ? setNextDayReservations : setReservations;
+      sourceSetter((prev) => prev.filter((r) => r.id !== resId));
+      targetSetter((prev) => [...prev, { ...res, room_id: roomId, room_number: roomNumber, check_in_date: destDateStr, check_out_date: destCheckout, section: 'room' }]);
+
+      (async () => {
+        try {
+          await reservationsAPI.update(resId, {
+            check_in_date: destDateStr,
+            check_out_date: destCheckout,
+          });
+          // reconcile_dates in the backend already cleans up old-date assignments
+          await reservationsAPI.assignRoom(resId, {
+            room_id: roomId,
+            date: destDateStr,
+            apply_subsequent: false,
+          });
+          toast.success(`${res.customer_name} → ${roomNumber} (${destDateStr})`);
+          fetchReservations(selectedDate);
+        } catch (err: any) {
+          toast.error(err?.response?.data?.detail || '날짜 이동 실패');
+          fetchReservations(selectedDate);
+        }
+      })();
+      return;
+    }
     const roomNumber = entry?.room_number || '';
 
     if (!!res.is_long_stay) {
@@ -1066,92 +1076,118 @@ const RoomAssignment = () => {
         open: true, resId, resName: res.customer_name, roomId, roomNumber,
         onConfirm: (applySubsequent) => {
           setMultiNightConfirm(null);
-          doAssignRoom(resId, roomId, roomNumber, applySubsequent, !!res.stay_group_id && applySubsequent);
+          doAssignRoom(resId, roomId, roomNumber, applySubsequent, !!res.stay_group_id && applySubsequent, targetDate);
         },
       });
       return;
     }
-    doAssignRoom(resId, roomId, roomNumber, true);
+    doAssignRoom(resId, roomId, roomNumber, true, false, targetDate);
   };
 
-  const handleDropOnPool = async (resId: number) => {
-    const res = reservations.find((r) => r.id === resId);
-    if (!res) return;
+  const handleDropOnPool = async (resId: number, targetDate?: Dayjs) => {
+    const found = findReservation(resId);
+    if (!found) return;
+    const { res, isNextDay } = found;
+
+    const effectiveDate = targetDate || (isNextDay ? selectedDate.add(1, 'day') : selectedDate);
+    const setter = isNextDay ? setNextDayReservations : setReservations;
     setRecentlyMovedId(resId);
     const effectiveSection = sectionOverrides[resId] ?? res.section;
     if (!res.room_id && effectiveSection === 'unassigned') return;
 
     if (res.room_id) {
-      setReservations((prev) => prev.map((r) => {
+      setter((prev) => prev.map((r) => {
         if (r.id !== resId) return r;
         const filtered = r.sms_assignments?.filter((a) => !(a.template_key === 'room_info' && !a.sent_at)) || [];
-        return { ...r, room_id: null, room_number: null, sms_assignments: filtered };
+        return { ...r, room_id: null, room_number: null, section: 'unassigned', sms_assignments: filtered };
       }));
-      setSectionOverrides((prev) => ({ ...prev, [resId]: 'unassigned' }));
+      if (!isNextDay) setSectionOverrides((prev) => ({ ...prev, [resId]: 'unassigned' }));
       try {
-        await reservationsAPI.assignRoom(resId, { room_id: null, date: selectedDate.format('YYYY-MM-DD'), apply_subsequent: true });
+        await reservationsAPI.assignRoom(resId, { room_id: null, date: effectiveDate.format('YYYY-MM-DD'), apply_subsequent: true });
         await reservationsAPI.update(resId, { section: 'unassigned' });
         toast.success('미배정으로 이동');
         fetchReservations(selectedDate);
       } catch { toast.error('배정 해제에 실패했습니다.'); await fetchReservations(selectedDate); }
     } else {
-      setSectionOverrides((prev) => ({ ...prev, [resId]: 'unassigned' }));
+      if (isNextDay) {
+        setter((prev) => prev.map((r) => r.id === resId ? { ...r, section: 'unassigned' } : r));
+      } else {
+        setSectionOverrides((prev) => ({ ...prev, [resId]: 'unassigned' }));
+      }
       toast.success('미배정으로 이동');
       try { await reservationsAPI.update(resId, { section: 'unassigned' }); fetchReservations(selectedDate); }
-      catch { setSectionOverrides((prev) => { const next = { ...prev }; delete next[resId]; return next; }); toast.error('이동 실패'); }
+      catch { if (!isNextDay) setSectionOverrides((prev) => { const next = { ...prev }; delete next[resId]; return next; }); toast.error('이동 실패'); }
     }
   };
 
-  const handleDropOnParty = async (resId: number) => {
-    const guest = reservations.find((r) => r.id === resId);
-    if (!guest) return;
+  const handleDropOnParty = async (resId: number, targetDate?: Dayjs) => {
+    const found = findReservation(resId);
+    if (!found) return;
+    const { res: guest, isNextDay } = found;
+
+    const effectiveDate = targetDate || (isNextDay ? selectedDate.add(1, 'day') : selectedDate);
+    const setter = isNextDay ? setNextDayReservations : setReservations;
     setRecentlyMovedId(resId);
     const effectiveSection = sectionOverrides[resId] ?? guest.section;
     if (!guest.room_id && effectiveSection === 'party') return;
 
     if (guest.room_id) {
-      setReservations((prev) => prev.map((r) => {
+      setter((prev) => prev.map((r) => {
         if (r.id !== resId) return r;
         const filtered = r.sms_assignments?.filter((a) => !(a.template_key === 'room_info' && !a.sent_at)) || [];
-        return { ...r, room_id: null, room_number: null, sms_assignments: filtered };
+        return { ...r, room_id: null, room_number: null, section: 'party', sms_assignments: filtered };
       }));
-      setSectionOverrides((prev) => ({ ...prev, [resId]: 'party' }));
+      if (!isNextDay) setSectionOverrides((prev) => ({ ...prev, [resId]: 'party' }));
       try {
-        await reservationsAPI.assignRoom(resId, { room_id: null, date: selectedDate.format('YYYY-MM-DD'), apply_subsequent: true });
+        await reservationsAPI.assignRoom(resId, { room_id: null, date: effectiveDate.format('YYYY-MM-DD'), apply_subsequent: true });
         await reservationsAPI.update(resId, { section: 'party' });
         toast.success('파티만으로 이동');
         fetchReservations(selectedDate);
       } catch { toast.error('이동 실패'); await fetchReservations(selectedDate); }
     } else {
-      setSectionOverrides((prev) => ({ ...prev, [resId]: 'party' }));
+      if (isNextDay) {
+        setter((prev) => prev.map((r) => r.id === resId ? { ...r, section: 'party' } : r));
+      } else {
+        setSectionOverrides((prev) => ({ ...prev, [resId]: 'party' }));
+      }
       toast.success('파티만으로 이동');
       try { await reservationsAPI.update(resId, { section: 'party' }); fetchReservations(selectedDate); }
-      catch { setSectionOverrides((prev) => { const next = { ...prev }; delete next[resId]; return next; }); toast.error('이동 실패'); }
+      catch { if (!isNextDay) setSectionOverrides((prev) => { const next = { ...prev }; delete next[resId]; return next; }); toast.error('이동 실패'); }
     }
   };
 
-  const doAssignRoom = async (resId: number, roomId: number, roomNumber: string, applySubsequent: boolean, applyGroup: boolean = false) => {
+  const doAssignRoom = async (resId: number, roomId: number, roomNumber: string, applySubsequent: boolean, applyGroup: boolean = false, targetDate?: Dayjs) => {
+    const effectiveDate = targetDate || selectedDate;
+    const isNextDay = targetDate != null && !targetDate.isSame(selectedDate, 'day');
+    const setter = isNextDay ? setNextDayReservations : setReservations;
+    // Save previous state for undo (captured before optimistic update)
+    const source = isNextDay ? nextDayReservations : reservations;
+    const prev = source.find(r => r.id === resId);
     // Optimistic update: move guest to new room + auto-assign room_info SMS tag
-    setReservations((prev) =>
+    setter((prev) =>
       prev.map((r) => {
         if (r.id !== resId) return r;
         const hasRoomInfo = r.sms_assignments?.some((a) => a.template_key === 'room_info');
         const updatedAssignments = hasRoomInfo
           ? r.sms_assignments
-          : [...(r.sms_assignments || []), { id: 0, reservation_id: r.id, template_key: 'room_info', assigned_at: new Date().toISOString(), sent_at: null, assigned_by: 'auto', date: selectedDate.format('YYYY-MM-DD') } as SmsAssignment];
+          : [...(r.sms_assignments || []), { id: 0, reservation_id: r.id, template_key: 'room_info', assigned_at: new Date().toISOString(), sent_at: null, assigned_by: 'auto', date: effectiveDate.format('YYYY-MM-DD') } as SmsAssignment];
         return { ...r, room_id: roomId, room_number: roomNumber, sms_assignments: updatedAssignments };
       })
     );
-    setSectionOverrides((prev) => { const next = { ...prev }; delete next[resId]; return next; });
+    if (!isNextDay) setSectionOverrides((prev) => { const next = { ...prev }; delete next[resId]; return next; });
 
     try {
       const { data: result } = await reservationsAPI.assignRoom(resId, {
         room_id: roomId,
-        date: selectedDate.format('YYYY-MM-DD'),
+        date: effectiveDate.format('YYYY-MM-DD'),
         apply_subsequent: applySubsequent,
         apply_group: applyGroup,
       });
       toast.success(`${roomNumber} 배정 완료`);
+      // Push to undo stack only after successful assignment
+      if (prev) {
+        setUndoStack(stack => [...stack.slice(-19), { resId, prevRoomId: prev.room_id ?? null, prevRoomNumber: (prev as any).room_number ?? null, prevSection: prev.section ?? null, date: effectiveDate.format('YYYY-MM-DD'), customerName: prev.customer_name }]);
+      }
       if (result.warnings?.length) {
         result.warnings.forEach((w: string) => toast.warning(w));
       }
@@ -1294,20 +1330,18 @@ const RoomAssignment = () => {
   const onGuestContextMenu = useCallback((e: React.MouseEvent, resId: number, zone?: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (dragActive) return;
     if (modalVisible || showStayGroupModal || multiNightConfirm?.open) return;
 
     const targetIds =
-      interactionMode === 'select' && selectedGuestIds.size > 0 && selectedGuestIds.has(resId)
+      selectedGuestIds.size > 0 && selectedGuestIds.has(resId)
         ? [...selectedGuestIds]
         : [resId];
 
     setContextMenu({ x: e.clientX, y: e.clientY, targetIds, zone });
-  }, [dragActive, modalVisible, showStayGroupModal, multiNightConfirm?.open, interactionMode, selectedGuestIds]);
+  }, [modalVisible, showStayGroupModal, multiNightConfirm?.open, selectedGuestIds]);
 
   const onGuestLongPressDown = useCallback((e: React.PointerEvent, resId: number) => {
     if (e.pointerType === 'mouse') return;
-    if (dragActive) return;
     if (modalVisible || showStayGroupModal || multiNightConfirm?.open) return;
     const interactive = (e.target as HTMLElement).closest('button, a, input, select, textarea, [role="button"], [data-interactive]');
     if (interactive) return;
@@ -1319,13 +1353,13 @@ const RoomAssignment = () => {
       if (navigator.vibrate) navigator.vibrate(50);
 
       const targetIds =
-        interactionMode === 'select' && selectedGuestIds.size > 0 && selectedGuestIds.has(resId)
+        selectedGuestIds.size > 0 && selectedGuestIds.has(resId)
           ? [...selectedGuestIds]
           : [resId];
 
       setContextMenu({ x: e.clientX, y: e.clientY, targetIds });
     }, 500);
-  }, [dragActive, modalVisible, showStayGroupModal, multiNightConfirm?.open, interactionMode, selectedGuestIds]);
+  }, [modalVisible, showStayGroupModal, multiNightConfirm?.open, selectedGuestIds]);
 
   const onGuestLongPressMove = useCallback((e: React.PointerEvent) => {
     if (!longPressTimer.current || !longPressStart.current) return;
@@ -1405,6 +1439,11 @@ const RoomAssignment = () => {
   };
 
   const handleEditGuest = (id: number) => {
+    const found = findReservation(id);
+    if (found?.isNextDay) {
+      toast.info('해당 날짜로 이동 후 편집해주세요');
+      return;
+    }
     const guest = reservations.find((r) => r.id === id);
     if (guest) {
       setEditingId(id);
@@ -1431,17 +1470,23 @@ const RoomAssignment = () => {
   const contextMenuActions = useMemo(() => {
     if (!contextMenu) return null;
     const { targetIds } = contextMenu;
-    const firstRes = reservations.find((r) => r.id === targetIds[0]);
+    const found = findReservation(targetIds[0]);
+    const firstRes = found?.res ?? null;
+    const contextIsNextDay = found?.isNextDay ?? false;
     if (!firstRes) return null;
 
     const effectiveSection = firstRes.room_id ? 'room' : (sectionOverrides[firstRes.id] ?? firstRes.section ?? 'unassigned');
     const isCopied = contextMenu.zone === 'unstable' && firstRes.section !== 'unstable';
+    const setter = contextIsNextDay ? setNextDayReservations : setReservations;
+    const dateStr = (contextIsNextDay ? selectedDate.add(1, 'day') : selectedDate).format('YYYY-MM-DD');
 
     return {
       targetCount: targetIds.length,
       currentSection: effectiveSection as 'room' | 'unassigned' | 'party' | 'unstable',
       hasStayGroup: !!firstRes.stay_group_id,
       isUnstableCopy: isCopied,
+      isAlreadyCopiedToUnstable: !!firstRes.unstable_party,
+      hasRealUnstableBooking: !!firstRes.has_unstable_booking,
       onMoveToPool: () => {
         targetIds.forEach((id) => handleDropOnPool(id));
         setContextMenu(null);
@@ -1465,6 +1510,11 @@ const RoomAssignment = () => {
         setContextMenu(null);
       },
       onLinkStayGroup: () => {
+        if (contextIsNextDay) {
+          toast.info('해당 날짜로 이동 후 연박 설정해주세요');
+          setContextMenu(null);
+          return;
+        }
         if (firstRes.stay_group_id) {
           handleStayGroupUnlink(firstRes.id);
         } else {
@@ -1478,39 +1528,92 @@ const RoomAssignment = () => {
             await reservationsAPI.update(id, { highlight_color: color });
           } catch { /* skip */ }
         }
-        setReservations(prev => prev.map(r =>
+        setter(prev => prev.map(r =>
           targetIds.includes(r.id) ? { ...r, highlight_color: color } : r
         ));
         setContextMenu(null);
       },
       onCopyToUnstable: async () => {
-        const dateStr = selectedDate.format('YYYY-MM-DD');
         for (const id of targetIds) {
           try {
             await reservationsAPI.updateDailyInfo(id, { date: dateStr, unstable_party: true });
           } catch { /* skip */ }
         }
-        setReservations(prev => prev.map(r =>
+        setter(prev => prev.map(r =>
           targetIds.includes(r.id) ? { ...r, unstable_party: true } : r
         ));
         toast.success(`언스테이블에 복사${targetIds.length > 1 ? ` (${targetIds.length}명)` : ''}`);
         setContextMenu(null);
       },
       onRemoveFromUnstable: async () => {
-        const dateStr = selectedDate.format('YYYY-MM-DD');
         for (const id of targetIds) {
           try {
             await reservationsAPI.updateDailyInfo(id, { date: dateStr, unstable_party: false });
           } catch { /* skip */ }
         }
-        setReservations(prev => prev.map(r =>
+        setter(prev => prev.map(r =>
           targetIds.includes(r.id) ? { ...r, unstable_party: false } : r
         ));
         toast.success('언스테이블 복사본 제거');
         setContextMenu(null);
       },
+      onExtendStay: (targetIds.length === 1 && !firstRes?.stay_group_id && firstRes?.booking_source !== 'extend' && !contextIsNextDay) ? async () => {
+        const resId = targetIds[0];
+        const res = reservations.find((r) => r.id === resId);
+        if (!res) return;
+        setContextMenu(null);
+
+        const nextDate = selectedDate.add(1, 'day');
+        const nextDateStr = nextDate.format('YYYY-MM-DD');
+
+        try {
+          const { data } = await api.post(`/api/reservations/${resId}/extend-stay`, {
+            room_id: res.room_id || null,
+          });
+
+          if (data.conflict_guests && data.conflict_guests.length > 0) {
+            const roomEntry = activeRoomEntries.find((e: any) => e.room_id === res.room_id);
+            setExtendStayConflict({
+              open: true,
+              newResId: data.new_reservation_id,
+              roomId: res.room_id!,
+              roomNumber: roomEntry?.room_number || String((res as any).room_number || ''),
+              existingGuests: data.conflict_guests,
+            });
+          } else {
+            toast.success(`연박추가 완료 — ${res.customer_name} (${nextDateStr})`);
+            fetchReservations(selectedDate);
+          }
+        } catch (err: any) {
+          toast.error(err?.response?.data?.detail || '연박추가 실패');
+          console.error(err);
+        }
+      } : undefined,
+      onCancelExtendStay: (targetIds.length === 1 && firstRes?.stay_group_id?.startsWith('manual-') && !contextIsNextDay) ? async () => {
+        const resId = targetIds[0];
+        setContextMenu(null);
+        try {
+          await api.delete(`/api/reservations/${resId}/extend-stay`);
+          toast.success('수동연박 취소 완료');
+          fetchReservations(selectedDate);
+        } catch (err: any) {
+          toast.error(err?.response?.data?.detail || '연박취소 실패');
+        }
+      } : undefined,
+      onChangeDates: (targetIds.length === 1) ? () => {
+        const res = findReservation(targetIds[0])?.res;
+        if (!res) return;
+        setDateChangeModal({
+          open: true,
+          resId: res.id,
+          customerName: res.customer_name,
+          checkIn: res.check_in_date,
+          checkOut: res.check_out_date || res.check_in_date,
+        });
+        setContextMenu(null);
+      } : undefined,
     };
-  }, [contextMenu, reservations, sectionOverrides, handleDropOnPool, handleDropOnParty, handleDeleteGuest, selectedDate, fetchReservations, handleStayGroupUnlink, openStayGroupModalForRes, showConfirm]);
+  }, [contextMenu, reservations, nextDayReservations, findReservation, sectionOverrides, handleDropOnPool, handleDropOnParty, handleDeleteGuest, selectedDate, fetchReservations, handleStayGroupUnlink, openStayGroupModalForRes, showConfirm, activeRoomEntries]);
 
   const handleSubmit = async () => {
     if (savingReservation) return;
@@ -1664,18 +1767,13 @@ const RoomAssignment = () => {
     }
   };
 
-  // Row drag state — returns Tailwind cursor class
-  const guestAreaCursor = (): string => {
-    return 'cursor-default';
-  };
-
   // ===== Select mode handlers =====
   const onGripClick = useCallback((e: React.PointerEvent, resId: number) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     e.preventDefault();
     e.stopPropagation();
 
-    const res = reservations.find(r => r.id === resId);
+    const res = findReservation(resId)?.res;
     setSelectedGuestIds(prev => {
       const next = new Set(prev);
       if (e.shiftKey || e.ctrlKey || e.metaKey) {
@@ -1683,7 +1781,7 @@ const RoomAssignment = () => {
           toast.warning('연박자는 개별 선택만 가능합니다');
           return prev;
         }
-        if ([...prev].some(id => reservations.find(r => r.id === id)?.is_long_stay)) {
+        if ([...prev].some(id => findReservation(id)?.res?.is_long_stay)) {
           toast.warning('연박자가 포함된 상태에서 멀티셀렉트할 수 없습니다');
           return prev;
         }
@@ -1699,7 +1797,7 @@ const RoomAssignment = () => {
       }
       return next;
     });
-  }, [reservations]);
+  }, [findReservation]);
 
   const onDropZoneClick = useCallback((e: React.MouseEvent) => {
     if (selectedGuestIds.size === 0) return;
@@ -1714,38 +1812,75 @@ const RoomAssignment = () => {
     const ids = [...selectedGuestIds];
     setSelectedGuestIds(new Set());
 
-    if (zoneId.startsWith('room-')) {
+    if (zoneId.startsWith('next-room-')) {
+      const roomId = Number(zoneId.replace('next-room-', ''));
+      const targetDate = selectedDate.add(1, 'day');
+      const hasCrossDay = ids.some(id => {
+        const f = findReservation(id);
+        return f && !f.isNextDay;
+      });
+      if (hasCrossDay) {
+        showConfirm('날짜 이동 확인', '오늘 체크인 게스트를 내일 방에 배정하시겠습니까?\n예약 날짜가 내일로 변경됩니다.', () => {
+          ids.forEach(id => handleDropOnRoom(id, roomId, targetDate));
+        });
+        return;
+      }
+      ids.forEach(id => handleDropOnRoom(id, roomId, targetDate));
+    } else if (zoneId.startsWith('room-')) {
       const roomId = Number(zoneId.replace('room-', ''));
+      const hasCrossDay = ids.some(id => {
+        const f = findReservation(id);
+        return f && f.isNextDay;
+      });
+      if (hasCrossDay) {
+        showConfirm('날짜 이동 확인', '내일 체크인 게스트를 오늘 방에 배정하시겠습니까?\n예약 날짜가 오늘로 변경됩니다.', () => {
+          ids.forEach(id => handleDropOnRoom(id, roomId));
+        });
+        return;
+      }
       ids.forEach(id => handleDropOnRoom(id, roomId));
+    } else if (zoneId === 'next-pool') {
+      ids.forEach(id => handleDropOnPool(id, selectedDate.add(1, 'day')));
+    } else if (zoneId === 'next-party') {
+      ids.forEach(id => handleDropOnParty(id, selectedDate.add(1, 'day')));
     } else if (zoneId === 'pool') {
       ids.forEach(id => handleDropOnPool(id));
     } else if (zoneId === 'party') {
       ids.forEach(id => handleDropOnParty(id));
-    } else if (zoneId === 'trash') {
-      ids.forEach(id => handleDeleteGuest(id));
     }
-  }, [selectedGuestIds, handleDropOnRoom, handleDropOnPool, handleDropOnParty, handleDeleteGuest]);
+  }, [selectedGuestIds, handleDropOnRoom, handleDropOnPool, handleDropOnParty, selectedDate, findReservation]);
 
   const onZoneHover = useCallback((zoneId: string) => {
     if (selectedGuestIds.size === 0) return;
-    if (zoneId.startsWith('room-')) {
+    if (zoneId.startsWith('next-room-')) {
+      setDragOverNextRoom(Number(zoneId.replace('next-room-', '')));
+      setDragOverRoom(null);
+    } else if (zoneId.startsWith('room-')) {
       setDragOverRoom(Number(zoneId.replace('room-', '')));
-    } else if (zoneId === 'pool') setDragOverPool(true);
-    else if (zoneId === 'party') setDragOverPartyZone(true);
-    else if (zoneId === 'trash') setDragOverTrash(true);
+      setDragOverNextRoom(null);
+    } else {
+      setDragOverRoom(null);
+      setDragOverNextRoom(null);
+      if (zoneId === 'next-pool') { setDragOverNextPool(true); setDragOverPool(false); }
+      else if (zoneId === 'next-party') { setDragOverNextParty(true); setDragOverPartyZone(false); }
+      else if (zoneId === 'pool') { setDragOverPool(true); setDragOverNextPool(false); }
+      else if (zoneId === 'party') { setDragOverPartyZone(true); setDragOverNextParty(false); }
+    }
   }, [selectedGuestIds.size]);
 
   const onZoneLeave = useCallback(() => {
     setDragOverRoom(null);
+    setDragOverNextRoom(null);
     setDragOverPool(false);
     setDragOverPartyZone(false);
-    setDragOverTrash(false);
+    setDragOverNextPool(false);
+    setDragOverNextParty(false);
   }, []);
 
   const renderGuestRow = (res: Reservation, showGrip: boolean, zone?: string) => {
     const genderPeople = formatGenderPeople(res);
     const longStay = !!res.is_long_stay;
-    const isSelected = interactionMode === 'select' && selectedGuestIds.has(res.id);
+    const isSelected = selectedGuestIds.has(res.id);
     const isCustomHex = isCustomHexColor(res.highlight_color);
     const highlightStyle = !isCustomHex && res.highlight_color ? PRESET_HIGHLIGHT_STYLES[res.highlight_color] : null;
     const hasCustomText = isCustomHex || !!highlightStyle?.text;
@@ -1753,7 +1888,7 @@ const RoomAssignment = () => {
 
     return (
       <div key={res.id}
-        className={`group/guest flex items-center h-10 ${showGrip ? '' : 'pl-7'} transition-colors duration-150 ${
+        className={`group/guest flex items-center h-10 ${showGrip ? '' : 'pl-10'} transition-colors duration-150 ${
           isSelected
             ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/15 ring-1 ring-inset ring-[#3182F6]/30'
             : isCustomHex
@@ -1761,27 +1896,33 @@ const RoomAssignment = () => {
               : highlightStyle
                 ? `${highlightStyle.bg} ${highlightStyle.hover} ${highlightStyle.text || ''}`
                 : longStay ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15 hover:bg-[#FFE4CC] dark:hover:bg-[#FF9500]/20' : 'hover:bg-[#E8F3FF] dark:hover:bg-[#3182F6]/8'
-        } ${guestAreaCursor()}`}
+        } cursor-pointer`}
         style={isCustomHex && !isSelected ? getCustomBgStyle(res.highlight_color!, isDarkMode) : undefined}
         onContextMenu={(e) => onGuestContextMenu(e, res.id, zone)}
+        onClick={(e: any) => {
+          if (showGrip && !(e.target as HTMLElement).closest('input, textarea, select, [data-interactive], button, a, [role="button"]')) {
+            if (selectionActive && !selectedGuestIds.has(res.id)) {
+              // 선택 활성 상태에서 다른 게스트 클릭 → 배정으로 버블링 (onDropZoneClick)
+              return;
+            }
+            onGripClick(e, res.id);
+          }
+        }}
       >
         {showGrip && (
           <div
-            onPointerDown={interactionMode === 'drag'
-              ? (e) => onCustomDragStart(e, res.id)
-              : (e) => onGripClick(e, res.id)}
-            className={`flex items-center justify-center ${interactionMode === 'select' ? 'w-10' : 'w-7'} px-0.5 flex-shrink-0 ${
-              interactionMode === 'drag' ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
-            } text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 touch-none ${
+            className={`flex items-center justify-center w-10 px-0.5 flex-shrink-0 cursor-pointer text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${
               isSelected
                 ? 'text-[#3182F6] dark:text-[#3182F6]'
                 : longStay ? 'group-hover/guest:text-[#FFB366] dark:group-hover/guest:text-[#FFB366]' : 'group-hover/guest:text-[#3182F6] dark:group-hover/guest:text-[#3182F6]'
             }`}
           >
-            {interactionMode === 'select' && isSelected
-              ? <Check size={14} />
-              : <GripVertical size={14} />
-            }
+            <span className="relative flex items-center justify-center w-[18px] h-[18px] group/circle">
+              <span className={`absolute inset-0 rounded-full bg-[#3182F6] transition-all duration-300 ease-out ${
+                isSelected ? 'scale-[0.55] opacity-80' : 'scale-0 opacity-0 group-hover/circle:scale-[0.55] group-hover/circle:opacity-30'
+              }`} />
+              <Circle size={18} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${isSelected ? 'text-[#3182F6]' : ''}`} />
+            </span>
           </div>
         )}
         <div
@@ -1870,9 +2011,9 @@ const RoomAssignment = () => {
           } ${selectionActive ? 'cursor-pointer' : ''}`}
         style={{ minHeight: `${totalRows * rowHeight}px`, ...(isDragOver ? {} : stripeBgStyle) }}
         data-drop-zone={`room-${room_id}`}
-        onClick={interactionMode === 'select' ? onDropZoneClick : undefined}
-        onMouseEnter={interactionMode === 'select' ? () => onZoneHover(`room-${room_id}`) : undefined}
-        onMouseLeave={interactionMode === 'select' ? onZoneLeave : undefined}
+        onClick={onDropZoneClick}
+        onMouseEnter={() => onZoneHover(`room-${room_id}`)}
+        onMouseLeave={onZoneLeave}
       >
         {/* Room label - vertically centered, spans all rows */}
         <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-b" style={{ ...borderStyle, ...stripeBgStyle }}>
@@ -1892,7 +2033,7 @@ const RoomAssignment = () => {
                 return renderGuestRow(guest, true);
               }
               return (
-                <div key={`empty-${i}`} className={`flex items-center h-9 ${guestAreaCursor()}`}>
+                <div key={`empty-${i}`} className={`flex items-center h-9 cursor-default`}>
                   <div
                     className="flex-1 grid items-center py-1"
                     style={{ gridTemplateColumns: GUEST_COLS }}
@@ -1907,7 +2048,7 @@ const RoomAssignment = () => {
           ) : guests.length > 0 ? (
             guests.map((res) => renderGuestRow(res, true))
           ) : (
-            <div className={`flex items-center h-9 ${guestAreaCursor()}`}>
+            <div className={`flex items-center h-9 cursor-default`}>
               <div
                 className="flex-1 grid items-center py-1"
                 style={{ gridTemplateColumns: GUEST_COLS }}
@@ -1921,7 +2062,18 @@ const RoomAssignment = () => {
         </div>
 
         {/* Next day column */}
-        <div className="flex-shrink-0 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] border-b transition-all duration-200" style={{ width: nextDayExpanded ? NEXT_DAY_EXPANDED_WIDTH : colWidths.nextDay, ...borderStyle, ...stripeBgStyle }}>
+        <div
+          className={`flex-shrink-0 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] border-b transition-all duration-200 ${
+            dragOverNextRoom === room_id
+              ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/8 ring-1 ring-inset ring-[#3182F6]/30'
+              : ''
+          } ${selectionActive ? 'cursor-pointer' : ''}`}
+          style={{ width: nextDayExpanded ? NEXT_DAY_EXPANDED_WIDTH : colWidths.nextDay, ...(dragOverNextRoom === room_id ? {} : { ...borderStyle, ...stripeBgStyle }) }}
+          data-drop-zone={nextDayExpanded ? `next-room-${room_id}` : undefined}
+          onClick={onDropZoneClick}
+          onMouseEnter={nextDayExpanded ? () => onZoneHover(`next-room-${room_id}`) : undefined}
+          onMouseLeave={nextDayExpanded ? onZoneLeave : undefined}
+        >
           <div className="divide-y divide-[#F2F4F6] dark:divide-[#2C2C34]">
             {Array.from({ length: totalRows }).map((_, i) => {
               const nextGuest = nextGuests[i];
@@ -1930,11 +2082,54 @@ const RoomAssignment = () => {
                 <div key={`next-${i}`} className={`flex items-center ${nextDayExpanded ? 'justify-start' : 'justify-center'} ${hasGuests ? 'h-10' : 'h-9'} px-1 ${nextGuest?.is_long_stay ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15' : ''}`}>
                   {nextGuest ? (
                     nextDayExpanded ? (
-                      <div className="grid grid-cols-4 w-full gap-0.5 items-center">
-                        <span className="truncate text-caption text-[#4E5968] dark:text-[#8B95A1] text-center">{nextGuest.customer_name}</span>
-                        <span className="truncate text-caption text-[#4E5968] dark:text-[#8B95A1] tabular-nums text-center">{nextGuest.phone?.replace(/(\d{3})(\d{4})(\d{4})/, '$1-$2-$3') || ''}</span>
-                        <span className="truncate text-caption text-[#8B95A1] dark:text-[#4E5968] text-center">{nextGuest.party_type || '-'}</span>
-                        <span className="truncate text-caption text-[#8B95A1] dark:text-[#4E5968] text-center">{gp || '-'}</span>
+                      <div className="group/guest flex items-center h-10 w-full">
+                        {/* Selection grip */}
+                        <div
+                          onClick={(e: any) => onGripClick(e, nextGuest.id)}
+                          className={`flex items-center justify-center w-8 px-0.5 flex-shrink-0 cursor-pointer text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${
+                            selectedGuestIds.has(nextGuest.id)
+                              ? 'text-[#3182F6] dark:text-[#3182F6]'
+                              : 'group-hover/guest:text-[#3182F6] dark:group-hover/guest:text-[#3182F6]'
+                          }`}
+                        >
+                          <span className="relative flex items-center justify-center w-[16px] h-[16px] group/circle">
+                            <span className={`absolute inset-0 rounded-full bg-[#3182F6] transition-all duration-300 ease-out ${
+                              selectedGuestIds.has(nextGuest.id) ? 'scale-[0.55] opacity-80' : 'scale-0 opacity-0 group-hover/circle:scale-[0.55] group-hover/circle:opacity-30'
+                            }`} />
+                            <Circle size={16} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${selectedGuestIds.has(nextGuest.id) ? 'text-[#3182F6]' : ''}`} />
+                          </span>
+                        </div>
+                        {/* Editable fields */}
+                        <div
+                          className="flex-1 grid items-center py-1"
+                          style={{ gridTemplateColumns: NEXT_GUEST_COLS }}
+                          onPointerDown={(e) => onGuestLongPressDown(e, nextGuest.id)}
+                          onPointerMove={onGuestLongPressMove}
+                          onPointerUp={onGuestLongPressEnd}
+                          onPointerCancel={onGuestLongPressEnd}
+                          onContextMenu={(e) => onGuestContextMenu(e, nextGuest.id)}
+                        >
+                          <div className="overflow-hidden px-1">
+                            <InlineInput value={nextGuest.customer_name} field="customer_name" resId={nextGuest.id}
+                              onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
+                              className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" disabled={selectionActive} />
+                          </div>
+                          <div className="overflow-hidden px-1">
+                            <InlineInput value={nextGuest.phone || ''} field="phone" resId={nextGuest.id}
+                              onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
+                              className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" disabled={selectionActive} />
+                          </div>
+                          <div className="overflow-hidden text-center px-1">
+                            <InlineInput value={nextGuest.party_type || ''} field="party_type" resId={nextGuest.id}
+                              onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
+                              className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" disabled={selectionActive} />
+                          </div>
+                          <div className="overflow-hidden text-center px-1">
+                            <InlineInput value={gp} field="genderPeople" resId={nextGuest.id}
+                              onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
+                              className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" disabled={selectionActive} />
+                          </div>
+                        </div>
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5 truncate">
@@ -2213,14 +2408,6 @@ const RoomAssignment = () => {
 
             <div className="ml-auto flex items-center gap-2">
               <Button
-                color={interactionMode === 'select' ? 'blue' : 'light'}
-                size="sm"
-                onClick={() => setInteractionMode(prev => prev === 'drag' ? 'select' : 'drag')}
-              >
-                {interactionMode === 'drag' ? <GripVertical className="h-3.5 w-3.5 mr-1.5" /> : <MousePointer className="h-3.5 w-3.5 mr-1.5" />}
-                {interactionMode === 'drag' ? '드래그 모드' : '선택 모드'}
-              </Button>
-              <Button
                 color="light"
                 size="sm"
                 onClick={() => setTableSettingsOpen(true)}
@@ -2315,7 +2502,7 @@ const RoomAssignment = () => {
                 <div className="flex-shrink-0 pl-3 pr-2 w-42 border-r border-[#F2F4F6] dark:border-[#2C2C34]">
                   <span className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">객실</span>
                 </div>
-                <div className="w-7 flex-shrink-0" />
+                <div className="w-10 flex-shrink-0" />
                 <div
                   className="flex-1 grid items-center"
                   style={{ gridTemplateColumns: GUEST_COLS }}
@@ -2332,50 +2519,33 @@ const RoomAssignment = () => {
                   {!nextDayExpanded && (
                     <div onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); resizeStartXRef.current = e.clientX; resizeStartWidthRef.current = colWidths.nextDay; setResizeCol('nextDay'); }} className="absolute left-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:left-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" />
                   )}
-                  <div className="flex items-center justify-center gap-1 px-2">
-                    {!nextDayExpanded && (
+                  {!nextDayExpanded ? (
+                    <div className="flex items-center justify-center gap-1 px-2">
                       <button onClick={() => setNextDayExpanded(true)} className="text-[#8B95A1] hover:text-[#3182F6] transition-colors cursor-pointer" title="펼치기">
-                        <PanelRightOpen className="h-3.5 w-3.5" />
+                        <ChevronsLeft className="h-3.5 w-3.5" />
                       </button>
-                    )}
-                    <span className="text-caption font-semibold text-[#8B95A1] dark:text-[#8B95A1]">{selectedDate.add(1, 'day').format('M/D')}</span>
-                    {nextDayExpanded && (
-                      <button onClick={() => setNextDayExpanded(false)} className="text-[#8B95A1] hover:text-[#3182F6] transition-colors cursor-pointer" title="접기">
-                        <PanelRightClose className="h-3.5 w-3.5" />
+                      <span className="text-caption font-semibold text-[#8B95A1] dark:text-[#8B95A1]">{selectedDate.add(1, 'day').format('M/D')}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center">
+                      <button onClick={() => setNextDayExpanded(false)} className="w-8 flex-shrink-0 flex items-center justify-center text-[#8B95A1] hover:text-[#3182F6] transition-colors cursor-pointer" title="접기">
+                        <ChevronsRight className="h-3.5 w-3.5" />
                       </button>
-                    )}
-                  </div>
-                  {nextDayExpanded && (
-                    <div className="grid grid-cols-4 px-1 mt-0.5">
-                      <span className="text-[10px] font-medium text-[#8B95A1] text-center">이름</span>
-                      <span className="text-[10px] font-medium text-[#8B95A1] text-center">전화번호</span>
-                      <span className="text-[10px] font-medium text-[#8B95A1] text-center">파티</span>
-                      <span className="text-[10px] font-medium text-[#8B95A1] text-center">성별</span>
+                      <div className="flex-1 grid items-center" style={{ gridTemplateColumns: NEXT_GUEST_COLS }}>
+                        <div className="px-1 text-caption font-semibold text-[#8B95A1] whitespace-nowrap">{selectedDate.add(1, 'day').format('M/D')}</div>
+                        <div className="px-1 text-[10px] font-semibold text-[#8B95A1]">전화번호</div>
+                        <div className="px-1 text-center text-[10px] font-semibold text-[#8B95A1]">파티</div>
+                        <div className="px-1 text-center text-[10px] font-semibold text-[#8B95A1]">성별</div>
+                      </div>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Selection mode banner */}
-              {selectionActive && (
-                <div className="sticky z-[18] bg-[#3182F6] text-white px-4 py-2 flex items-center justify-between text-sm" style={{ top: dateHeaderH + 40 }}>
-                  <span>
-                    {selectedGuestIds.size === 1
-                      ? `${reservations.find(r => r.id === [...selectedGuestIds][0])?.customer_name} — 이동할 방을 클릭하세요`
-                      : `${selectedGuestIds.size}명 선택됨 — 이동할 방을 클릭하세요`
-                    }
-                  </span>
-                  <button
-                    onClick={() => setSelectedGuestIds(new Set())}
-                    className="ml-4 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 text-xs cursor-pointer"
-                  >
-                    ESC 취소
-                  </button>
-                </div>
-              )}
+              {/* Selection mode toast is handled via useEffect */}
 
               {/* Room Rows (stale-while-revalidate: 이전 데이터 유지, 새 데이터 조용히 교체) */}
-              <div className={loading ? 'pointer-events-none' : ''}>
+              <div className={loading ? 'pointer-events-none' : ''} onContextMenu={(e) => { if (!(e.target as HTMLElement).closest('[data-allow-context]')) e.preventDefault(); }}>
                 {(() => {
                   let rowIdx = 0;
                   return buildingGroups.map((group) => {
@@ -2425,11 +2595,11 @@ const RoomAssignment = () => {
                     ? 'bg-[#FF9500]/50 dark:bg-[#FF9500]/8'
                     : unassigned.length > 0 ? 'bg-white dark:bg-[#1E1E24]' : 'bg-[#F2F4F6]/50 dark:bg-[#17171C]/30'
                 } ${selectionActive ? 'cursor-pointer' : ''}`}
-                style={{ minHeight: `${Math.max(1, unassigned.length) * 40}px` }}
+                style={{ minHeight: `${Math.max(Math.max(1, unassigned.length), Math.max(1, nextDayUnassigned.length)) * 40}px` }}
                 data-drop-zone="pool"
-                onClick={interactionMode === 'select' ? onDropZoneClick : undefined}
-                onMouseEnter={interactionMode === 'select' ? () => onZoneHover('pool') : undefined}
-                onMouseLeave={interactionMode === 'select' ? onZoneLeave : undefined}
+                onClick={onDropZoneClick}
+                onMouseEnter={() => onZoneHover('pool')}
+                onMouseLeave={onZoneLeave}
               >
                 {/* Room label */}
                 <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
@@ -2441,18 +2611,95 @@ const RoomAssignment = () => {
                   {unassigned.length > 0 ? (
                     unassigned.map((res) => renderGuestRow(res, true))
                   ) : (
-                    <div className={`flex items-center h-10 ${guestAreaCursor()}`}>
+                    <div className={`flex items-center h-10 cursor-default`}>
                       <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: GUEST_COLS }}>
                         <div className="overflow-hidden truncate col-span-full text-body text-[#FF9500] dark:text-[#FF9500] italic px-1.5">
-                          {dragOverPool ? (interactionMode === 'select' ? '클릭하면 배정 해제' : '여기에 놓으면 배정 해제') : ''}
+                          {dragOverPool ? '클릭하면 배정 해제' : ''}
                         </div>
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Next day column - empty */}
-                <div className="flex-shrink-0 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700 transition-all duration-200" style={{ width: nextDayExpanded ? NEXT_DAY_EXPANDED_WIDTH : colWidths.nextDay }} />
+                {/* Next day column for pool */}
+                <div
+                  className={`flex-shrink-0 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700 transition-all duration-200 ${
+                    dragOverNextPool ? 'bg-[#FF9500]/50 dark:bg-[#FF9500]/8' : ''
+                  } ${selectionActive ? 'cursor-pointer' : ''}`}
+                  style={{ width: nextDayExpanded ? NEXT_DAY_EXPANDED_WIDTH : colWidths.nextDay, minHeight: `${Math.max(1, nextDayUnassigned.length) * 40}px` }}
+                  data-drop-zone={nextDayExpanded ? 'next-pool' : undefined}
+                  onClick={onDropZoneClick}
+                  onMouseEnter={nextDayExpanded ? () => onZoneHover('next-pool') : undefined}
+                  onMouseLeave={nextDayExpanded ? onZoneLeave : undefined}
+                >
+                  <div className="divide-y divide-[#F2F4F6] dark:divide-[#2C2C34]">
+                    {nextDayUnassigned.length > 0 ? (
+                      nextDayUnassigned.map((res) => {
+                        const gp = formatGenderPeople(res);
+                        return (
+                          <div key={`next-pool-${res.id}`} className={`flex items-center h-10 px-1 ${!nextDayExpanded ? 'justify-center' : ''}`}>
+                            {nextDayExpanded ? (
+                              <div className="group/guest flex items-center h-10 w-full">
+                                <div
+                                  onClick={(e: any) => onGripClick(e, res.id)}
+                                  className={`flex items-center justify-center w-8 px-0.5 flex-shrink-0 cursor-pointer text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${
+                                    selectedGuestIds.has(res.id) ? 'text-[#3182F6]' : 'group-hover/guest:text-[#3182F6]'
+                                  }`}
+                                >
+                                  <span className="relative flex items-center justify-center w-[16px] h-[16px] group/circle">
+                                    <span className={`absolute inset-0 rounded-full bg-[#3182F6] transition-all duration-300 ease-out ${
+                                      selectedGuestIds.has(res.id) ? 'scale-[0.55] opacity-80' : 'scale-0 opacity-0 group-hover/circle:scale-[0.55] group-hover/circle:opacity-30'
+                                    }`} />
+                                    <Circle size={16} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${selectedGuestIds.has(res.id) ? 'text-[#3182F6]' : ''}`} />
+                                  </span>
+                                </div>
+                                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS }}
+                                  onPointerDown={(e) => onGuestLongPressDown(e, res.id)}
+                                  onPointerMove={onGuestLongPressMove}
+                                  onPointerUp={onGuestLongPressEnd}
+                                  onPointerCancel={onGuestLongPressEnd}
+                                  onContextMenu={(e) => onGuestContextMenu(e, res.id)}
+                                >
+                                  <div className="overflow-hidden px-1">
+                                    <InlineInput value={res.customer_name} field="customer_name" resId={res.id}
+                                      onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
+                                      className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" disabled={selectionActive} />
+                                  </div>
+                                  <div className="overflow-hidden px-1">
+                                    <InlineInput value={res.phone || ''} field="phone" resId={res.id}
+                                      onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
+                                      className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" disabled={selectionActive} />
+                                  </div>
+                                  <div className="overflow-hidden text-center px-1">
+                                    <InlineInput value={res.party_type || ''} field="party_type" resId={res.id}
+                                      onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
+                                      className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" disabled={selectionActive} />
+                                  </div>
+                                  <div className="overflow-hidden text-center px-1">
+                                    <InlineInput value={gp} field="genderPeople" resId={res.id}
+                                      onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
+                                      className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" disabled={selectionActive} />
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5 truncate">
+                                <span className="truncate text-caption text-[#4E5968] dark:text-[#8B95A1]">{res.customer_name}</span>
+                                {gp && <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{gp}</span>}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="flex items-center h-10 px-1">
+                        <span className="text-caption text-[#FF9500] italic">
+                          {dragOverNextPool ? '클릭하면 배정 해제' : ''}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Party-Only */}
@@ -2462,11 +2709,11 @@ const RoomAssignment = () => {
                     ? 'bg-[#7B61FF]/5 dark:bg-[#7B61FF]/8'
                     : partyOnly.length > 0 ? 'bg-white dark:bg-[#1E1E24]' : 'bg-[#F2F4F6]/50 dark:bg-[#17171C]/30'
                 } ${selectionActive ? 'cursor-pointer' : ''}`}
-                style={{ minHeight: `${Math.max(1, partyOnly.length) * 40}px` }}
+                style={{ minHeight: `${Math.max(Math.max(1, partyOnly.length), Math.max(1, nextDayPartyOnly.length)) * 40}px` }}
                 data-drop-zone="party"
-                onClick={interactionMode === 'select' ? onDropZoneClick : undefined}
-                onMouseEnter={interactionMode === 'select' ? () => onZoneHover('party') : undefined}
-                onMouseLeave={interactionMode === 'select' ? onZoneLeave : undefined}
+                onClick={onDropZoneClick}
+                onMouseEnter={() => onZoneHover('party')}
+                onMouseLeave={onZoneLeave}
               >
                 {/* Room label */}
                 <div className="flex items-center gap-1.5 flex-shrink-0 w-42 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
@@ -2478,18 +2725,95 @@ const RoomAssignment = () => {
                   {partyOnly.length > 0 ? (
                     partyOnly.map((res) => renderGuestRow(res, true))
                   ) : (
-                    <div className={`flex items-center h-10 ${guestAreaCursor()}`}>
+                    <div className={`flex items-center h-10 cursor-default`}>
                       <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: GUEST_COLS }}>
                         <div className="overflow-hidden truncate col-span-full text-body text-[#7B61FF] dark:text-[#7B61FF] italic px-1.5">
-                          {dragOverPartyZone ? (interactionMode === 'select' ? '클릭하면 파티만으로 전환' : '여기에 놓으면 파티만 게스트로 전환') : ''}
+                          {dragOverPartyZone ? '클릭하면 파티만으로 전환' : ''}
                         </div>
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Next day column - empty */}
-                <div className="flex-shrink-0 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700 transition-all duration-200" style={{ width: nextDayExpanded ? NEXT_DAY_EXPANDED_WIDTH : colWidths.nextDay }} />
+                {/* Next day column for party */}
+                <div
+                  className={`flex-shrink-0 border-l-8 border-white dark:border-[#2C2C34] shadow-[inset_1px_0_0_#E5E8EB,-1px_0_0_#E5E8EB] z-[2] bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700 transition-all duration-200 ${
+                    dragOverNextParty ? 'bg-[#7B61FF]/5 dark:bg-[#7B61FF]/8' : ''
+                  } ${selectionActive ? 'cursor-pointer' : ''}`}
+                  style={{ width: nextDayExpanded ? NEXT_DAY_EXPANDED_WIDTH : colWidths.nextDay, minHeight: `${Math.max(1, nextDayPartyOnly.length) * 40}px` }}
+                  data-drop-zone={nextDayExpanded ? 'next-party' : undefined}
+                  onClick={onDropZoneClick}
+                  onMouseEnter={nextDayExpanded ? () => onZoneHover('next-party') : undefined}
+                  onMouseLeave={nextDayExpanded ? onZoneLeave : undefined}
+                >
+                  <div className="divide-y divide-[#F2F4F6] dark:divide-[#2C2C34]">
+                    {nextDayPartyOnly.length > 0 ? (
+                      nextDayPartyOnly.map((res) => {
+                        const gp = formatGenderPeople(res);
+                        return (
+                          <div key={`next-party-${res.id}`} className={`flex items-center h-10 px-1 ${!nextDayExpanded ? 'justify-center' : ''}`}>
+                            {nextDayExpanded ? (
+                              <div className="group/guest flex items-center h-10 w-full">
+                                <div
+                                  onClick={(e: any) => onGripClick(e, res.id)}
+                                  className={`flex items-center justify-center w-8 px-0.5 flex-shrink-0 cursor-pointer text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${
+                                    selectedGuestIds.has(res.id) ? 'text-[#3182F6]' : 'group-hover/guest:text-[#3182F6]'
+                                  }`}
+                                >
+                                  <span className="relative flex items-center justify-center w-[16px] h-[16px] group/circle">
+                                    <span className={`absolute inset-0 rounded-full bg-[#3182F6] transition-all duration-300 ease-out ${
+                                      selectedGuestIds.has(res.id) ? 'scale-[0.55] opacity-80' : 'scale-0 opacity-0 group-hover/circle:scale-[0.55] group-hover/circle:opacity-30'
+                                    }`} />
+                                    <Circle size={16} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${selectedGuestIds.has(res.id) ? 'text-[#3182F6]' : ''}`} />
+                                  </span>
+                                </div>
+                                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS }}
+                                  onPointerDown={(e) => onGuestLongPressDown(e, res.id)}
+                                  onPointerMove={onGuestLongPressMove}
+                                  onPointerUp={onGuestLongPressEnd}
+                                  onPointerCancel={onGuestLongPressEnd}
+                                  onContextMenu={(e) => onGuestContextMenu(e, res.id)}
+                                >
+                                  <div className="overflow-hidden px-1">
+                                    <InlineInput value={res.customer_name} field="customer_name" resId={res.id}
+                                      onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
+                                      className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" disabled={selectionActive} />
+                                  </div>
+                                  <div className="overflow-hidden px-1">
+                                    <InlineInput value={res.phone || ''} field="phone" resId={res.id}
+                                      onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
+                                      className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" disabled={selectionActive} />
+                                  </div>
+                                  <div className="overflow-hidden text-center px-1">
+                                    <InlineInput value={res.party_type || ''} field="party_type" resId={res.id}
+                                      onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
+                                      className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" disabled={selectionActive} />
+                                  </div>
+                                  <div className="overflow-hidden text-center px-1">
+                                    <InlineInput value={gp} field="genderPeople" resId={res.id}
+                                      onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
+                                      className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" disabled={selectionActive} />
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5 truncate">
+                                <span className="truncate text-caption text-[#4E5968] dark:text-[#8B95A1]">{res.customer_name}</span>
+                                {gp && <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{gp}</span>}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="flex items-center h-10 px-1">
+                        <span className="text-caption text-[#7B61FF] italic">
+                          {dragOverNextParty ? '클릭하면 파티만으로 전환' : ''}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Unstable */}
@@ -2684,25 +3008,6 @@ const RoomAssignment = () => {
               >
                 <UserRoundPlus className="h-[18px] w-[18px]" />
               </button>
-            </div>
-          </Tooltip>
-          <Tooltip content={selectionActive ? '게스트 선택 후 클릭하여 삭제' : dragOverTrash ? '놓으면 삭제됩니다' : '게스트를 드래그하여 삭제'} placement="top">
-            <div className="inline-block">
-              <div
-                data-drop-zone="trash"
-                onClick={interactionMode === 'select' ? onDropZoneClick : undefined}
-                onMouseEnter={interactionMode === 'select' ? () => onZoneHover('trash') : undefined}
-                onMouseLeave={interactionMode === 'select' ? onZoneLeave : undefined}
-                className={`flex items-center justify-center rounded-full transition-all duration-300 ${
-                  dragOverTrash
-                    ? 'h-12 w-12 bg-[#F04452] text-white scale-110 shadow-lg shadow-[#F04452]/40 ring-4 ring-[#F04452]/20'
-                    : (dragActive || selectionActive)
-                      ? 'h-12 w-12 bg-[#FFEBEE] dark:bg-[#F04452]/15 text-[#F04452] border-2 border-[#F04452] animate-bounce'
-                      : 'h-10 w-10 bg-white dark:bg-[#2C2C34] border border-[#E5E8EB] dark:border-gray-700 text-[#8B95A1] dark:text-gray-400'
-                } ${selectionActive ? 'cursor-pointer' : ''}`}
-              >
-                <Trash2 className={`transition-all duration-300 ${(dragActive || selectionActive) ? 'h-5 w-5' : 'h-[18px] w-[18px]'}`} />
-              </div>
             </div>
           </Tooltip>
         </div>
@@ -3106,6 +3411,141 @@ const RoomAssignment = () => {
         </ModalFooter>
       </Modal>
 
+      {/* Extend Stay Conflict Modal */}
+      <Modal
+        show={!!extendStayConflict?.open}
+        onClose={() => setExtendStayConflict(null)}
+        size="md"
+      >
+        <ModalHeader>방 배정 충돌</ModalHeader>
+        <ModalBody>
+          <div className="space-y-3">
+            <p className="text-body text-[#191F28] dark:text-white">
+              <span className="font-semibold">{extendStayConflict?.roomNumber}호</span>에 이미 배정된 게스트가 있습니다.
+            </p>
+            <div className="rounded-lg bg-[#F2F4F6] dark:bg-[#2C2C34] p-3">
+              {extendStayConflict?.existingGuests.map((name, i) => (
+                <div key={i} className="text-body text-[#4E5968] dark:text-gray-300">{name}</div>
+              ))}
+            </div>
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <div className="flex gap-2 w-full">
+            <Button
+              color="blue"
+              className="flex-1"
+              onClick={async () => {
+                if (!extendStayConflict) return;
+                try {
+                  await api.post(`/api/reservations/${extendStayConflict.newResId}/extend-stay/assign-room`, {
+                    new_reservation_id: extendStayConflict.newResId,
+                    room_id: extendStayConflict.roomId,
+                    date: selectedDate.add(1, 'day').format('YYYY-MM-DD'),
+                    move_existing_to_unassigned: false,
+                  });
+                  toast.success('같은 방에 배정 완료');
+                } catch { toast.error('배정 실패'); }
+                setExtendStayConflict(null);
+                fetchReservations(selectedDate);
+              }}
+            >
+              같은방에 유지
+            </Button>
+            <Button
+              color="light"
+              className="flex-1"
+              onClick={async () => {
+                if (!extendStayConflict) return;
+                try {
+                  await api.post(`/api/reservations/${extendStayConflict.newResId}/extend-stay/assign-room`, {
+                    new_reservation_id: extendStayConflict.newResId,
+                    room_id: extendStayConflict.roomId,
+                    date: selectedDate.add(1, 'day').format('YYYY-MM-DD'),
+                    move_existing_to_unassigned: true,
+                  });
+                  toast.success('기존 게스트 미배정 → 새 게스트 배정 완료');
+                } catch { toast.error('배정 실패'); }
+                setExtendStayConflict(null);
+                fetchReservations(selectedDate);
+              }}
+            >
+              미배정으로 이동
+            </Button>
+            <Button
+              color="light"
+              className="flex-1"
+              onClick={() => {
+                toast.info('방 배정 없이 연박추가 완료');
+                setExtendStayConflict(null);
+                fetchReservations(selectedDate);
+              }}
+            >
+              취소
+            </Button>
+          </div>
+        </ModalFooter>
+      </Modal>
+
+      {/* Date Change Modal */}
+      <Modal
+        show={!!dateChangeModal?.open}
+        onClose={() => setDateChangeModal(null)}
+        size="md"
+      >
+        <ModalHeader>예약 날짜 변경 — {dateChangeModal?.customerName}</ModalHeader>
+        <ModalBody>
+          <div className="flex items-end gap-3">
+            <div className="flex-1">
+              <Label className="mb-1 block text-label font-medium text-[#4E5968] dark:text-gray-300">체크인</Label>
+              <TextInput
+                type="date"
+                value={dateChangeModal?.checkIn || ''}
+                onChange={(e) => setDateChangeModal(prev => prev ? { ...prev, checkIn: e.target.value } : null)}
+              />
+            </div>
+            <span className="pb-2 text-[#8B95A1]">~</span>
+            <div className="flex-1">
+              <Label className="mb-1 block text-label font-medium text-[#4E5968] dark:text-gray-300">체크아웃</Label>
+              <TextInput
+                type="date"
+                value={dateChangeModal?.checkOut || ''}
+                onChange={(e) => setDateChangeModal(prev => prev ? { ...prev, checkOut: e.target.value } : null)}
+              />
+            </div>
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <div className="flex gap-2 justify-end w-full">
+            <Button color="light" onClick={() => setDateChangeModal(null)}>취소</Button>
+            <Button color="blue" onClick={async () => {
+              if (!dateChangeModal) return;
+              const { resId, checkIn, checkOut } = dateChangeModal;
+              if (!checkIn) { toast.error('체크인 날짜를 입력하세요'); return; }
+              if (!checkOut) { toast.error('체크아웃 날짜를 입력하세요'); return; }
+              if (checkOut <= checkIn) { toast.error('체크아웃은 체크인 이후여야 합니다'); return; }
+              const hadRoom = findReservation(resId)?.res?.room_id;
+              try {
+                await reservationsAPI.update(resId, {
+                  check_in_date: checkIn,
+                  check_out_date: checkOut,
+                });
+                toast.success('예약 날짜 변경 완료');
+                if (hadRoom) {
+                  toast.info('날짜 변경으로 기존 객실 배정이 해제될 수 있습니다', { duration: 5000 });
+                }
+                setDateChangeModal(null);
+                fetchReservations(selectedDate);
+              } catch (err: any) {
+                toast.error(err?.response?.data?.detail || '날짜 변경 실패');
+              }
+            }}>
+              변경
+            </Button>
+          </div>
+        </ModalFooter>
+      </Modal>
+
       {/* Context menu */}
       {contextMenu && contextMenuActions && (
         <GuestContextMenu
@@ -3120,8 +3560,11 @@ const RoomAssignment = () => {
           onDelete={contextMenuActions.onDelete}
           onLinkStayGroup={contextMenuActions.onLinkStayGroup}
           onSetColor={contextMenuActions.onSetColor}
-          onCopyToUnstable={hasUnstable ? contextMenuActions.onCopyToUnstable : undefined}
-          onRemoveFromUnstable={hasUnstable ? contextMenuActions.onRemoveFromUnstable : undefined}
+          onCopyToUnstable={hasUnstable && !contextMenuActions.isAlreadyCopiedToUnstable && !contextMenuActions.hasRealUnstableBooking ? contextMenuActions.onCopyToUnstable : undefined}
+          onRemoveFromUnstable={hasUnstable && contextMenuActions.isAlreadyCopiedToUnstable && !contextMenuActions.hasRealUnstableBooking ? contextMenuActions.onRemoveFromUnstable : undefined}
+          onExtendStay={contextMenuActions.onExtendStay}
+          onCancelExtendStay={contextMenuActions.onCancelExtendStay}
+          onChangeDates={contextMenuActions.onChangeDates}
           onClose={() => setContextMenu(null)}
         />
       )}

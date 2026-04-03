@@ -54,7 +54,7 @@ def _compute_bed_order(db: Session, reservation_id: int, room_id: int, date_str:
             if prev_group and prev_group.bed_order > 0:
                 return prev_group.bed_order
 
-    # 3) 빈 슬롯 찾기: 해당 room+date의 기존 bed_order 조회
+    # 3) 빈 슬롯 찾기: 해당 room+date + 전날 연박자의 bed_order도 예약으로 간주
     taken = {
         row.bed_order for row in
         db.query(RoomAssignment.bed_order).filter(
@@ -63,6 +63,16 @@ def _compute_bed_order(db: Session, reservation_id: int, room_id: int, date_str:
             RoomAssignment.bed_order > 0,
         ).all()
     }
+    # 전날 같은 방의 연박자 bed_order도 taken에 포함 (다음날 배정이 아직 안 만들어진 경우 대비)
+    prev_assignments = db.query(RoomAssignment.bed_order, RoomAssignment.reservation_id).filter(
+        RoomAssignment.room_id == room_id,
+        RoomAssignment.date == prev_date,
+        RoomAssignment.bed_order > 0,
+    ).all()
+    for pa in prev_assignments:
+        prev_res = db.query(Reservation).filter(Reservation.id == pa.reservation_id).first()
+        if prev_res and prev_res.check_out_date and prev_res.check_out_date > date_str:
+            taken.add(pa.bed_order)
     order = 1
     while order in taken:
         order += 1

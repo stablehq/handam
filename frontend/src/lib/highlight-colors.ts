@@ -1,31 +1,11 @@
 // Shared highlight color definitions and utilities
 // Used by GuestContextMenu, RoomAssignment, and TableSettingsModal
 
-export interface ColorPreset {
-  key: string;
-  label: string;
-  hex: string;
-}
-
-export interface HighlightStyle {
+interface HighlightStyle {
   bg: string;
   hover: string;
   text?: string;
 }
-
-/** 10 preset colors (5 light + 5 dark variants) */
-export const COLOR_PRESETS: ColorPreset[] = [
-  { key: 'yellow', label: '연노랑', hex: '#FFF8E1' },
-  { key: 'pink', label: '연분홍', hex: '#FFE8EE' },
-  { key: 'green', label: '연초록', hex: '#E8F5E9' },
-  { key: 'blue', label: '연파랑', hex: '#E3F2FD' },
-  { key: 'purple', label: '연보라', hex: '#F3E5F5' },
-  { key: 'yellow-dark', label: '노랑', hex: '#FFD54F' },
-  { key: 'pink-dark', label: '분홍', hex: '#F48FB1' },
-  { key: 'green-dark', label: '초록', hex: '#81C784' },
-  { key: 'blue-dark', label: '파랑', hex: '#64B5F6' },
-  { key: 'purple-dark', label: '보라', hex: '#CE93D8' },
-];
 
 /** Tailwind class-based styles for preset colors */
 export const PRESET_HIGHLIGHT_STYLES: Record<string, HighlightStyle> = {
@@ -65,6 +45,21 @@ export function getCustomTextClass(hex: string): string {
   return isLightColor(hex) ? 'text-[#191F28] dark:text-white' : 'text-white dark:text-white';
 }
 
+/** Google Sheets default color palette (10 columns × 8 rows) */
+export const GOOGLE_SHEETS_PALETTE: string[][] = [
+  // Row 1: Grayscale
+  ['#000000', '#434343', '#666666', '#999999', '#b7b7b7', '#cccccc', '#d9d9d9', '#efefef', '#f3f3f3', '#ffffff'],
+  // Row 2: Vivid
+  ['#980000', '#ff0000', '#ff9900', '#ffff00', '#00ff00', '#00ffff', '#4a86e8', '#0000ff', '#9900ff', '#ff00ff'],
+  // Rows 3-8: Lightest → Darkest (per color family column)
+  ['#e6b8af', '#f4cccc', '#fce5cd', '#fff2cc', '#d9ead3', '#d0e0e3', '#c9daf8', '#cfe2f3', '#d9d2e9', '#ead1dc'],
+  ['#dd7e6b', '#ea9999', '#f9cb9c', '#ffe599', '#b6d7a8', '#a2c4c9', '#a4c2f4', '#9fc5e8', '#b4a7d6', '#d5a6bd'],
+  ['#cc4125', '#e06666', '#f6b26b', '#ffd966', '#93c47d', '#76a5af', '#6d9eeb', '#6fa8dc', '#8e7cc3', '#c27ba0'],
+  ['#a61c00', '#cc0000', '#e69138', '#f1c232', '#6aa84f', '#45818e', '#3c78d8', '#3d85c6', '#674ea7', '#a64d79'],
+  ['#85200c', '#990000', '#b45f06', '#bf9000', '#38761d', '#134f5c', '#1155cc', '#0b5394', '#351c75', '#741b47'],
+  ['#5b0f00', '#660000', '#783f04', '#7f6000', '#274e13', '#0c343d', '#1c4587', '#073763', '#20124d', '#4c1130'],
+];
+
 /** Default row stripe colors */
 export const DEFAULT_ROW_COLORS = {
   even: '#FFFFFF',        // bg-white
@@ -100,17 +95,3 @@ export function saveRowColors(colors: RowColorSettings): void {
 
 /** Default divider colors */
 export const DEFAULT_DIVIDER_COLOR = '#D1D5DB';
-export const DEFAULT_DIVIDER_COLOR_DARK = '#4E5968';
-export const DEFAULT_BORDER_COLOR = '#E5E8EB';
-export const DEFAULT_BORDER_COLOR_DARK = '#2C2C34';
-
-/** Common divider color presets for quick selection */
-export const DIVIDER_COLOR_PRESETS = [
-  '#D1D5DB', // gray (default)
-  '#3182F6', // blue
-  '#F04452', // red
-  '#00C9A7', // green
-  '#FF9F00', // orange
-  '#7B61FF', // purple
-  '#191F28', // dark
-];

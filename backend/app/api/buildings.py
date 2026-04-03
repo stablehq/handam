@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from typing import List, Optional
 from app.api.deps import get_tenant_scoped_db, _remap_active_field
-from app.db.models import Building, Room, User
+from app.db.models import Building, User
 from app.auth.dependencies import get_current_user, require_admin_or_above
 from app.api.shared_schemas import ActionResponse
 from datetime import datetime

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 from app.api.deps import get_tenant_scoped_db, get_current_tenant, _remap_active_field
-from app.db.models import Room, RoomGroup, NaverBizItem, User, Tenant, RoomAssignment, RoomBizItemLink, Building
+from app.db.models import Room, RoomGroup, NaverBizItem, User, Tenant, RoomAssignment, RoomBizItemLink
 from app.db.tenant_context import current_tenant_id
 from app.factory import get_reservation_provider_for_tenant
 from app.auth.dependencies import get_current_user, require_admin_or_above
