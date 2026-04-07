@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useAuthStore } from '@/stores/auth-store'
+import { useTenantStore } from '@/stores/tenant-store'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -13,7 +14,7 @@ import {
   Settings2,
   Settings,
   FileText,
-
+  Megaphone,
   PanelLeftClose,
   PanelLeft,
   Menu,
@@ -24,6 +25,7 @@ import {
   History,
   PartyPopper,
   X,
+  ChevronsUpDown,
 } from 'lucide-react'
 
 // ── Theme Context ──
@@ -111,6 +113,7 @@ const NAV_GROUPS: NavGroup[] = [
       { path: '/activity-logs', label: '활동 로그', icon: <History size={18} /> },
       { path: '/rooms/manage', label: '객실 설정', icon: <Settings2 size={18} /> },
       { path: '/templates', label: '템플릿 설정', icon: <FileText size={18} /> },
+      { path: '/event-sms', label: '이벤트 문자', icon: <Megaphone size={18} /> },
     ],
     requiredRoles: ['superadmin', 'admin'],
   },
@@ -135,6 +138,84 @@ const ROLE_LABELS: Record<string, string> = {
   superadmin: '슈퍼관리자',
   admin: '관리자',
   staff: '직원',
+}
+
+// ── Tenant Switcher (superadmin only) ──
+function TenantSwitcher({ collapsed = false }: { collapsed?: boolean }) {
+  const { tenants, currentTenantId } = useTenantStore()
+  const [open, setOpen] = useState(false)
+
+  if (tenants.length <= 1) return null
+
+  const current = tenants.find(t => String(t.id) === currentTenantId)
+  const currentLabel = current?.slug === 'stable' ? '스테이블' : current?.slug === 'handam' ? '한담누리' : (current?.name || '선택')
+
+  const handleSelect = (tenantId: number) => {
+    localStorage.setItem('sms-tenant-id', String(tenantId))
+    setOpen(false)
+    window.location.reload()
+  }
+
+  if (collapsed) {
+    return (
+      <Tooltip content={currentLabel} placement="right">
+        <button
+          onClick={() => setOpen(!open)}
+          className="relative flex h-9 w-9 items-center justify-center rounded-xl text-[#4E5968] hover:bg-[#F2F4F6] dark:text-gray-400 dark:hover:bg-[#1E1E24]"
+        >
+          <ChevronsUpDown size={16} />
+          {open && (
+            <div className="absolute bottom-full left-0 mb-1 w-40 rounded-xl border border-[#E5E8EB] bg-white py-1 shadow-lg dark:border-gray-800 dark:bg-[#1E1E24]">
+              {tenants.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => handleSelect(t.id)}
+                  className={cn(
+                    'w-full px-3 py-2 text-left text-body transition-colors',
+                    String(t.id) === currentTenantId
+                      ? 'bg-[#E8F3FF] text-[#3182F6] dark:bg-[#3182F6]/10'
+                      : 'text-[#191F28] hover:bg-[#F2F4F6] dark:text-white dark:hover:bg-[#2C2C34]',
+                  )}
+                >
+                  {t.slug === 'stable' ? '스테이블' : t.slug === 'handam' ? '한담누리' : t.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </button>
+      </Tooltip>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-body text-[#4E5968] hover:bg-[#F2F4F6] dark:text-gray-400 dark:hover:bg-[#1E1E24] transition-colors"
+      >
+        <span className="truncate font-medium">{currentLabel}</span>
+        <ChevronsUpDown size={14} className="shrink-0 text-[#B0B8C1]" />
+      </button>
+      {open && (
+        <div className="absolute bottom-full left-0 right-0 mb-1 rounded-xl border border-[#E5E8EB] bg-white py-1 shadow-lg dark:border-gray-800 dark:bg-[#1E1E24] z-50">
+          {tenants.map(t => (
+            <button
+              key={t.id}
+              onClick={() => handleSelect(t.id)}
+              className={cn(
+                'w-full px-3 py-2 text-left text-body transition-colors',
+                String(t.id) === currentTenantId
+                  ? 'bg-[#E8F3FF] text-[#3182F6] dark:bg-[#3182F6]/10'
+                  : 'text-[#191F28] hover:bg-[#F2F4F6] dark:text-white dark:hover:bg-[#2C2C34]',
+              )}
+            >
+              {t.slug === 'stable' ? '스테이블' : t.slug === 'handam' ? '한담누리' : t.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Nav Item Component ──
@@ -242,14 +323,21 @@ function DesktopSidebar({
       </nav>
 
       {/* Footer */}
-      <div className={cn("flex items-center p-3", collapsed ? 'justify-center' : 'justify-between')}>
-        <ThemeToggleButton />
-        <button
-          onClick={onToggle}
-          className="rounded-xl p-2 text-[#B0B8C1] hover:bg-[#F2F4F6] dark:text-gray-500 dark:hover:bg-[#1E1E24]"
-        >
-          {collapsed ? <PanelLeft size={18} /> : <PanelLeftClose size={18} />}
-        </button>
+      <div className="border-t border-[#F2F4F6] dark:border-gray-800">
+        {user?.role === 'superadmin' && (
+          <div className="px-3 pt-3">
+            <TenantSwitcher collapsed={collapsed} />
+          </div>
+        )}
+        <div className={cn("flex items-center p-3", collapsed ? 'justify-center' : 'justify-between')}>
+          <ThemeToggleButton />
+          <button
+            onClick={onToggle}
+            className="rounded-xl p-2 text-[#B0B8C1] hover:bg-[#F2F4F6] dark:text-gray-500 dark:hover:bg-[#1E1E24]"
+          >
+            {collapsed ? <PanelLeft size={18} /> : <PanelLeftClose size={18} />}
+          </button>
+        </div>
       </div>
     </aside>
   )
@@ -343,6 +431,11 @@ function MobileSidebar() {
                 </div>
               ))}
             </nav>
+            {user?.role === 'superadmin' && (
+              <div className="border-t border-[#F2F4F6] dark:border-gray-800 px-3 py-3">
+                <TenantSwitcher />
+              </div>
+            )}
           </div>
         </div>,
         document.body
@@ -366,7 +459,7 @@ function AppHeader({
   }
 
   return (
-    <header className="sticky top-0 z-20 flex h-14 items-center justify-between bg-[#FAFBFC]/90 px-4 py-2.5 backdrop-blur-md dark:bg-[#17171C]/90">
+    <header className="sticky top-0 z-20 flex h-14 w-full items-center justify-between bg-[#FAFBFC]/90 px-4 py-2.5 backdrop-blur-md dark:bg-[#17171C]/90">
       <div className="flex items-center gap-3">
         {isMobile && <MobileSidebar />}
       </div>
@@ -418,7 +511,7 @@ export default function Layout({ children }: LayoutProps) {
   if (isStaff) {
     return (
       <div className="flex min-h-screen flex-col bg-[#FAFBFC] dark:bg-[#17171C]">
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between bg-[#FAFBFC]/90 px-4 py-2.5 backdrop-blur-md dark:bg-[#17171C]/90">
+        <header className="sticky top-0 z-20 flex h-14 w-full items-center justify-between bg-[#FAFBFC]/90 px-4 py-2.5 backdrop-blur-md dark:bg-[#17171C]/90">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#3182F6] text-white">
               <span className="text-label font-bold">S</span>

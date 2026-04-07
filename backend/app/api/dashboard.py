@@ -36,23 +36,26 @@ async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), curre
         ActivityLog.created_at >= today_start,
     ).scalar() or 0)
 
-    # Gender stats (7 days: today + 6 days forward) — GROUP BY 단일 쿼리
+    # Gender stats (7 days: today + 6 days forward) — 연박자 중간일도 포함
     from datetime import timedelta
+    from sqlalchemy import or_
     today = datetime.now(KST).date()
     date_strs = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
-    gender_rows = db.query(
-        Reservation.check_in_date,
-        func.coalesce(func.sum(Reservation.male_count), 0).label("male"),
-        func.coalesce(func.sum(Reservation.female_count), 0).label("female"),
-    ).select_from(Reservation).filter(
-        Reservation.check_in_date.in_(date_strs),
-        Reservation.status.in_([ReservationStatus.CONFIRMED, ReservationStatus.COMPLETED]),
-    ).group_by(Reservation.check_in_date).all()
-    gender_map = {r.check_in_date: (int(r.male), int(r.female)) for r in gender_rows}
-    gender_daily = [
-        {"date": d, "male": gender_map.get(d, (0, 0))[0], "female": gender_map.get(d, (0, 0))[1]}
-        for d in date_strs
-    ]
+    gender_daily = []
+    for d in date_strs:
+        row = db.query(
+            func.coalesce(func.sum(Reservation.male_count), 0).label("male"),
+            func.coalesce(func.sum(Reservation.female_count), 0).label("female"),
+        ).select_from(Reservation).filter(
+            Reservation.check_in_date <= d,
+            or_(Reservation.check_out_date > d, Reservation.check_out_date.is_(None)),
+            Reservation.status.in_([ReservationStatus.CONFIRMED, ReservationStatus.COMPLETED]),
+        ).first()
+        gender_daily.append({
+            "date": d,
+            "male": int(row.male) if row else 0,
+            "female": int(row.female) if row else 0,
+        })
 
     # Naver sync status — from last ActivityLog + APScheduler next run
     from app.scheduler.jobs import scheduler as apscheduler
@@ -133,13 +136,18 @@ async def get_today_schedules(db: Session = Depends(get_tenant_scoped_db), curre
         ActivityLog.created_at >= today_start,
     ).all()
 
-    # schedule_name 기준 매핑
+    # schedule_id 기준 매핑 (detail JSON 내 schedule_id로 정확 매칭)
+    import json
     logs_by_schedule: dict = {}
     for s in schedules:
-        matched = [
-            log for log in all_logs
-            if s.schedule_name and s.schedule_name in (log.title or '')
-        ]
+        matched = []
+        for log in all_logs:
+            try:
+                detail = json.loads(log.detail) if isinstance(log.detail, str) else (log.detail or {})
+            except (json.JSONDecodeError, TypeError):
+                detail = {}
+            if detail.get("schedule_id") == s.id:
+                matched.append(log)
         logs_by_schedule[s.id] = matched
 
     timeline = []
@@ -154,8 +162,19 @@ async def get_today_schedules(db: Session = Depends(get_tenant_scoped_db), curre
             h = s.hour or 0
             m = s.minute or 0
             done = (current_hour > h) or (current_hour == h and current_minute >= m)
-            status = "완료" if first_log else ("대기" if not done else "미발송")
-            result = f"성공 {first_log.success_count}건" if first_log else "-"
+            if first_log:
+                if first_log.status == "failed":
+                    status = "실패"
+                    result = f"실패 {first_log.failed_count}건"
+                elif first_log.status == "partial":
+                    status = "완료"
+                    result = f"성공 {first_log.success_count}건 / 실패 {first_log.failed_count}건"
+                else:
+                    status = "완료"
+                    result = f"성공 {first_log.success_count}건"
+            else:
+                status = "대기" if not done else "미발송"
+                result = "-"
             timeline.append({
                 "schedule_name": s.schedule_name,
                 "template_name": template_name,
@@ -172,7 +191,12 @@ async def get_today_schedules(db: Session = Depends(get_tenant_scoped_db), curre
             done = current_hour >= end_h
             in_progress = start_h <= current_hour < end_h
             status = "완료" if done else ("진행중" if in_progress else "대기")
-            result = f"{log_count}건" if log_count > 0 else "-"
+            total_success = sum(l.success_count or 0 for l in s_logs)
+            total_failed = sum(l.failed_count or 0 for l in s_logs)
+            if log_count > 0:
+                result = f"성공 {total_success}건" if total_failed == 0 else f"성공 {total_success}건 / 실패 {total_failed}건"
+            else:
+                result = "-"
             timeline.append({
                 "schedule_name": s.schedule_name,
                 "template_name": template_name,
@@ -189,7 +213,12 @@ async def get_today_schedules(db: Session = Depends(get_tenant_scoped_db), curre
             done = current_hour >= end_h
             in_progress = start_h <= current_hour < end_h
             status = "완료" if done else ("진행중" if in_progress else "대기")
-            result = f"{log_count}건" if log_count > 0 else "-"
+            total_success = sum(l.success_count or 0 for l in s_logs)
+            total_failed = sum(l.failed_count or 0 for l in s_logs)
+            if log_count > 0:
+                result = f"성공 {total_success}건" if total_failed == 0 else f"성공 {total_success}건 / 실패 {total_failed}건"
+            else:
+                result = "-"
             timeline.append({
                 "schedule_name": s.schedule_name,
                 "template_name": template_name,

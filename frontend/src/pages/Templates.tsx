@@ -1392,6 +1392,15 @@ const Templates: React.FC = () => {
                 onChange={e => handleContentChange(e.target.value)}
                 className="font-mono text-body flex-1 min-h-0 [&_textarea]:!h-full"
               />
+              {(() => {
+                // EUC-KR 바이트 계산 (Aligo SMS 기준: 한글 2바이트, ASCII 1바이트)
+                const byteLen = [...tContent].reduce((sum, ch) => sum + (ch.charCodeAt(0) > 127 ? 2 : 1), 0);
+                return (
+                  <p className={`text-caption tabular-nums ${byteLen > 2000 ? 'text-[#F04452]' : 'text-[#8B95A1]'}`}>
+                    {byteLen.toLocaleString()}<span className="mx-0.5">/</span>2,000 bytes
+                  </p>
+                );
+              })()}
             </div>
 
             {/* Detected variables */}

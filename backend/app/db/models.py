@@ -584,6 +584,18 @@ class UserTenantRole(Base):
     tenant = relationship("Tenant")
 
 
+class OnsiteSale(TenantMixin, Base):
+    """현장 판매 기록"""
+    __tablename__ = "onsite_sales"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(String(20), nullable=False, index=True)  # YYYY-MM-DD
+    item_name = Column(String(200), nullable=False)
+    amount = Column(Integer, nullable=False)  # 금액 (원)
+    created_by = Column(String(100), nullable=True)  # 기록한 사람
+    created_at = Column(DateTime, default=utc_now)
+
+
 # ---------------------------------------------------------------------------
 # Register tenant models for automatic SELECT filtering
 # ---------------------------------------------------------------------------
@@ -593,6 +605,6 @@ for _model in [
     Message, Reservation, Rule, Document, MessageTemplate, ReservationSmsAssignment,
     CampaignLog, GenderStat, RoomBizItemLink, Building, RoomGroup, Room, RoomAssignment,
     NaverBizItem, TemplateSchedule, ActivityLog, PartyCheckin, ReservationDailyInfo,
-    ParticipantSnapshot,
+    ParticipantSnapshot, OnsiteSale,
 ]:
     _register(_model)

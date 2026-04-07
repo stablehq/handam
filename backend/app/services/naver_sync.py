@@ -386,6 +386,8 @@ def _create_reservation(res_data: Dict[str, Any]) -> Reservation:
         confirmed_at=_parse_datetime(res_data.get("confirmed_at")),
         cancelled_at=_parse_datetime(res_data.get("cancelled_at")),
         gender=res_data.get("gender"),
+        age_group=res_data.get("age_group"),
+        visit_count=res_data.get("visit_count", 1),
         section=section,
     )
     reservation.is_long_stay = compute_is_long_stay(reservation)
@@ -416,6 +418,10 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
     existing.cancelled_at = _parse_datetime(res_data.get("cancelled_at")) if res_data.get("cancelled_at") is not None else existing.cancelled_at
     if res_data.get("gender"):
         existing.gender = res_data["gender"]
+    if res_data.get("age_group"):
+        existing.age_group = res_data["age_group"]
+    if res_data.get("visit_count"):
+        existing.visit_count = res_data["visit_count"]
     # 성별 인원 재계산: 도미토리는 매 동기화마다, 일반실은 초기화 시에만
     if not existing.gender_manual:
         is_dormitory = res_data.get("_is_dormitory", False)

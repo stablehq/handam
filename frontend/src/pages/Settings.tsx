@@ -335,26 +335,6 @@ export default function Settings() {
           )}
         </div>
       </Card>}
-
-
-      {/* Tenant switch */}
-      {tenants.length > 1 && (
-        <div className="flex items-center gap-3">
-          {tenants.map((t) => (
-            <Button
-              key={t.id}
-              color={String(t.id) === currentTenantId ? 'blue' : 'light'}
-              size="sm"
-              onClick={() => {
-                localStorage.setItem('sms-tenant-id', String(t.id))
-                window.location.reload()
-              }}
-            >
-              {t.slug === 'stable' ? 'CANCEL' : t.name}
-            </Button>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

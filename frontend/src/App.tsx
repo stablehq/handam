@@ -16,6 +16,7 @@ import UserManagement from './pages/UserManagement'
 import Settings from './pages/Settings'
 import ActivityLogs from './pages/ActivityLogs'
 import PartyCheckin from './pages/PartyCheckin'
+import EventSms from './pages/EventSms'
 
 // 스태프 전용 리다이렉트: staff 계정은 /party-checkin 으로만 이동
 function StaffRedirect({ children }: { children: React.ReactNode }) {
@@ -57,6 +58,7 @@ function App() {
               <Route path="/templates" element={<StaffRedirect><Templates /></StaffRedirect>} />
               <Route path="/settings" element={<StaffRedirect><Settings /></StaffRedirect>} />
               <Route path="/activity-logs" element={<StaffRedirect><ActivityLogs /></StaffRedirect>} />
+              <Route path="/event-sms" element={<StaffRedirect><EventSms /></StaffRedirect>} />
               <Route
                 path="/users"
                 element={

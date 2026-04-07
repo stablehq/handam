@@ -240,7 +240,7 @@ const Dashboard = () => {
                       <span className={`text-body font-medium ${
                         s.status === '완료' ? 'text-[#00C9A7]'
                         : s.status === '진행중' ? 'text-[#3182F6]'
-                        : s.status === '미발송' ? 'text-[#F04452]'
+                        : s.status === '실패' || s.status === '미발송' ? 'text-[#F04452]'
                         : 'text-[#FF9F00]'
                       }`}>{s.status}</span>
                     </TableCell>

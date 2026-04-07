@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTenantStore } from '@/stores/tenant-store'
-import { Modal, ModalHeader, ModalBody } from '@/components/ui/modal'
+import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal'
 import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
-import { Users, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
-import { partyCheckinAPI } from '@/services/api'
+import { TextInput } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Users, AlertTriangle, ChevronLeft, ChevronRight, ShoppingBag, Trash2 } from 'lucide-react'
+import { partyCheckinAPI, onsiteSalesAPI } from '@/services/api'
 import { toast } from 'sonner'
 
 interface PartyGuest {
@@ -58,6 +60,13 @@ export default function PartyCheckin() {
     guest: null,
   })
 
+  // Sales modal state
+  const [salesModal, setSalesModal] = useState(false)
+  const [sales, setSales] = useState<Array<{ id: number; item_name: string; amount: number; created_by: string | null; created_at: string | null }>>([])
+  const [salesLoading, setSalesLoading] = useState(false)
+  const [newItemName, setNewItemName] = useState('')
+  const [newAmount, setNewAmount] = useState('')
+
   const fetchGuests = useCallback(async (date: string, source: string = 'stable') => {
     setLoading(true)
     try {
@@ -73,6 +82,61 @@ export default function PartyCheckin() {
   useEffect(() => {
     fetchGuests(selectedDate, partySource)
   }, [selectedDate, partySource, fetchGuests])
+
+  // Fetch sales when modal opens or date changes
+  useEffect(() => {
+    if (salesModal) {
+      fetchSales()
+    }
+  }, [salesModal, selectedDate])
+
+  async function fetchSales() {
+    setSalesLoading(true)
+    try {
+      const res = await onsiteSalesAPI.getList(selectedDate)
+      setSales(res.data)
+    } catch {
+      toast.error('판매 기록을 불러오지 못했습니다')
+    } finally {
+      setSalesLoading(false)
+    }
+  }
+
+  async function handleAddSale() {
+    if (!newItemName.trim()) {
+      toast.error('품명을 입력해주세요')
+      return
+    }
+    if (!newAmount || Number(newAmount) <= 0) {
+      toast.error('금액을 입력해주세요')
+      return
+    }
+    try {
+      const res = await onsiteSalesAPI.create({
+        date: selectedDate,
+        item_name: newItemName.trim(),
+        amount: Number(newAmount),
+      })
+      setSales(prev => [res.data, ...prev])
+      setNewItemName('')
+      setNewAmount('')
+      toast.success('판매 기록이 추가되었습니다')
+    } catch {
+      toast.error('판매 기록 추가에 실패했습니다')
+    }
+  }
+
+  async function handleDeleteSale(id: number) {
+    try {
+      await onsiteSalesAPI.delete(id)
+      setSales(prev => prev.filter(s => s.id !== id))
+      toast.success('판매 기록이 삭제되었습니다')
+    } catch {
+      toast.error('삭제에 실패했습니다')
+    }
+  }
+
+  const salesTotalAmount = sales.reduce((sum, s) => sum + s.amount, 0)
 
   const handleRowClick = (guest: PartyGuest) => {
     if (toggling === guest.id) return
@@ -195,11 +259,19 @@ export default function PartyCheckin() {
         ))}
       </div>}
 
-      {/* 카운터 */}
-      <div className="flex items-center justify-center gap-[15px] text-body tabular-nums">
-        <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-[5px] rounded-full bg-[#191F28] dark:bg-white" /><span>전체 <span className="font-bold text-[#191F28] dark:text-white">{totalPeople}</span><span className="text-[#B0B8C1]">명</span></span></span>
-        <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-[5px] rounded-full bg-[#3182F6]" /><span>입장 <span className="font-bold text-[#3182F6]">{checkedInPeople}</span><span className="text-[#B0B8C1]">명</span></span></span>
-        <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-[5px] rounded-full bg-[#F04452]" /><span>미입장 <span className="font-bold text-[#F04452]">{notCheckedInPeople}</span><span className="text-[#B0B8C1]">명</span></span></span>
+      {/* 카운터 + 현장 판매 버튼 */}
+      <div className="relative flex items-center justify-center">
+        <div className="flex items-center gap-[15px] text-body tabular-nums">
+          <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-[5px] rounded-full bg-[#191F28] dark:bg-white" /><span>전체 <span className="font-bold text-[#191F28] dark:text-white">{totalPeople}</span><span className="text-[#B0B8C1]">명</span></span></span>
+          <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-[5px] rounded-full bg-[#3182F6]" /><span>입장 <span className="font-bold text-[#3182F6]">{checkedInPeople}</span><span className="text-[#B0B8C1]">명</span></span></span>
+          <span className="flex items-center gap-1.5"><span className="inline-block h-[5px] w-[5px] rounded-full bg-[#F04452]" /><span>미입장 <span className="font-bold text-[#F04452]">{notCheckedInPeople}</span><span className="text-[#B0B8C1]">명</span></span></span>
+        </div>
+        <div className="absolute right-0">
+          <Button color="light" size="sm" onClick={() => setSalesModal(true)}>
+            <ShoppingBag className="mr-1.5 h-3.5 w-3.5" />
+            현장 판매
+          </Button>
+        </div>
       </div>
 
       {/* 테이블 */}
@@ -351,6 +423,94 @@ export default function PartyCheckin() {
             </div>
           </div>
         </ModalBody>
+      </Modal>
+
+      {/* 현장 판매 모달 */}
+      <Modal
+        show={salesModal}
+        size="md"
+        onClose={() => setSalesModal(false)}
+      >
+        <ModalHeader>현장 판매</ModalHeader>
+        <ModalBody>
+          {/* 입력 영역 */}
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">품명</Label>
+              <TextInput
+                value={newItemName}
+                onChange={(e) => setNewItemName(e.target.value)}
+                placeholder="품명 입력"
+                className="h-9"
+                onKeyDown={(e) => e.key === 'Enter' && handleAddSale()}
+              />
+            </div>
+            <div className="w-32">
+              <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">금액</Label>
+              <TextInput
+                type="number"
+                value={newAmount}
+                onChange={(e) => setNewAmount(e.target.value)}
+                placeholder="0"
+                className="h-9"
+                onKeyDown={(e) => e.key === 'Enter' && handleAddSale()}
+              />
+            </div>
+            <Button color="blue" size="sm" onClick={handleAddSale} className="shrink-0 h-9">
+              추가
+            </Button>
+          </div>
+
+          {/* 판매 목록 */}
+          <div className="mt-4">
+            {salesLoading ? (
+              <div className="flex justify-center py-8">
+                <Spinner size="md" />
+              </div>
+            ) : sales.length === 0 ? (
+              <div className="py-8 text-center text-body text-[#8B95A1] dark:text-gray-500">
+                판매 기록이 없습니다
+              </div>
+            ) : (
+              <div className="divide-y divide-[#F2F4F6] rounded-xl border border-[#E5E8EB] dark:divide-gray-800 dark:border-gray-800">
+                {sales.map((sale) => (
+                  <div key={sale.id} className="flex items-center justify-between px-4 py-3">
+                    <div className="flex-1">
+                      <span className="text-body font-medium text-[#191F28] dark:text-white">{sale.item_name}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="tabular-nums text-body font-semibold text-[#191F28] dark:text-white">
+                        {sale.amount.toLocaleString()}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">원</span>
+                      </span>
+                      <button
+                        onClick={() => handleDeleteSale(sale.id)}
+                        className="rounded-lg p-1 text-[#B0B8C1] transition-colors hover:bg-[#FFF0F0] hover:text-[#F04452] dark:hover:bg-[#F04452]/10"
+                        title="삭제"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 총액 */}
+          {sales.length > 0 && (
+            <div className="mt-4 flex items-center justify-between rounded-xl bg-[#F8F9FA] px-4 py-3 dark:bg-[#1E1E24]">
+              <span className="text-body font-semibold text-[#191F28] dark:text-white">총액</span>
+              <span className="tabular-nums text-heading font-bold text-[#3182F6]">
+                {salesTotalAmount.toLocaleString()}<span className="ml-0.5 text-body font-normal text-[#B0B8C1]">원</span>
+              </span>
+            </div>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button color="light" onClick={() => setSalesModal(false)}>
+            닫기
+          </Button>
+        </ModalFooter>
       </Modal>
     </div>
   )

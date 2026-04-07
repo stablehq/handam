@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import GuestContextMenu from '../components/GuestContextMenu';
 import TableSettingsModal from '../components/TableSettingsModal';
-import { useLongPress, TOUCH_STYLE } from '../hooks/useLongPress';
+
 import {
   PRESET_HIGHLIGHT_STYLES,
   isCustomHexColor,
@@ -489,28 +489,6 @@ const RoomAssignment = () => {
 
   const [showStayGroupModal, setShowStayGroupModal] = useState(false);
 
-  const { handlers: longPressHandlers } = useLongPress({
-    onLongPress: useCallback((e: React.PointerEvent, resId: number) => {
-      const targetIds =
-        selectedGuestIds.size > 0 && selectedGuestIds.has(resId)
-          ? [...selectedGuestIds]
-          : [resId];
-      setContextMenu({ x: e.clientX, y: e.clientY, targetIds });
-    }, [selectedGuestIds]),
-    onShortTap: useCallback((target: HTMLElement, _e: React.PointerEvent, resId: number, showGrip: boolean) => {
-      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-        target.focus();
-      } else if (showGrip) {
-        setSelectedGuestIds(prev => {
-          const next = new Set(prev);
-          if (next.has(resId) && next.size === 1) next.clear();
-          else { next.clear(); next.add(resId); }
-          return next;
-        });
-      }
-    }, []),
-    disabled: modalVisible || showStayGroupModal || !!multiNightConfirm?.open,
-  });
 
   const [stayGroupChain, setStayGroupChain] = useState<Array<{id: number; customer_name: string; phone: string; check_in_date: string; check_out_date: string; stay_group_id?: string | null}>>([]);
   const [stayGroupDateReservations, setStayGroupDateReservations] = useState<any[]>([]);
@@ -1753,7 +1731,12 @@ const RoomAssignment = () => {
     e.preventDefault();
     e.stopPropagation();
 
+    const isTouch = pe.pointerType === 'touch';
+    const row = (e.target as HTMLElement).closest('.group\\/guest') as HTMLElement | null;
+
     const res = findReservation(resId)?.res;
+    let newTargetIds: number[] = [];
+
     setSelectedGuestIds(prev => {
       const next = new Set(prev);
       if (e.shiftKey || e.ctrlKey || e.metaKey) {
@@ -1775,8 +1758,19 @@ const RoomAssignment = () => {
           next.add(resId);
         }
       }
+      newTargetIds = [...next];
       return next;
     });
+
+    // Mobile: auto-show context menu at row bottom-right on select
+    if (isTouch && row) {
+      if (newTargetIds.length > 0) {
+        const rect = row.getBoundingClientRect();
+        setContextMenu({ x: rect.right - 8, y: rect.bottom, targetIds: newTargetIds });
+      } else {
+        setContextMenu(null);
+      }
+    }
   }, [findReservation]);
 
   const onDropZoneClick = useCallback((e: React.MouseEvent) => {
@@ -1877,11 +1871,9 @@ const RoomAssignment = () => {
                 ? `${highlightStyle.bg} ${highlightStyle.hover} ${highlightStyle.text || ''}`
                 : longStay ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15 hover:bg-[#FFE4CC] dark:hover:bg-[#FF9500]/20' : 'hover:bg-[#E8F3FF] dark:hover:bg-[#3182F6]/8'
         } cursor-pointer`}
-        style={{ ...(isCustomHex && !isSelected ? getCustomBgStyle(res.highlight_color!, isDarkMode) : {}), ...TOUCH_STYLE }}
+        style={isCustomHex && !isSelected ? getCustomBgStyle(res.highlight_color!, isDarkMode) : undefined}
         onContextMenu={(e) => onGuestContextMenu(e, res.id, zone)}
-        {...longPressHandlers(res.id, showGrip)}
         onClick={(e: React.MouseEvent) => {
-          if (!(e.nativeEvent as PointerEvent).pointerType || (e.nativeEvent as PointerEvent).pointerType === 'touch') return;
           if (showGrip && !(e.target as HTMLElement).closest('input, textarea, select, [data-interactive], button, a, [role="button"]')) {
             if (selectionActive && !selectedGuestIds.has(res.id)) {
               return;
@@ -2060,8 +2052,6 @@ const RoomAssignment = () => {
                   {nextGuest ? (
                     nextDayExpanded ? (
                       <div className="group/guest flex items-center h-10 w-full"
-                        style={TOUCH_STYLE}
-                        {...longPressHandlers(nextGuest.id, true)}
                         onContextMenu={(e) => onGuestContextMenu(e, nextGuest.id)}
                       >
                         {/* Selection grip */}
@@ -2616,8 +2606,7 @@ const RoomAssignment = () => {
                           <div key={`next-pool-${res.id}`} className={`flex items-center h-10 px-1 ${!nextDayExpanded ? 'justify-center' : ''}`}>
                             {nextDayExpanded ? (
                               <div className="group/guest flex items-center h-10 w-full"
-                                style={TOUCH_STYLE}
-                                {...longPressHandlers(res.id, true)}
+
                                 onContextMenu={(e) => onGuestContextMenu(e, res.id)}
                               >
                                 <div
@@ -2728,8 +2717,7 @@ const RoomAssignment = () => {
                           <div key={`next-party-${res.id}`} className={`flex items-center h-10 px-1 ${!nextDayExpanded ? 'justify-center' : ''}`}>
                             {nextDayExpanded ? (
                               <div className="group/guest flex items-center h-10 w-full"
-                                style={TOUCH_STYLE}
-                                {...longPressHandlers(res.id, true)}
+
                                 onContextMenu={(e) => onGuestContextMenu(e, res.id)}
                               >
                                 <div

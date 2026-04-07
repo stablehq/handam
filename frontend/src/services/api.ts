@@ -258,4 +258,32 @@ export const stayGroupAPI = {
     api.delete(`/api/reservations/${id}/stay-group/unlink`),
 };
 
+// Event SMS API
+export const eventSmsAPI = {
+  search: (params: {
+    date_from: string;
+    date_to: string;
+    gender?: string | null;
+    min_nights?: number | null;
+    max_nights?: number | null;
+    min_visits?: number | null;
+    max_visits?: number | null;
+    exclude_age_groups?: string[] | null;
+  }) => api.post('/api/event-sms/search', params),
+
+  send: (params: {
+    phones: string[];
+    message: string;
+    title?: string;
+  }) => api.post('/api/event-sms/send', params),
+};
+
+// Onsite Sales API
+export const onsiteSalesAPI = {
+  getList: (date: string) => api.get('/api/onsite-sales', { params: { date } }),
+  create: (data: { date: string; item_name: string; amount: number }) =>
+    api.post('/api/onsite-sales', data),
+  delete: (id: number) => api.delete(`/api/onsite-sales/${id}`),
+};
+
 export default api;
