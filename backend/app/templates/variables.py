@@ -116,7 +116,7 @@ def _apply_buffers(male: int, female: int, custom_vars: dict) -> tuple:
 
 
 def get_or_create_snapshot(db: Session, target_date: str) -> ParticipantSnapshot:
-    """Get existing snapshot for date, or create one from current DB state."""
+    """SMS 발송 시 호출 — 있으면 그대로 반환, 없으면 1회 생성."""
 
     existing = db.query(ParticipantSnapshot).filter(
         ParticipantSnapshot.date == target_date
@@ -156,17 +156,9 @@ def get_or_create_snapshot(db: Session, target_date: str) -> ParticipantSnapshot
 
 
 def refresh_snapshot(db: Session, target_date: str) -> Optional[ParticipantSnapshot]:
-    """Refresh an existing snapshot by recalculating from current DB state.
-    If no snapshot exists for the date, does nothing (returns None).
-    """
+    """스케줄러(08:50/11:50) 호출 — 있으면 갱신, 없으면 생성."""
     import logging
     _logger = logging.getLogger(__name__)
-
-    existing = db.query(ParticipantSnapshot).filter(
-        ParticipantSnapshot.date == target_date
-    ).first()
-    if not existing:
-        return None  # Only refresh existing snapshots, don't create new ones
 
     # Recalculate from current confirmed reservations
     result = db.query(
@@ -177,14 +169,31 @@ def refresh_snapshot(db: Session, target_date: str) -> Optional[ParticipantSnaps
         Reservation.status.in_([ReservationStatus.CONFIRMED, ReservationStatus.COMPLETED]),
     ).first()
 
-    old_male, old_female = existing.male_count, existing.female_count
-    existing.male_count = int(result.total_male) if result else 0
-    existing.female_count = int(result.total_female) if result else 0
+    new_male = int(result.total_male) if result else 0
+    new_female = int(result.total_female) if result else 0
 
-    if old_male != existing.male_count or old_female != existing.female_count:
-        _logger.info(f"[Snapshot Refresh] {target_date}: M {old_male}→{existing.male_count}, F {old_female}→{existing.female_count}")
+    existing = db.query(ParticipantSnapshot).filter(
+        ParticipantSnapshot.date == target_date
+    ).first()
 
-    return existing
+    if existing:
+        old_male, old_female = existing.male_count, existing.female_count
+        existing.male_count = new_male
+        existing.female_count = new_female
+        if old_male != new_male or old_female != new_female:
+            _logger.info(f"[Snapshot Refresh] {target_date}: M {old_male}→{new_male}, F {old_female}→{new_female}")
+        return existing
+
+    # 스냅샷이 없으면 새로 생성
+    snapshot = ParticipantSnapshot(
+        date=target_date,
+        male_count=new_male,
+        female_count=new_female,
+    )
+    db.add(snapshot)
+    db.flush()
+    _logger.info(f"[Snapshot Created] {target_date}: M {new_male}, F {new_female}")
+    return snapshot
 
 
 def calculate_template_variables(
