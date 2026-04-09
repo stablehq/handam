@@ -443,18 +443,23 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
         existing.status = ReservationStatus.CONFIRMED
     elif naver_status == "cancelled":
         existing.status = ReservationStatus.CANCELLED
-        # 당일 취소: 오늘 이후 날짜의 객실 배정만 해제 (과거 배정은 유지)
-        # → 예약자는 미배정 풀에 빨간 행으로 표시됨
         today_str = datetime.now(KST).strftime("%Y-%m-%d")
-        from app.db.models import RoomAssignment as RA
-        tid = current_tenant_id.get()
-        db.query(RA).filter(
-            RA.reservation_id == existing.id,
-            RA.tenant_id == tid,
-            RA.date >= today_str,
-        ).delete(synchronize_session="fetch")
-        existing.room_number = None
-        existing.room_password = None
+        check_in_str = str(existing.check_in_date) if existing.check_in_date else ""
+        is_same_day_cancel = (check_in_str == today_str)
+        if is_same_day_cancel:
+            # 당일 취소: 오늘 이후 배정만 해제, 미배정 풀에 빨간 행으로 표시
+            from app.db.models import RoomAssignment as RA
+            tid = current_tenant_id.get()
+            db.query(RA).filter(
+                RA.reservation_id == existing.id,
+                RA.tenant_id == tid,
+                RA.date >= today_str,
+            ).delete(synchronize_session="fetch")
+            existing.room_number = None
+            existing.room_password = None
+        else:
+            # 사전 취소: 전체 배정 해제 (미배정에 표시하지 않음)
+            room_assignment.clear_all_for_reservation(db, existing.id)
         # Delete unsent chips on cancellation
         db.query(ReservationSmsAssignment).filter(
             ReservationSmsAssignment.reservation_id == existing.id,

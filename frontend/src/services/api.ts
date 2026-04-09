@@ -298,4 +298,19 @@ export const onsiteSalesAPI = {
   delete: (id: number) => api.delete(`/api/onsite-sales/${id}`),
 };
 
+// Daily Host API
+export const dailyHostAPI = {
+  get: (date: string) => api.get('/api/daily-host', { params: { date } }),
+  upsert: (data: { date: string; host_username: string }) =>
+    api.put('/api/daily-host', data),
+};
+
+// Onsite Auction API
+export const onsiteAuctionAPI = {
+  get: (date: string) => api.get('/api/onsite-auctions', { params: { date } }),
+  upsert: (data: { date: string; item_name: string; final_amount: number; winner_name: string }) =>
+    api.post('/api/onsite-auctions', data),
+  delete: (id: number) => api.delete(`/api/onsite-auctions/${id}`),
+};
+
 export default api;

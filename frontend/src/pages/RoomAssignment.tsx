@@ -704,8 +704,10 @@ const RoomAssignment = () => {
   const filterActive = useCallback((data: any[], dateStr: string) => {
     return data.filter((r: Reservation) => {
       if (r.status !== 'cancelled') return true;
-      // 당일 체크인 취소는 유지
-      return r.check_in_date === dateStr;
+      // 당일 취소만 유지: 체크인 날짜 == 선택일 AND 취소일 == 선택일
+      if (r.check_in_date !== dateStr) return false;
+      if (!r.cancelled_at) return false;
+      return r.cancelled_at.startsWith(dateStr);
     });
   }, []);
 

@@ -596,6 +596,37 @@ class OnsiteSale(TenantMixin, Base):
     created_at = Column(DateTime, default=utc_now)
 
 
+class DailyHost(TenantMixin, Base):
+    """일자별 진행자(MC) 기록"""
+    __tablename__ = "daily_hosts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(String(20), nullable=False, index=True)  # YYYY-MM-DD
+    host_username = Column(String(100), nullable=False)
+    created_at = Column(DateTime, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "date", name="uq_daily_host_tenant_date"),
+    )
+
+
+class OnsiteAuction(TenantMixin, Base):
+    """일자별 경매 기록 (하루 1건)"""
+    __tablename__ = "onsite_auctions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(String(20), nullable=False, index=True)  # YYYY-MM-DD
+    item_name = Column(String(200), nullable=False)
+    final_amount = Column(Integer, nullable=False)  # 낙찰가 (원)
+    winner_name = Column(String(100), nullable=False)  # 낙찰자명
+    created_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "date", name="uq_onsite_auction_tenant_date"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Register tenant models for automatic SELECT filtering
 # ---------------------------------------------------------------------------
@@ -605,6 +636,6 @@ for _model in [
     Message, Reservation, Rule, Document, MessageTemplate, ReservationSmsAssignment,
     CampaignLog, GenderStat, RoomBizItemLink, Building, RoomGroup, Room, RoomAssignment,
     NaverBizItem, TemplateSchedule, ActivityLog, PartyCheckin, ReservationDailyInfo,
-    ParticipantSnapshot, OnsiteSale,
+    ParticipantSnapshot, OnsiteSale, DailyHost, OnsiteAuction,
 ]:
     _register(_model)

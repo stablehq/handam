@@ -84,7 +84,13 @@ async def update_naver_cookie(
 
     # Save to Tenant table (persistent across restarts)
     tenant.naver_cookie = cookie
-    db.commit()
+    # tenant는 get_current_tenant(get_db 세션)에서 왔으므로 tenant 세션을 커밋
+    from sqlalchemy import inspect as sa_inspect
+    tenant_session = sa_inspect(tenant).session
+    if tenant_session:
+        tenant_session.commit()
+    else:
+        db.commit()
 
     # Validate the new cookie
     try:
@@ -116,7 +122,12 @@ async def clear_naver_cookie(
 ):
     """Clear Naver cookie from Tenant table + runtime"""
     tenant.naver_cookie = None
-    db.commit()
+    from sqlalchemy import inspect as sa_inspect
+    tenant_session = sa_inspect(tenant).session
+    if tenant_session:
+        tenant_session.commit()
+    else:
+        db.commit()
     return {"success": True, "message": "Cookie cleared."}
 
 
@@ -187,7 +198,14 @@ async def update_unstable_settings(
     if not updated:
         return {"success": False, "message": "변경할 항목이 없습니다."}
 
-    db.commit()
+    # tenant는 get_current_tenant(get_db 세션)에서 왔으므로
+    # tenant가 속한 세션을 직접 커밋해야 변경이 반영됨
+    from sqlalchemy import inspect as sa_inspect
+    tenant_session = sa_inspect(tenant).session
+    if tenant_session:
+        tenant_session.commit()
+    else:
+        db.commit()
 
     # Validate if both business_id and cookie are present
     business_id = tenant.unstable_business_id or ""
