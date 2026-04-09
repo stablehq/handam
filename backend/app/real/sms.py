@@ -16,6 +16,9 @@ ALIGO_REMAIN_URL = "https://apis.aligo.in/remain/"
 
 # SMS: 90바이트 이하, LMS: 90바이트 초과
 SMS_BYTE_LIMIT = 90
+# 알리고 /send/ 엔드포인트 LMS 바이트 제한 (EUC-KR 기준)
+# 초과 시 /send_mass/ (cnt=1)로 폴백
+LMS_BYTE_LIMIT = 2000
 
 
 def _detect_msg_type(message: str) -> str:
@@ -71,6 +74,23 @@ class RealSMSProvider:
         msg_type = kwargs.get("msg_type") or _detect_msg_type(message)
         testmode_yn = kwargs.get("testmode_yn", "Y" if self.testmode else "N")
         title = kwargs.get("title", "")
+
+        # LMS 바이트 제한 초과 시 /send_mass/ (cnt=1)로 폴백
+        if msg_type == "LMS":
+            try:
+                euc_byte_len = len(message.encode("euc-kr"))
+            except UnicodeEncodeError:
+                euc_byte_len = len(message.encode("utf-8"))
+            if euc_byte_len > LMS_BYTE_LIMIT:
+                logger.info(
+                    f"[Aligo] LMS 바이트 초과 ({euc_byte_len} > {LMS_BYTE_LIMIT}), "
+                    f"/send_mass/ 폴백 — to={to}"
+                )
+                return await self._send_single_via_mass(
+                    to=to, message=message, msg_type=msg_type,
+                    testmode_yn=testmode_yn, title=title, timestamp=timestamp,
+                    fallback_message_id=message_id,
+                )
 
         params: Dict[str, str] = {
             **_build_auth_params(),
@@ -252,6 +272,36 @@ class RealSMSProvider:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    async def _send_single_via_mass(
+        self,
+        to: str,
+        message: str,
+        msg_type: str,
+        testmode_yn: str,
+        title: str,
+        timestamp: str,
+        fallback_message_id: str,
+    ) -> Dict[str, Any]:
+        """/send/ LMS 바이트 제한 초과 시 /send_mass/ (cnt=1)로 단건 발송"""
+        result = await self._send_mass_batch(
+            batch=[{"to": to, "message": message}],
+            testmode_yn=testmode_yn,
+            title=title,
+            msg_type=msg_type,
+        )
+
+        success = result.get("success", False)
+        return {
+            "success": success,
+            "message_id": str(result.get("raw", {}).get("msg_id", fallback_message_id)),
+            "to": to,
+            "message": message,
+            "timestamp": timestamp,
+            "provider": "real",
+            "error": None if success else result.get("error", "알 수 없는 오류"),
+            "raw": result.get("raw"),
+        }
 
     async def _send_mass_batch(
         self,
