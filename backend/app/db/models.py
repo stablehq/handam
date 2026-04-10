@@ -627,6 +627,20 @@ class OnsiteAuction(TenantMixin, Base):
     )
 
 
+class PartyHost(TenantMixin, Base):
+    """진행자(MC) 마스터 — 테넌트별 관리"""
+    __tablename__ = "party_hosts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name", name="uq_party_host_tenant_name"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Register tenant models for automatic SELECT filtering
 # ---------------------------------------------------------------------------
@@ -636,6 +650,6 @@ for _model in [
     Message, Reservation, Rule, Document, MessageTemplate, ReservationSmsAssignment,
     CampaignLog, GenderStat, RoomBizItemLink, Building, RoomGroup, Room, RoomAssignment,
     NaverBizItem, TemplateSchedule, ActivityLog, PartyCheckin, ReservationDailyInfo,
-    ParticipantSnapshot, OnsiteSale, DailyHost, OnsiteAuction,
+    ParticipantSnapshot, OnsiteSale, DailyHost, OnsiteAuction, PartyHost,
 ]:
     _register(_model)

@@ -1,0 +1,22 @@
+{
+  "name": "스테이블 CRM",
+  "short_name": "스테이블",
+  "description": "숙소 예약 관리 + SMS 자동 발송 시스템",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#3182F6",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

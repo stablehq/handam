@@ -16,6 +16,12 @@ from app.services.activity_logger import log_activity
 logger = logging.getLogger(__name__)
 
 
+def find_unreplaced_vars(text: str) -> list[str]:
+    """텍스트에서 미치환 {{변수}} 를 찾아 변수명 리스트로 반환."""
+    import re
+    return re.findall(r'\{\{(\w+)\}\}', text)
+
+
 async def send_single_sms(
     db: Session,
     sms_provider,
@@ -67,6 +73,13 @@ async def send_single_sms(
 
     renderer = TemplateRenderer(db)
     message_content = renderer.render(template_key, context)
+
+    # 미치환 변수가 남아있으면 발송 차단
+    unreplaced = find_unreplaced_vars(message_content)
+    if unreplaced:
+        error_msg = f"미치환 변수 발견: {', '.join(unreplaced)}"
+        logger.error(f"[{template_key}] {error_msg} - 발송 차단됨 (수신자: {reservation.phone})")
+        return {"success": False, "message_id": None, "error": error_msg, "message": message_content}
 
     result = await sms_provider.send_sms(to=reservation.phone, message=message_content)
 

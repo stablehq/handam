@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     JWT_EXPIRE_HOURS: int = 1
     JWT_REFRESH_EXPIRE_DAYS: int = 7
 
+    # Sentry (운영 에러 모니터링, 비워두면 비활성)
+    SENTRY_DSN: str = ""
+
     # CORS
     CORS_ORIGINS: str = "*"
 

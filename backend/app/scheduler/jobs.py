@@ -37,6 +37,12 @@ def _for_each_tenant(job_fn):
             db.commit()
         except Exception as e:
             logger.error(f"[{tenant.slug}] Job error: {e}")
+            try:
+                import sentry_sdk
+                sentry_sdk.set_tag("tenant_slug", tenant.slug)
+                sentry_sdk.capture_exception(e)
+            except ImportError:
+                pass
             db.rollback()
         finally:
             db.close()
@@ -374,9 +380,9 @@ def setup_scheduler():
     # Daily room auto-assignment - 10am KST (당일+내일)
     scheduler.add_job(
         daily_room_assign_job,
-        trigger=CronTrigger(hour=10, minute=0, timezone='Asia/Seoul'),
+        trigger=CronTrigger(hour=10, minute=1, timezone='Asia/Seoul'),
         id='daily_room_assign',
-        name='객실 자동 배정 (오전 10시)',
+        name='객실 자동 배정 (오전 10:01)',
         replace_existing=True,
     )
 

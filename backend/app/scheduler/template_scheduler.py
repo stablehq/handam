@@ -229,6 +229,11 @@ class TemplateScheduleExecutor:
 
         except Exception as e:
             logger.error(f"Error executing schedule #{schedule_id}: {str(e)}")
+            try:
+                import sentry_sdk
+                sentry_sdk.capture_exception(e)
+            except ImportError:
+                pass
             self.db.rollback()
             return {"success": False, "error": str(e)}
 

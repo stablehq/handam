@@ -237,17 +237,14 @@ async def get_reservations(
             query = query.filter(Reservation.booking_source.in_(sources))
 
     if date:
-        # Single date: check-in <= date < check-out (used by RoomAssignment)
+        # Single date: check-in <= date < check-out, OR check-in == date (covers same-day checkout & NULL end_date)
         query = query.filter(
             or_(
                 and_(
                     Reservation.check_in_date <= date,
                     Reservation.check_out_date > date,
                 ),
-                and_(
-                    Reservation.check_in_date == date,
-                    Reservation.check_out_date.is_(None),
-                ),
+                Reservation.check_in_date == date,
             )
         )
     elif date_from or date_to:

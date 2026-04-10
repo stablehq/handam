@@ -182,6 +182,8 @@ def refresh_snapshot(db: Session, target_date: str) -> Optional[ParticipantSnaps
         existing.female_count = new_female
         if old_male != new_male or old_female != new_female:
             _logger.info(f"[Snapshot Refresh] {target_date}: M {old_male}→{new_male}, F {old_female}→{new_female}")
+        else:
+            _logger.info(f"[Snapshot Refresh] {target_date}: no change (M {new_male}, F {new_female})")
         return existing
 
     # 스냅샷이 없으면 새로 생성

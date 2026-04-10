@@ -7,7 +7,7 @@ import { TextInput } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Users, AlertTriangle, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
-import { partyCheckinAPI, onsiteSalesAPI, dailyHostAPI, onsiteAuctionAPI, authAPI } from '@/services/api'
+import { partyCheckinAPI, onsiteSalesAPI, dailyHostAPI, onsiteAuctionAPI, partyHostsAPI } from '@/services/api'
 import { toast } from 'sonner'
 
 interface PartyGuest {
@@ -45,10 +45,9 @@ interface Auction {
   created_at: string | null
 }
 
-interface UserItem {
+interface HostItem {
   id: number
-  username: string
-  role: string
+  name: string
 }
 
 function getTodayStr(): string {
@@ -94,8 +93,8 @@ export default function PartyCheckin() {
   const [newAmount, setNewAmount] = useState('')
 
   // ── Host state ──
-  const [users, setUsers] = useState<UserItem[]>([])
-  const [hostUsername, setHostUsername] = useState('')
+  const [hosts, setHosts] = useState<HostItem[]>([])
+  const [hostName, setHostName] = useState('')
   const [hostSaving, setHostSaving] = useState(false)
 
   // ── Auction state ──
@@ -139,7 +138,7 @@ export default function PartyCheckin() {
       setSales(salesRes.data ?? [])
 
       const host = hostRes.data
-      setHostUsername(host?.host_username ?? '')
+      setHostName(host?.host_username ?? '')
 
       const auc = auctionRes.data
       setAuction(auc)
@@ -165,10 +164,10 @@ export default function PartyCheckin() {
     }
   }, [activeTab, selectedDate, fetchSalesData])
 
-  // Fetch users once
+  // Fetch party hosts
   useEffect(() => {
-    authAPI.getUsers()
-      .then((res) => setUsers(res.data ?? []))
+    partyHostsAPI.list()
+      .then((res) => setHosts(res.data ?? []))
       .catch(() => {})
   }, [])
 
@@ -243,12 +242,12 @@ export default function PartyCheckin() {
   const salesTotalAmount = sales.reduce((sum, s) => sum + s.amount, 0)
 
   // ── Host handler ──
-  async function handleHostSave(username: string) {
-    setHostUsername(username)
-    if (!username) return
+  async function handleHostSave(name: string) {
+    setHostName(name)
+    if (!name) return
     setHostSaving(true)
     try {
-      await dailyHostAPI.upsert({ date: selectedDate, host_username: username })
+      await dailyHostAPI.upsert({ date: selectedDate, host_username: name })
       toast.success('진행자가 저장되었습니다')
     } catch { toast.error('진행자 저장에 실패했습니다') }
     finally { setHostSaving(false) }
@@ -481,10 +480,10 @@ export default function PartyCheckin() {
                 {/* 1컬럼: 진행자 */}
                 <div>
                   <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">오늘의 진행자</Label>
-                  <Select value={hostUsername} onChange={(e) => handleHostSave(e.target.value)} disabled={hostSaving} sizing="sm">
+                  <Select value={hostName} onChange={(e) => handleHostSave(e.target.value)} disabled={hostSaving} sizing="sm">
                     <option value="">진행자를 선택하세요</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.username}>{u.username}</option>
+                    {hosts.map((h) => (
+                      <option key={h.id} value={h.name}>{h.name}</option>
                     ))}
                   </Select>
                 </div>

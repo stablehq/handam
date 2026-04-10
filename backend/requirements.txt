@@ -35,3 +35,6 @@ bcrypt>=4.0.0
 
 # Rate Limiting
 slowapi>=0.1.9
+
+# Error Monitoring
+sentry-sdk[fastapi]>=2.0.0

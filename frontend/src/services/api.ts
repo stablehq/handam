@@ -305,6 +305,13 @@ export const dailyHostAPI = {
     api.put('/api/daily-host', data),
 };
 
+// Party Hosts API
+export const partyHostsAPI = {
+  list: () => api.get('/api/party-hosts'),
+  create: (data: { name: string }) => api.post('/api/party-hosts', data),
+  delete: (id: number) => api.delete(`/api/party-hosts/${id}`),
+};
+
 // Onsite Auction API
 export const onsiteAuctionAPI = {
   get: (date: string) => api.get('/api/onsite-auctions', { params: { date } }),
