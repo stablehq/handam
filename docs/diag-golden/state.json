@@ -1,14 +1,15 @@
 {
   "_comment": "ooo-log-validation 스킬이 자동 갱신하는 체크포인트. 수동 수정 지양.",
-  "last_log_timestamp": "2026-04-28 00:40:02",
-  "last_commit_sha": "9196347",
-  "last_coverage_scan_sha": "9196347",
-  "validated_cases_count": 2,
+  "last_log_timestamp": "2026-04-30 08:30:02",
+  "last_commit_sha": "2bede64",
+  "last_coverage_scan_sha": "2bede64",
+  "validated_cases_count": 3,
   "pending_golden_updates": [
     {
       "event": "schedule.execute.fetch_miss",
-      "reason": "Schedule #1 race 진단용 — 배포 후 race 재현 시 정답지 작성",
-      "added_commit": "462d0ac"
+      "reason": "정답지 작성 안 함 — 버그로 확인됨. tenant_context.py bypass 체크가 tid is None 가지 안에만 있어 잔존 tid 가 bypass 를 무력화. 픽스 적용 (HEAD). 다음 검증에서 0건이면 종결, 또 발생 시 재평가",
+      "added_commit": "462d0ac",
+      "status": "fix_deployed_pending_verification"
     },
     {
       "event": "surcharge.reconcile_failed",
@@ -69,309 +70,309 @@
   "known_gaps": [
     {
       "file": "frontend/src/pages/Reservations.tsx",
-      "line": 303,
+      "line": 322,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/Reservations.tsx",
-      "line": 306,
+      "line": 325,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/Reservations.tsx",
-      "line": 323,
+      "line": 342,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 538,
+      "line": 603,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 547,
+      "line": 612,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 564,
+      "line": 629,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 566,
+      "line": 631,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 1006,
+      "line": 1089,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 1179,
+      "line": 1266,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 1184,
+      "line": 1271,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 1530,
+      "line": 1617,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 1569,
+      "line": 1656,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 1809,
+      "line": 1896,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 1812,
+      "line": 1899,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 3312,
+      "line": 3387,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 3759,
+      "line": 3834,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 3779,
+      "line": 3854,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 3847,
+      "line": 3922,
       "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/onsite_auction.py",
       "line": 95,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/settings.py",
       "line": 69,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/settings.py",
       "line": 117,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/settings.py",
       "line": 177,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/settings.py",
       "line": 238,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/settings.py",
       "line": 290,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/template_schedules.py",
       "line": 561,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/template_schedules.py",
       "line": 610,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/reservations.py",
       "line": 770,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/reservations.py",
       "line": 827,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/reservations.py",
       "line": 919,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/reservations.py",
       "line": 947,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/reservations.py",
       "line": 1037,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/reservations.py",
       "line": 1094,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/reservations.py",
-      "line": 1306,
+      "line": 1317,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/rooms.py",
-      "line": 242,
+      "line": 246,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/rooms.py",
-      "line": 270,
+      "line": 274,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/rooms.py",
-      "line": 365,
+      "line": 369,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/rooms.py",
-      "line": 390,
+      "line": 394,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/rooms.py",
-      "line": 429,
+      "line": 433,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/onsite_sales.py",
       "line": 82,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/party_hosts.py",
       "line": 61,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/templates.py",
-      "line": 341,
+      "line": 386,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/auth.py",
       "line": 21,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/auth.py",
       "line": 64,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/auth.py",
       "line": 149,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/auth.py",
       "line": 200,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/auth.py",
       "line": 263,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/scheduler.py",
       "line": 125,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/scheduler.py",
       "line": 149,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/scheduler.py",
       "line": 183,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/buildings.py",
       "line": 119,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     },
     {
       "file": "backend/app/api/buildings.py",
       "line": 155,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-27 (재snapshot)"
+      "note": "baseline 2026-04-29 (재snapshot)"
     }
   ],
   "golden_policy": {
@@ -482,7 +483,7 @@
       "instance_count": 1
     }
   },
-  "last_validation_run": "2026-04-28T09:00:00+09:00",
+  "last_validation_run": "2026-04-30T10:00:00+09:00",
   "notes": [
     "2026-04-24 두 번째 검증 실행. 새 에러 0건 (기존 3건만 — 2건은 이미 수정, 1건 race 는 작업 예정).",
     "baseline coverage scan 58건 일괄 suppress. 다음 스캔부터 증분으로만 잡음.",
@@ -494,6 +495,10 @@
     "2026-04-27 known_gaps baseline 재snapshot — 단일 count 마커를 51건 file/line entry 로 펼침. coverage_scan.py 정상화.",
     "2026-04-28 네 번째 검증. 실에러 0건, 알려진 sms.failed_recorded 1건 (res_id=4629 크루 — 9196347 가드로 차단 예정).",
     "신규 draft 정답지 4건 추가 (party3_mms reconcile, unassign room, tenant_failed, naver_sync sub-events).",
-    "package added를 수신할 새 diag 이벤트 (party3_mms.single.*, template.reordered) 는 pending 등록."
+    "package added를 수신할 새 diag 이벤트 (party3_mms.single.*, template.reordered) 는 pending 등록.",
+    "2026-04-29 다섯 번째 검증. 신규 에러 0건 (밤새 안정). auto_assign.failed 1건 (target_date=2026-05-02, candidates=3 assigned=1 failed=2 — 객실 잔여 부족, ActivityLog room_assign_failed 로 운영자 알림 정상 동작). 어제 커밋 9건 무관.",
+    "2026-04-29 known_gaps baseline 재snapshot — 어제 Phase 1~5.1 리팩터로 줄번호 밀린 baseline 갱신. 51건 (frontend 18 + backend 33). 총량 변화: 기존 51 → 51 (새 미태깅 라우터 1건 추가, 기존 1건 태깅 보강).",
+    "2026-04-30 여섯 번째 검증. 신규 에러 2건 — (1) schedule.execute.fetch_miss 11건 (12:00~13:40 schedule_id=1 매 10분 반복) → 코드+DB+로그 3단 증거로 tenant_context.py before_compile 의 bypass 체크 위치 결함 확정. fail-closed 가드 안에만 bypass 체크가 있어 잔존 tid 가 있으면 bypass=True 무력화. 1줄 short-circuit 픽스 적용. 운영 영향: schedule #1 '파티 안내 자동 발송' 11회 미발송. (2) frontend bootstrap 400 burst 16건 — 로그인 직후 currentTenantId=null 윈도우에 X-Tenant-Id 헤더 누락 → b685132 의 hardcoded fallback 제거 부수효과. GitHub issue #1 등록.",
+    "password_display.prefix_skipped 1건 (room_id=52 송악, non_digit_base) — 의도된 동작 (한글 객실명). 정답지 작성 보류, 발화 빈도가 낮아 pending 유지."
   ]
 }

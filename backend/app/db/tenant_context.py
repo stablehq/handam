@@ -53,18 +53,24 @@ def _apply_tenant_filter_on_select(query):
     if query._execution_options.get("_tenant_filtered", False):
         return query
 
+    # Bypass must short-circuit before reading current_tenant_id — otherwise a stale
+    # tid leaked from a sibling task (e.g. naver_sync looping tenants while a
+    # schedule job triggers in the same coroutine context) silently re-applies
+    # WHERE tenant_id=<stale>, masking bypass=True. See schedule.execute.fetch_miss.
+    if bypass_tenant_filter.get():
+        return query
+
     tid = current_tenant_id.get()
     if tid is None:
         # Fail-closed: block queries on tenant models without context
-        if not bypass_tenant_filter.get():
-            for desc in query.column_descriptions:
-                entity = desc.get("entity")
-                if entity is not None and entity in TENANT_MODELS:
-                    raise RuntimeError(
-                        f"SECURITY: Query on tenant model {entity.__name__} "
-                        "without tenant context. Use get_tenant_scoped_db() "
-                        "or set bypass_tenant_filter for cross-tenant queries."
-                    )
+        for desc in query.column_descriptions:
+            entity = desc.get("entity")
+            if entity is not None and entity in TENANT_MODELS:
+                raise RuntimeError(
+                    f"SECURITY: Query on tenant model {entity.__name__} "
+                    "without tenant context. Use get_tenant_scoped_db() "
+                    "or set bypass_tenant_filter for cross-tenant queries."
+                )
         return query
 
     # Mark query as processed to prevent re-entrance from .filter() calls
