@@ -20,7 +20,7 @@ from sqlalchemy import exists, and_
 from sqlalchemy.orm import selectinload
 from app.db.models import Reservation, Room, RoomAssignment, ReservationStatus, TemplateSchedule, RoomBizItemLink
 from app.services import room_assignment
-from app.db.tenant_context import current_tenant_id
+from app.db.tenant_context import current_tenant_id, bypass_tenant_filter
 from app.diag_logger import diag
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,14 @@ def auto_assign_rooms(db: Session, target_date: str = None, created_by: str = "s
     logger.info(f"Starting room auto-assignment for {target_date}")
 
     try:
-        diag("auto_assign.enter", level="verbose", target_date=target_date, created_by=created_by)
+        diag(
+            "auto_assign.enter",
+            level="verbose",
+            target_date=target_date,
+            created_by=created_by,
+            bypass_active=bypass_tenant_filter.get(),
+            tenant_ctx=current_tenant_id.get(),
+        )
     except Exception:
         pass
 
@@ -173,9 +180,16 @@ def _get_unassigned_reservations(db: Session, target_date: str) -> List[Reservat
     if tid is None:
         raise RuntimeError("_get_unassigned_reservations requires tenant context")
 
+    # Defense-in-depth: explicit tenant filter — do not rely on the auto
+    # before_compile filter alone. If bypass_tenant_filter were leaked True
+    # from a sibling task, the implicit filter is skipped and cross-tenant
+    # candidates would otherwise leak in. Cross-tenant candidates would then
+    # collide on uq_room_assignment_res_date when assign_room INSERTs with
+    # before_flush injecting the wrong tenant_id.
     unassigned = (
         db.query(Reservation)
         .filter(
+            Reservation.tenant_id == tid,
             Reservation.naver_biz_item_id.isnot(None),
             Reservation.status == ReservationStatus.CONFIRMED,
             Reservation.section.notin_(['party', 'unstable']),
