@@ -96,8 +96,11 @@ async def search_reservations(
     if req.exclude_invite:
         from app.db.models import ReservationDailyInfo
         # reservations.notes 또는 reservation_daily_info.notes에 '초대' 포함 시 제외
+        # exists().where() 는 SQLAlchemy Core 라 옵션 C 의 before_compile 자동
+        # tenant 필터가 안 탄다. 명시 tenant_id 매칭 필수.
         has_invite_in_daily = exists().where(and_(
             ReservationDailyInfo.reservation_id == Reservation.id,
+            ReservationDailyInfo.tenant_id == Reservation.tenant_id,
             ReservationDailyInfo.notes.ilike('%초대%'),
         ))
         has_invite_in_res = Reservation.notes.ilike('%초대%')

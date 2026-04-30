@@ -18,7 +18,10 @@ import logging
 
 from sqlalchemy import exists, and_
 from sqlalchemy.orm import selectinload
-from app.db.models import Reservation, Room, RoomAssignment, ReservationStatus, TemplateSchedule, RoomBizItemLink
+from app.db.models import (
+    Reservation, Room, RoomAssignment, ReservationStatus,
+    TemplateSchedule, RoomBizItemLink, ReservationSmsAssignment,
+)
 from app.services import room_assignment
 from app.db.tenant_context import get_session_tenant_id, is_session_bypass
 from app.diag_logger import diag
@@ -50,11 +53,18 @@ def auto_assign_rooms(db: Session, target_date: str = None, created_by: str = "s
         pass
 
     # Get rooms with at least one biz_item linked (N:M via RoomBizItemLink)
+    # exists().where() 는 SQLAlchemy Core 라 옵션 C 의 before_compile 자동
+    # tenant 필터가 안 탄다. 명시 tenant_id 매칭 필수 (correlated subquery).
     rooms_with_biz = (
         db.query(Room)
         .filter(
             Room.is_active == True,
-            exists().where(RoomBizItemLink.room_id == Room.id),
+            exists().where(
+                and_(
+                    RoomBizItemLink.room_id == Room.id,
+                    RoomBizItemLink.tenant_id == Room.tenant_id,
+                )
+            ),
         )
         .options(selectinload(Room.biz_item_links))
         .order_by(Room.sort_order)
@@ -448,6 +458,85 @@ def _assign_all_rooms(
     return assigned_results, failed_results
 
 
+def reconcile_stale_chips(db: Session, target_date: str, lookahead_days: int = 1) -> int:
+    """target_date 부터 lookahead_days 동안 칩 0건인 CONFIRMED 예약을 일괄 reconcile.
+
+    auto_assign_rooms 는 신규 배정한 예약만 sync_sms_tags 를 호출하므로,
+    옛 회귀로 칩이 빠진 채 이미 배정된 stale 예약(예: 객실은 있는데 칩 0건)은
+    정상 흐름에서 영원히 복구되지 않는다. 이 함수가 매일 1회 그 갭을 메운다.
+
+    reconcile_chips_for_reservation 은 idempotent — 정상 칩이 있으면 no-op.
+    sync_denormalized_field 는 reservation.room_number 빈 값을 같이 채운다.
+    """
+    tid = get_session_tenant_id(db)
+    if tid is None:
+        raise RuntimeError("reconcile_stale_chips requires tenant context")
+
+    end_date = (
+        datetime.strptime(target_date, "%Y-%m-%d") + timedelta(days=lookahead_days)
+    ).strftime("%Y-%m-%d")
+
+    # NOT EXISTS 패턴 — outer join 을 쓰면 옵션 C 자동 필터의 froms fallback
+    # (tenant_context.py) 가 ReservationSmsAssignment 에도 WHERE tenant_id=X 를
+    # 추가해 LEFT JOIN 이 INNER JOIN 처럼 동작 → stale(칩 0건) 예약이 결과에서
+    # 제거됨. NOT EXISTS 는 subquery 라서 froms 영향 없음 + 명시 tenant 필터로
+    # cross-tenant chip 계수도 차단.
+    stale_ids = [
+        rid
+        for (rid,) in db.query(Reservation.id)
+        .filter(
+            Reservation.tenant_id == tid,
+            Reservation.status == ReservationStatus.CONFIRMED,
+            Reservation.check_in_date >= target_date,
+            Reservation.check_in_date <= end_date,
+            ~exists().where(
+                and_(
+                    ReservationSmsAssignment.reservation_id == Reservation.id,
+                    ReservationSmsAssignment.tenant_id == tid,
+                )
+            ),
+        )
+        .all()
+    ]
+
+    if not stale_ids:
+        return 0
+
+    from app.services.chip_reconciler import reconcile_chips_for_reservation
+
+    schedules = (
+        db.query(TemplateSchedule)
+        .filter(
+            TemplateSchedule.tenant_id == tid,
+            TemplateSchedule.is_active == True,  # noqa: E712
+        )
+        .all()
+    )
+
+    repaired = 0
+    for rid in stale_ids:
+        try:
+            reconcile_chips_for_reservation(db, rid, schedules=schedules)
+            res = db.query(Reservation).filter(Reservation.id == rid).first()
+            if res:
+                room_assignment.sync_denormalized_field(db, res)
+            repaired += 1
+        except Exception as e:
+            logger.warning(f"reconcile_stale_chips failed for res={rid}: {e}")
+
+    db.commit()
+
+    diag(
+        "daily_chip_reconcile.stale_repair",
+        level="critical",
+        target_date=target_date,
+        lookahead_days=lookahead_days,
+        candidates=len(stale_ids),
+        repaired=repaired,
+    )
+    return repaired
+
+
 def daily_assign_rooms(db: Session):
     """
     Daily job: FILL-ONLY mode.
@@ -465,6 +554,15 @@ def daily_assign_rooms(db: Session):
     # FILL-ONLY: 미배정만 배정 (DELETE 없음)
     result_today = auto_assign_rooms(db, today, created_by="scheduler")
     result_tomorrow = auto_assign_rooms(db, tomorrow, created_by="scheduler")
+
+    # 옛 회귀로 칩이 빠진 채 이미 배정된 stale 예약을 매일 1회 자동 복구.
+    # 오늘 + 내일 체크인 예약만 대상 (lookahead_days=1).
+    try:
+        repaired = reconcile_stale_chips(db, today, lookahead_days=1)
+        if repaired:
+            logger.info(f"daily_chip_reconcile: repaired {repaired} stale reservations")
+    except Exception as e:
+        logger.warning(f"reconcile_stale_chips failed: {e}")
 
     # diag
     try:

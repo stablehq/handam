@@ -55,6 +55,19 @@ def reconcile_chips_for_reservation(
     if not reservation:
         return
 
+    # Cross-tenant guard: session 의 tenant 와 reservation 의 tenant 가 다르면
+    # silent ghost chip 생성 위험. 진단만 발화 (raise 시 정상 reconcile 막을 수
+    # 있으니 critical diag 로 가시화만 — 이후 로그 조사로 root cause 추적).
+    _session_tid = db.info.get('tenant_id')
+    if _session_tid is not None and _session_tid != reservation.tenant_id:
+        diag(
+            "chip.tenant_mismatch",
+            level="critical",
+            session_tid=_session_tid,
+            reservation_id=reservation_id,
+            reservation_tid=reservation.tenant_id,
+        )
+
     diag("reconcile_chips_for_reservation.enter", level="verbose", res_id=reservation_id)
 
     # 취소된 예약: 기존 미발송 칩만 정리하고 리턴 (새 칩 생성 안 함)

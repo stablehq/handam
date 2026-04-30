@@ -753,11 +753,20 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
         else:
             # 사전 취소: 전체 배정 해제 (미배정에 표시하지 않음)
             room_assignment.clear_all_for_reservation(db, existing.id)
-        # Delete unsent chips on cancellation
-        db.query(ReservationSmsAssignment).filter(
+        # Delete unsent chips on cancellation. tenant_id 명시 — silent cross-tenant
+        # 삭제 회귀 시 가시화. 정상 동작은 verbose noise.
+        _cancel_deleted = db.query(ReservationSmsAssignment).filter(
+            ReservationSmsAssignment.tenant_id == existing.tenant_id,
             ReservationSmsAssignment.reservation_id == existing.id,
             ReservationSmsAssignment.sent_at.is_(None),
         ).delete(synchronize_session='fetch')
+        diag(
+            "naver_sync.cancel_chip_cleanup",
+            level="verbose",
+            res_id=existing.id,
+            tenant_id=existing.tenant_id,
+            deleted=_cancel_deleted,
+        )
         # Remove from consecutive stay group on cancellation + peer 칩 재동기화
         # (reservations.py PATCH 의 CANCELLED 분기와 동일 정책 — peer 의 is_long_stay/
         # stay_group_order 가 unlink 로 갱신되므로 stay_filter 칩 재계산 필수)

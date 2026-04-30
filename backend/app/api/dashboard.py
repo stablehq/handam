@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func
 from app.api.deps import get_tenant_scoped_db
 from app.db.models import Reservation, ActivityLog, ReservationStatus, User
+from app.db.tenant_context import get_session_tenant_id
+from app.diag_logger import diag
 from app.auth.dependencies import get_current_user
 from datetime import datetime
 from app.config import KST
@@ -18,10 +20,14 @@ async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), curre
     """Get dashboard statistics"""
 
     # Today's new reservations (created today)
-    # tenant_id 필터는 before_compile hook이 select_from(Reservation)에서 자동 적용
-    # naver_split sibling 은 자동 분할로 만든 복제 row 라 카운트에서 제외 (예약 건수 N배 부풀림 방지).
+    # 옵션 C 자동 필터 우회 방지: func.count() (entity=None) + select_from() 의
+    # AnnotatedTable identity check 가 둘 다 실패해 tenant 필터가 안 붙는다.
+    # func.count(Reservation.id) 로 작성해 column_descriptions 가
+    # entity=Reservation 으로 해석되도록 한다 + 명시 tenant 필터 추가 (defense-in-depth).
     today_start = datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0)
-    today_reservations = db.query(func.count()).select_from(Reservation).filter(
+    _tid = get_session_tenant_id(db)
+    today_reservations = db.query(func.count(Reservation.id)).filter(
+        Reservation.tenant_id == _tid,
         Reservation.created_at >= today_start,
         Reservation.booking_source != "naver_split",
     ).scalar() or 0
@@ -96,6 +102,17 @@ async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), curre
             "status": None,
             "error": None,
         }
+
+    # Audit: cross-tenant 누출 회귀 가시화. 운영자가 보는 수치를 진단에 남겨
+    # 다른 tenant 의 dashboard.stats.computed 와 시각·tid 비교로 정합성 검사 가능.
+    diag(
+        "dashboard.stats.computed",
+        level="verbose",
+        tid=_tid,
+        today_reservations=today_reservations,
+        today_campaign_sent=today_campaign_sent,
+        gender_days=len(gender_daily),
+    )
 
     return {
         "totals": {

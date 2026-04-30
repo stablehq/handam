@@ -508,7 +508,11 @@ class TemplateScheduleExecutor:
         # Apply exclude_sent filter via join table (sent 또는 failed 모두 제외)
         if exclude_sent and effective_exclude_sent_flag:
             from sqlalchemy import exists
+            # exists().where() 는 SQLAlchemy Core 라 옵션 C 의 before_compile 자동
+            # tenant 필터가 안 탄다. 명시 tenant_id 매칭 필수 — 없으면 cross-tenant
+            # 발송 기록이 false-negative 발송 누락을 야기할 이론적 위험.
             done_conditions = (
+                (ReservationSmsAssignment.tenant_id == schedule.tenant_id) &
                 (ReservationSmsAssignment.reservation_id == Reservation.id) &
                 (ReservationSmsAssignment.template_key == schedule.template.template_key) &
                 (or_(
