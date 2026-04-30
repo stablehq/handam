@@ -16,7 +16,7 @@ from app.services import room_assignment
 from app.services.consecutive_stay import compute_is_long_stay
 from app.services.room_auto_assign import auto_assign_rooms
 from app.config import KST
-from app.db.tenant_context import current_tenant_id
+from app.db.tenant_context import get_session_tenant_id
 
 logger = logging.getLogger(__name__)
 
@@ -314,7 +314,16 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
         try:
             from app.services.chip_reconciler import reconcile_chips_for_reservation
             from app.db.models import TemplateSchedule
-            active_schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
+            # Defense-in-depth: explicit tenant filter — the implicit
+            # before_compile filter is skipped under a leaked bypass, which
+            # historically pulled cross-tenant schedules into chip reconcile.
+            _tid_for_chips = get_session_tenant_id(db)
+            if _tid_for_chips is None:
+                raise RuntimeError("naver_sync chip reconcile requires tenant context")
+            active_schedules = db.query(TemplateSchedule).filter(
+                TemplateSchedule.tenant_id == _tid_for_chips,
+                TemplateSchedule.is_active == True,
+            ).all()
             for res_id in chip_target_ids:
                 reconcile_chips_for_reservation(db, res_id, schedules=active_schedules)
             db.commit()
@@ -336,7 +345,7 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
     if new_reservation_ids:
         try:
             from app.services.event_sms_hook import schedule_event_sms_hook
-            schedule_event_sms_hook(new_reservation_ids)
+            schedule_event_sms_hook(new_reservation_ids, tenant_id=get_session_tenant_id(db))
         except Exception as e:
             logger.exception(f"event_sms_hook scheduling failed (suppressed): {e}")
 
@@ -671,17 +680,33 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
 
     # Update status based on Naver status
     naver_status = res_data.get("status", "confirmed")
+    _prev_status = existing.status
     if naver_status == "confirmed":
         existing.status = ReservationStatus.CONFIRMED
     elif naver_status == "cancelled":
         existing.status = ReservationStatus.CANCELLED
+    # status 트랜지션 진단 — 강태호 케이스(2026-04-29) 같은 cancel 누락 재발 시
+    # 응답에 들어왔는데 매칭됐는지 추적. idempotent (변경 없으면 noise X).
+    if _prev_status != existing.status:
+        try:
+            diag(
+                "reservation.status_changed",
+                level="critical",
+                res_id=existing.id,
+                naver_booking_id=existing.naver_booking_id,
+                from_status=str(_prev_status),
+                to_status=str(existing.status),
+                source=res_data.get("_source", "naver_sync"),
+            )
+        except Exception:
+            pass
         today_str = datetime.now(KST).strftime("%Y-%m-%d")
         check_in_str = str(existing.check_in_date) if existing.check_in_date else ""
         is_same_day_cancel = (check_in_str == today_str)
         if is_same_day_cancel:
             # 당일 취소: 오늘 이후 배정만 해제, 미배정 풀에 빨간 행으로 표시
             from app.db.models import RoomAssignment as RA
-            tid = current_tenant_id.get()
+            tid = get_session_tenant_id(db)
 
             # S5 반영: 영향 날짜 먼저 수집 (+ bed_order 재정렬을 위한 room_id도 함께)
             affected_rows = db.query(RA).filter(
@@ -755,6 +780,7 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
 
     # Reconcile room assignments if dates changed
     if existing.check_in_date != old_date or existing.check_out_date != old_end_date:
+        room_assignment.shift_daily_records(db, existing, old_date, old_end_date)
         room_assignment.reconcile_dates(db, existing)
 
     # Recompute is_long_stay (stay_group_id may be set later by detect_and_link)

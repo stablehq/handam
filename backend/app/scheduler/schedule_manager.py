@@ -10,7 +10,6 @@ from apscheduler.jobstores.base import JobLookupError
 from sqlalchemy.orm import Session
 
 from app.db.models import TemplateSchedule, Tenant
-from app.db.tenant_context import current_tenant_id, bypass_tenant_filter
 from app.scheduler.template_scheduler import TemplateScheduleExecutor
 from app.diag_logger import diag
 
@@ -86,11 +85,11 @@ class ScheduleManager:
 
         # Create executor function
         async def execute_job():
-            from app.db.database import SessionLocal
+            from app.db.database import session_for_tenant, session_bypass
 
-            # Phase 1: fetch schedule metadata with bypass (no tenant context yet)
-            bypass_token = bypass_tenant_filter.set(True)
-            db_session = SessionLocal()
+            # Phase 1: fetch schedule metadata (cross-tenant bypass session)
+            # 옵션 C (Phase 6): session_bypass() 만 사용. ContextVar 제거됨.
+            db_session = session_bypass()
             schedule_tenant_id = None
             try:
                 fresh_schedule = db_session.query(TemplateSchedule).filter(
@@ -101,8 +100,6 @@ class ScheduleManager:
                         "schedule.execute.fetch_miss",
                         level="critical",
                         schedule_id=schedule_id_captured,
-                        bypass_active=bypass_tenant_filter.get(),
-                        tenant_ctx=current_tenant_id.get(None),
                         registered_jobs=len(self.scheduler.get_jobs()),
                     )
                     logger.error(f"Schedule #{schedule_id_captured} not found")
@@ -146,11 +143,14 @@ class ScheduleManager:
                             return
             finally:
                 db_session.close()
-                bypass_tenant_filter.reset(bypass_token)
 
             # Phase 2: execute with proper tenant context
-            token = current_tenant_id.set(schedule_tenant_id) if schedule_tenant_id else None
-            db_session = SessionLocal()
+            # 옵션 C (Phase 6): session_for_tenant() 가 session.info['tenant_id'] 박음.
+            if schedule_tenant_id:
+                db_session = session_for_tenant(schedule_tenant_id)
+            else:
+                # schedule_tenant_id 가 없는 비정상 케이스 — bypass 로 fallback
+                db_session = session_bypass()
             try:
                 tenant = None
                 if schedule_tenant_id:
@@ -160,8 +160,6 @@ class ScheduleManager:
                 executor = TemplateScheduleExecutor(db_session, tenant=tenant)
                 await executor.execute_schedule(schedule_id_captured)
             finally:
-                if token is not None:
-                    current_tenant_id.reset(token)
                 db_session.close()
 
         # Add job to scheduler

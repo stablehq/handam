@@ -19,7 +19,7 @@ from typing import List
 from sqlalchemy.orm import Session
 
 from app.db.models import Reservation, ReservationStatus
-from app.db.tenant_context import current_tenant_id
+from app.db.tenant_context import get_session_tenant_id
 from app.diag_logger import diag
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def detect_and_link_consecutive_stays(db: Session, tenant_id: int = None) -> dic
         dict with counts: {"linked": N, "unlinked": M, "groups": G}
     """
     diag("stay_group.detect.enter", level="verbose")
-    tid = tenant_id or current_tenant_id.get()
+    tid = tenant_id or get_session_tenant_id(db)
     if tid is None:
         raise RuntimeError("detect_and_link_consecutive_stays requires tenant context")
 
@@ -228,7 +228,7 @@ def unlink_from_group(db: Session, reservation_id: int) -> bool:
 
     Returns True if the reservation was unlinked.
     """
-    tid = current_tenant_id.get()
+    tid = get_session_tenant_id(db)
 
     query = db.query(Reservation).filter(Reservation.id == reservation_id)
     if tid:

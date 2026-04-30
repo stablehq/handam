@@ -16,7 +16,6 @@ from app.factory import get_sms_provider_for_tenant
 from app.services.sms_tracking import record_sms_sent
 from app.services.activity_logger import log_activity
 from app.services.event_bus import publish as publish_event
-from app.db.tenant_context import current_tenant_id
 from app.services.sms_sender import send_single_sms
 from app.config import today_kst, today_kst_date
 
@@ -287,7 +286,7 @@ class TemplateScheduleExecutor:
                     "schedule_id": schedule_id,
                     "sent_count": sent_count,
                     "failed_count": failed_count,
-                }, tenant_id=current_tenant_id.get())
+                }, tenant_id=schedule.tenant_id)
 
             diag(
                 "schedule.execute.exit",
@@ -443,8 +442,14 @@ class TemplateScheduleExecutor:
         effective_stay_filter = extract_stay_filter(schedule)
         effective_exclude_sent_flag = True if is_custom else bool(schedule.exclude_sent)
 
+        # Defense-in-depth: explicit tenant filter against schedule's owner.
+        # If bypass_tenant_filter is leaked True from a sibling task (e.g. naver
+        # sync looping tenants in the same coroutine context), the implicit
+        # before_compile filter is skipped and cross-tenant reservations would
+        # otherwise enter the targets list — causing wrong-tenant SMS deliveries.
         query = self.db.query(Reservation).filter(
-            Reservation.status == ReservationStatus.CONFIRMED
+            Reservation.tenant_id == schedule.tenant_id,
+            Reservation.status == ReservationStatus.CONFIRMED,
         )
 
         # ── Custom eligibility prefilter ──
@@ -542,8 +547,10 @@ class TemplateScheduleExecutor:
 
         restrict_to_ids: 주어지면 해당 reservation_id 들로만 좁힘 (naver_sync 훅 등에서 사용).
         """
+        # Defense-in-depth: see _get_targets_standard for rationale.
         query = self.db.query(Reservation).filter(
-            Reservation.status == ReservationStatus.CONFIRMED
+            Reservation.tenant_id == schedule.tenant_id,
+            Reservation.status == ReservationStatus.CONFIRMED,
         )
 
         if restrict_to_ids:

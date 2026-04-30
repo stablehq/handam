@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.services.event_bus import subscribe, unsubscribe
 from app.auth.utils import decode_access_token
-from app.db.database import SessionLocal
+from app.db.database import SessionLocal, session_unscoped
 from app.db.models import User, UserRole, UserTenantRole
 from app.diag_logger import diag
 
@@ -46,7 +46,9 @@ def _validate_token_and_tenant(token: str, tenant_id: int) -> None:
             detail="인증 정보가 유효하지 않습니다",
         )
 
-    db: Session = SessionLocal()
+    # 옵션 C: User / UserTenantRole 은 비-TenantMixin 이라 session_unscoped 사용.
+    # 자동 필터 적용 안 됨 — token 검증은 cross-tenant 조회 필요.
+    db: Session = session_unscoped()
     try:
         user = db.query(User).filter(User.username == username).first()
         if user is None or not user.is_active:

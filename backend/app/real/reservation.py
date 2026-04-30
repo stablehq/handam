@@ -170,6 +170,25 @@ class RealReservationProvider:
 
             logger.info(f"Confirmed: {len(confirmed)}, Cancelled: {len(cancelled_filtered)}")
 
+            # 응답 status 분포 + 취소 booking_id 진단
+            # 강태호 케이스(2026-04-29) 같은 누락 재발 시 응답 도달 여부 추적용.
+            try:
+                status_counts: Dict[str, int] = {}
+                for item in data:
+                    code = item.get('bookingStatusCode') or 'NONE'
+                    status_counts[code] = status_counts.get(code, 0) + 1
+                cancelled_ids = [str(item.get('bookingId', '')) for item in cancelled_filtered]
+                diag(
+                    "naver_api.response_summary",
+                    level="verbose",
+                    raw_total=len(data),
+                    status_counts=status_counts,
+                    cancelled_count=len(cancelled_filtered),
+                    cancelled_ids=cancelled_ids[:30],
+                )
+            except Exception:
+                pass
+
             # Detect multi-bookings
             multi_booking_ids = self._detect_multi_bookings(confirmed)
 

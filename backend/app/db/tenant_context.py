@@ -1,26 +1,57 @@
 """
-Tenant context management for multi-tenant isolation.
-Uses ContextVar to store current tenant_id per-request.
+Tenant context management for multi-tenant isolation (옵션 C 완성판).
+
+옵션 C 핵심:
+- tenant 컨텍스트는 `session.info['tenant_id']` 와 `session.info['bypass_tenant']` 에 저장
+- session 이 곧 tenant 컨텍스트 자체 — ContextVar sibling-task 누수 영향 없음
+- tenant 격리가 필요한 모든 진입점은 `session_for_tenant(tid)` / `session_bypass()` 사용
+  (db/database.py 참고)
+
+before_flush / before_compile 이벤트가 session.info 를 읽어 자동 격리:
+- INSERT 시 `tenant_id` 자동 주입 (session.info 의 tenant_id)
+- SELECT 시 `WHERE tenant_id = X` 자동 추가
+- bypass=True 면 자동 필터 우회 (cross-tenant 운영 작업)
+- 컨텍스트 없이 tenant 모델 query 시 RuntimeError (fail-closed)
 """
-from contextvars import ContextVar
-from typing import Optional
+from typing import Optional, Tuple
 from sqlalchemy.orm import Session, Query
 from sqlalchemy import event
 from app.diag_logger import diag
 
-# Current request's tenant_id — set by FastAPI dependency, read by query helpers
-current_tenant_id: ContextVar[Optional[int]] = ContextVar("current_tenant_id", default=None)
 
-# Explicit bypass flag for scheduler/migration contexts
-bypass_tenant_filter: ContextVar[bool] = ContextVar("bypass_tenant_filter", default=False)
+def _resolve_tenant_context(session) -> Tuple[Optional[int], bool]:
+    """현재 세션의 tenant 컨텍스트 결정.
 
+    옵션 C: session.info 만 사용. ContextVar fallback 없음.
+
+    Returns:
+        (tenant_id, bypass_flag) 튜플.
+    """
+    return (
+        session.info.get('tenant_id'),
+        session.info.get('bypass_tenant', False),
+    )
+
+
+def get_session_tenant_id(session) -> Optional[int]:
+    """주어진 session 의 현재 tenant_id 반환 (옵션 C 외부 helper).
+
+    Use cases:
+        service / API endpoint 에서 session 인자로 받은 tenant 추출.
+    """
+    return session.info.get('tenant_id')
+
+
+def is_session_bypass(session) -> bool:
+    """주어진 session 이 bypass 모드인지 반환 (옵션 C 외부 helper)."""
+    return session.info.get('bypass_tenant', False)
 
 
 # Auto-inject tenant_id on INSERT
 @event.listens_for(Session, "before_flush")
 def _set_tenant_on_new_objects(session, flush_context, instances):
     """Automatically set tenant_id on new objects if not already set."""
-    tid = current_tenant_id.get()
+    tid, _ = _resolve_tenant_context(session)
     if tid is None:
         return
     for obj in session.new:
@@ -46,21 +77,16 @@ def register_tenant_model(cls):
 @event.listens_for(Query, "before_compile", retval=True)
 def _apply_tenant_filter_on_select(query):
     """Auto-apply WHERE tenant_id = X on all SELECT queries for tenant models."""
-    import logging
-    _logger = logging.getLogger(__name__)
-
     # Prevent infinite recursion: .filter() creates a new query that triggers before_compile again
     if query._execution_options.get("_tenant_filtered", False):
         return query
 
-    # Bypass must short-circuit before reading current_tenant_id — otherwise a stale
-    # tid leaked from a sibling task (e.g. naver_sync looping tenants while a
-    # schedule job triggers in the same coroutine context) silently re-applies
-    # WHERE tenant_id=<stale>, masking bypass=True. See schedule.execute.fetch_miss.
-    if bypass_tenant_filter.get():
+    session = query.session
+    tid, bypass = _resolve_tenant_context(session)
+
+    if bypass:
         return query
 
-    tid = current_tenant_id.get()
     if tid is None:
         # Fail-closed: block queries on tenant models without context
         for desc in query.column_descriptions:
@@ -68,8 +94,8 @@ def _apply_tenant_filter_on_select(query):
             if entity is not None and entity in TENANT_MODELS:
                 raise RuntimeError(
                     f"SECURITY: Query on tenant model {entity.__name__} "
-                    "without tenant context. Use get_tenant_scoped_db() "
-                    "or set bypass_tenant_filter for cross-tenant queries."
+                    "without tenant context. Use session_for_tenant(tid) "
+                    "or session_bypass() for cross-tenant queries."
                 )
         return query
 

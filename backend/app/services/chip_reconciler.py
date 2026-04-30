@@ -75,9 +75,21 @@ def reconcile_chips_for_reservation(
         return
 
     if schedules is None:
+        # Defense-in-depth: bind schedules to the reservation's tenant. If
+        # bypass_tenant_filter is leaked True, the implicit before_compile
+        # filter is skipped and cross-tenant schedules would otherwise be
+        # mixed in, causing chips with the wrong tenant's schedule_id and
+        # template_key to be created on this reservation.
         schedules = db.query(TemplateSchedule).filter(
-            TemplateSchedule.is_active == True
+            TemplateSchedule.tenant_id == reservation.tenant_id,
+            TemplateSchedule.is_active == True,
         ).all()
+    else:
+        # Caller supplied schedules — strip any cross-tenant rows that may
+        # have leaked through. Cheap O(N) post-filter; required because
+        # callers (e.g. room_auto_assign) historically queried without an
+        # explicit tenant filter.
+        schedules = [s for s in schedules if s.tenant_id == reservation.tenant_id]
 
     # Compute expected (template_key, date) pairs with schedule_id tracking
     expected_pairs: Set[Tuple[str, str]] = set()

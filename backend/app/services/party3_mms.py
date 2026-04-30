@@ -29,7 +29,7 @@ from app.db.models import (
     ReservationSmsAssignment,
     TemplateSchedule,
 )
-from app.db.tenant_context import current_tenant_id
+from app.db.tenant_context import get_session_tenant_id
 from app.diag_logger import diag
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ def reconcile_party3_mms(db: Session, date: str) -> None:
     existing_ids = {c.reservation_id for c in existing_chips}
 
     # 5. 생성 (target - existing)
-    tenant_id = current_tenant_id.get()
+    tenant_id = get_session_tenant_id(db)
     created = 0
     for rid in (target_ids - existing_ids):
         db.add(ReservationSmsAssignment(
@@ -179,7 +179,7 @@ def reconcile_party3_mms_for_reservation(
     ).first()
 
     if is_target and not existing:
-        tenant_id = current_tenant_id.get()
+        tenant_id = get_session_tenant_id(db)
         db.add(ReservationSmsAssignment(
             reservation_id=reservation_id,
             template_key=schedule.template.template_key,

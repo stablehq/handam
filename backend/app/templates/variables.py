@@ -270,7 +270,7 @@ def _inject_surcharge_vars(context: Dict[str, Any], reservation, room_assignment
     """surcharge 템플릿용 변수 주입 — excess/nights/per_night/total."""
     from app.services.surcharge import _is_double_room, compute_guest_count, compute_excess
     from app.db.models import Room, Tenant
-    from app.db.tenant_context import current_tenant_id
+    from app.db.tenant_context import get_session_tenant_id
 
     # Room / is_double 판단
     room = None
@@ -282,7 +282,7 @@ def _inject_surcharge_vars(context: Dict[str, Any], reservation, room_assignment
 
     # 단가 조회 (Tenant 설정)
     # 더블룸 = 일반 인원 추가비(unit_standard × excess) + 객실 변경비(double_room_fee, 박수에만 곱함)
-    tenant_id = current_tenant_id.get()
+    tenant_id = get_session_tenant_id(db)
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first() if tenant_id else None
     unit_standard = getattr(tenant, 'surcharge_unit_standard', 20000) if tenant else 20000
     double_room_fee = getattr(tenant, 'surcharge_double_room_fee', 5000) if tenant else 5000

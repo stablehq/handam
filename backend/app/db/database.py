@@ -30,8 +30,68 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 옵션 C: Session-bound tenant factories
+#
+# `session_for_tenant(tid)` / `session_bypass()` 가 도입됨에 따라
+# tenant 컨텍스트가 ContextVar 가 아니라 session.info 에 박힘.
+# Phase 1 호환 shim 기간 동안 ContextVar 도 유지 — Phase 6 에서 제거 예정.
+# 자세한 마이그레이션 계획: docs/option-c-discovery/
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def session_for_tenant(tenant_id: int) -> Session:
+    """Tenant-scoped session.
+
+    `session.info['tenant_id'] = tenant_id` 박힌 채로 반환.
+    이후 모든 query/insert 가 자동으로 그 tenant 에 격리됨.
+
+    옵션 C 전환의 핵심 진입점. ContextVar 누수 영향을 받지 않음 —
+    session 자체가 tenant 컨텍스트를 들고 다님.
+
+    Raises:
+        ValueError: tenant_id 가 None 인 경우.
+    """
+    if tenant_id is None:
+        raise ValueError("session_for_tenant: tenant_id must not be None")
+    s = SessionLocal()
+    s.info['tenant_id'] = tenant_id
+    return s
+
+
+def session_bypass() -> Session:
+    """Cross-tenant 작업용 bypass session.
+
+    `session.info['bypass_tenant'] = True` 박힌 채로 반환.
+    auto-filter 가 우회됨. INIT/MIGRATION/SCHEDULER bootstrap 용.
+
+    Use cases:
+        - init_db: 마이그레이션
+        - tenants 목록 조회: 잡 부트스트랩
+        - super-admin 작업: cross-tenant 조회
+    """
+    s = SessionLocal()
+    s.info['bypass_tenant'] = True
+    return s
+
+
+def session_unscoped() -> Session:
+    """Tenant 컨텍스트 없는 일반 session (legacy 호환용).
+
+    User / Tenant 등 비-TenantMixin 모델 조회 또는
+    옵션 C 미적용 코드 호환을 위해 사용.
+
+    주의: TenantMixin 모델 query 시 RuntimeError 발생 (fail-closed).
+    """
+    return SessionLocal()
+
+
 def get_db() -> Generator[Session, None, None]:
-    """Dependency for FastAPI routes"""
+    """Dependency for FastAPI routes (legacy — session_unscoped 와 동일).
+
+    주의: TenantMixin 모델 query 시 RuntimeError. tenant 격리가 필요한
+    엔드포인트는 get_tenant_scoped_db 사용.
+    """
     db = SessionLocal()
     try:
         yield db
@@ -50,12 +110,10 @@ def init_db():
     """Initialize database tables and ensure default admin exists"""
     from app.db.models import Base, User, UserRole, Room, RoomBizItemLink
     from app.auth.utils import hash_password
-    from app.db.tenant_context import bypass_tenant_filter
     from sqlalchemy import inspect as sa_inspect, text
 
-    # init_db는 전역 작업이므로 테넌트 필터 우회
-    _bypass_token = bypass_tenant_filter.set(True)
-
+    # init_db 는 전역 작업 — DDL/시드 작업 동안에는 tenant 필터 우회.
+    # Base.metadata.create_all 단계는 tenant 필터와 무관 (raw DDL).
     Base.metadata.create_all(bind=engine)
 
     # Auto-migrate: add missing columns to existing tables
@@ -381,7 +439,8 @@ def init_db():
                 print("AUTO-MIGRATE: Added surcharge_double_room_fee column to tenants table")
 
     # Task 1.5: admin 기본 비밀번호 환경변수화
-    db = SessionLocal()
+    # 옵션 C (Phase 6): session_bypass — seed 작업 (cross-tenant)
+    db = session_bypass()
     try:
         if not db.query(User).filter(User.username == "admin").first():
             db.add(User(
@@ -410,5 +469,4 @@ def init_db():
             logging.getLogger(__name__).info(f"Migrated {migrated} room biz_item links from 1:1 to N:M")
 
     finally:
-        bypass_tenant_filter.reset(_bypass_token)
         db.close()

@@ -4,8 +4,7 @@ FastAPI dependencies for multi-tenant support.
 from typing import Optional
 from fastapi import Header, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from app.db.database import get_db, SessionLocal
-from app.db.tenant_context import current_tenant_id
+from app.db.database import get_db, SessionLocal, session_for_tenant
 
 
 async def get_current_tenant_id(
@@ -95,26 +94,17 @@ def _remap_active_field(data: dict) -> dict:
 async def get_tenant_scoped_db(
     tenant_id: int = Depends(get_current_tenant_id),
 ):
-    """
-    DB session with tenant context set.
-    Use this instead of get_db() for all tenant-scoped endpoints.
+    """DB session with tenant context set.
 
-    The ContextVar ensures:
-    - before_compile auto-filters SELECT queries
-    - before_flush auto-injects tenant_id on INSERT
-
-    Note: async generator avoids ContextVar cross-thread issues
-    that occur with sync generators in FastAPI's thread pool.
+    옵션 C (Phase 6): session_for_tenant(tenant_id) 만 사용.
+    session.info['tenant_id'] = tenant_id 박힌 채 yield.
+    before_compile / before_flush 가 session.info 기반으로 격리.
     """
-    token = current_tenant_id.set(tenant_id)
+    db = session_for_tenant(tenant_id)
     try:
-        db = SessionLocal()
-        try:
-            yield db
-        except Exception:
-            db.rollback()
-            raise
-        finally:
-            db.close()
+        yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
-        current_tenant_id.reset(token)
+        db.close()

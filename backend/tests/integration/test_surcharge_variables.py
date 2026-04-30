@@ -9,7 +9,6 @@ from app.db.models import (
     Building, MessageTemplate, Reservation, ReservationStatus,
     Room, RoomAssignment, RoomBizItemLink, Tenant,
 )
-from app.db.tenant_context import current_tenant_id
 from app.services.surcharge import DOUBLE_ROOM_BIZ_ITEM_IDS
 from app.templates.variables import calculate_template_variables, _calculate_stay_nights
 

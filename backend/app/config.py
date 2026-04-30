@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     ADMIN_DEFAULT_PASSWORD: str = ""
     STAFF_DEFAULT_PASSWORD: str = ""
 
+    # 옵션 C (Session-bound tenant) 마이그레이션 단계 제어
+    # 0=비활성 (legacy ContextVar 만), 1=shim only (factory 사용 가능),
+    # 2=API layer 전환, 3=scheduler 전환, 4=service 전환,
+    # 5=ContextVar 사용 0 검증, 6=ContextVar 정의 제거
+    # 자세한 마이그레이션 계획: docs/option-c-discovery/
+    OPTION_C_PHASE: int = 0
+
     @model_validator(mode='after')
     def validate_secrets(self) -> 'Settings':
         """Validate security-critical settings after .env loading"""

@@ -134,12 +134,12 @@ def get_template_labels(
 ):
     """Get template labels for chip display — 테넌트별 우선순위 지원"""
     import json as _json
-    from app.db.tenant_context import current_tenant_id
+    from app.db.tenant_context import get_session_tenant_id
     from app.db.models import Tenant
 
     # 테넌트별 chip_priority_keys 로드
     priority_keys = []
-    tid = current_tenant_id.get()
+    tid = get_session_tenant_id(db)
     if tid:
         tenant = db.query(Tenant).filter(Tenant.id == tid).first()
         if tenant and tenant.chip_priority_keys:

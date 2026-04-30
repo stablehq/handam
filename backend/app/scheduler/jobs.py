@@ -7,9 +7,9 @@ from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime, timezone, timedelta
 import logging
 
-from app.db.database import SessionLocal
+from app.db.database import SessionLocal, session_for_tenant, session_bypass
 from app.db.models import Tenant
-from app.db.tenant_context import current_tenant_id, bypass_tenant_filter
+# 옵션 C (Phase 6): ContextVar 제거됨
 from app.diag_logger import diag
 from app.factory import get_reservation_provider_for_tenant
 from app.services.room_auto_assign import daily_assign_rooms
@@ -19,20 +19,19 @@ logger = logging.getLogger(__name__)
 
 
 def _for_each_tenant(job_fn):
-    """Execute a job function for each active tenant with proper context."""
-    db = SessionLocal()
+    """Execute a job function for each active tenant with proper context.
+
+    옵션 C (Phase 6): session_bypass() + session_for_tenant() 만 사용.
+    session.info 가 tenant 컨텍스트를 들고 다님.
+    """
+    db = session_bypass()
     try:
-        token_bypass = bypass_tenant_filter.set(True)
-        try:
-            tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
-        finally:
-            bypass_tenant_filter.reset(token_bypass)
+        tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
     finally:
         db.close()
 
     for tenant in tenants:
-        token = current_tenant_id.set(tenant.id)
-        db = SessionLocal()
+        db = session_for_tenant(tenant.id)
         try:
             job_fn(db, tenant)
             db.commit()
@@ -47,7 +46,6 @@ def _for_each_tenant(job_fn):
             db.rollback()
         finally:
             db.close()
-            current_tenant_id.reset(token)
 
 # Create scheduler instance
 scheduler = AsyncIOScheduler()
@@ -65,26 +63,23 @@ async def sync_naver_reservations_job():
       Phase 5: 자동 객실 배정 → assign_room() 내부에서 ★ 칩 reconcile (2차) → building 필터 통과
 
     모든 Phase는 sync_naver_to_db() 내부에서 순차 실행됨.
+
+    옵션 C (Phase 3): tenants 목록은 session_bypass(), per-tenant 작업은 session_for_tenant().
     """
     logger.info("Running Naver reservations sync job (all tenants)")
     diag("job.sync_naver_reservations.enter", level="verbose")
 
     from app.services.naver_sync import sync_naver_to_db
 
-    # Fetch all active tenants without tenant context restriction
-    token_bypass = bypass_tenant_filter.set(True)
+    # tenants 목록 — cross-tenant 조회
+    db = session_bypass()
     try:
-        db = SessionLocal()
-        try:
-            tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
-        finally:
-            db.close()
+        tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
     finally:
-        bypass_tenant_filter.reset(token_bypass)
+        db.close()
 
     for tenant in tenants:
-        token = current_tenant_id.set(tenant.id)
-        db = SessionLocal()
+        db = session_for_tenant(tenant.id)
         try:
             reservation_provider = get_reservation_provider_for_tenant(tenant)
             result = await sync_naver_to_db(reservation_provider, db)
@@ -101,7 +96,6 @@ async def sync_naver_reservations_job():
             db.rollback()
         finally:
             db.close()
-            current_tenant_id.reset(token)
 
     diag("job.sync_naver_reservations.exit", level="verbose", tenants=len(tenants))
 
@@ -109,26 +103,24 @@ async def sync_naver_reservations_job():
 async def load_template_schedules():
     """
     Load all active template schedules into APScheduler
-    Called on startup — loads ALL tenants' schedules (bypass tenant filter)
+    Called on startup — loads ALL tenants' schedules (bypass tenant filter).
+
+    옵션 C (Phase 3): session_bypass() 사용 — 모든 tenant 스케줄 cross-tenant 조회.
     """
     logger.info("Loading template schedules")
 
-    bypass_token = bypass_tenant_filter.set(True)
+    db = session_bypass()
     try:
-        db = SessionLocal()
-        try:
-            from .schedule_manager import ScheduleManager
-            schedule_manager = ScheduleManager(scheduler)
-            schedule_manager.sync_all_schedules(db)
+        from .schedule_manager import ScheduleManager
+        schedule_manager = ScheduleManager(scheduler)
+        schedule_manager.sync_all_schedules(db)
 
-            logger.info("Template schedules loaded successfully")
+        logger.info("Template schedules loaded successfully")
 
-        except Exception as e:
-            logger.error(f"Error loading template schedules: {e}")
-        finally:
-            db.close()
+    except Exception as e:
+        logger.error(f"Error loading template schedules: {e}")
     finally:
-        bypass_tenant_filter.reset(bypass_token)
+        db.close()
 
 
 async def sync_status_log_job():
@@ -208,6 +200,8 @@ async def reconcile_today_reservations_job():
     Daily reconciliation: fetch today+tomorrow check-in reservations by STARTDATE filter.
     Catches any reservations missed by the regular 5-min REGDATE sync.
     Runs at 09:55 KST, before daily room assignment at 10:00.
+
+    옵션 C (Phase 3): tenants 목록 session_bypass(), per-tenant session_for_tenant().
     """
     from app.services.naver_sync import sync_naver_to_db
     from app.services.activity_logger import log_activity
@@ -218,19 +212,14 @@ async def reconcile_today_reservations_job():
 
     logger.info(f"Running daily reconciliation for {today} and {tomorrow} (all tenants)")
 
-    token_bypass = bypass_tenant_filter.set(True)
+    db = session_bypass()
     try:
-        db = SessionLocal()
-        try:
-            tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
-        finally:
-            db.close()
+        tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
     finally:
-        bypass_tenant_filter.reset(token_bypass)
+        db.close()
 
     for tenant in tenants:
-        token = current_tenant_id.set(tenant.id)
-        db = SessionLocal()
+        db = session_for_tenant(tenant.id)
         try:
             reservation_provider = get_reservation_provider_for_tenant(tenant)
             total_added = 0
@@ -289,28 +278,25 @@ async def reconcile_today_reservations_job():
             db.rollback()
         finally:
             db.close()
-            current_tenant_id.reset(token)
 
 
 async def sync_unstable_reservations_job():
     """
     Sync reservations from Unstable Naver Smart Place.
     Runs every 6 hours. Only for tenants with unstable_business_id configured.
+
+    옵션 C (Phase 3): tenants 목록 session_bypass(), per-tenant session_for_tenant().
     """
     from app.real.reservation import RealReservationProvider
     from app.services.naver_sync import sync_naver_to_db
 
     logger.info("Running Unstable reservations sync job")
 
-    token_bypass = bypass_tenant_filter.set(True)
+    db = session_bypass()
     try:
-        db = SessionLocal()
-        try:
-            tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
-        finally:
-            db.close()
+        tenants = db.query(Tenant).filter(Tenant.is_active == True).all()
     finally:
-        bypass_tenant_filter.reset(token_bypass)
+        db.close()
 
     diag("job.sync_unstable_reservations.enter", level="verbose",
          tenant_count=len(tenants))
@@ -320,8 +306,7 @@ async def sync_unstable_reservations_job():
         if not tenant.unstable_business_id or not tenant.unstable_cookie:
             continue
 
-        token = current_tenant_id.set(tenant.id)
-        db = SessionLocal()
+        db = session_for_tenant(tenant.id)
         try:
             provider = RealReservationProvider(
                 business_id=tenant.unstable_business_id,
@@ -354,7 +339,6 @@ async def sync_unstable_reservations_job():
             db.rollback()
         finally:
             db.close()
-            current_tenant_id.reset(token)
 
     diag("job.sync_unstable_reservations.exit", level="critical",
          active_tenants=len(sync_results),

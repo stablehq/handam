@@ -20,7 +20,7 @@ from sqlalchemy import exists, and_
 from sqlalchemy.orm import selectinload
 from app.db.models import Reservation, Room, RoomAssignment, ReservationStatus, TemplateSchedule, RoomBizItemLink
 from app.services import room_assignment
-from app.db.tenant_context import current_tenant_id, bypass_tenant_filter
+from app.db.tenant_context import get_session_tenant_id, is_session_bypass
 from app.diag_logger import diag
 
 logger = logging.getLogger(__name__)
@@ -43,8 +43,8 @@ def auto_assign_rooms(db: Session, target_date: str = None, created_by: str = "s
             level="verbose",
             target_date=target_date,
             created_by=created_by,
-            bypass_active=bypass_tenant_filter.get(),
-            tenant_ctx=current_tenant_id.get(),
+            bypass_active=is_session_bypass(db),
+            tenant_ctx=get_session_tenant_id(db),
         )
     except Exception:
         pass
@@ -80,7 +80,21 @@ def auto_assign_rooms(db: Session, target_date: str = None, created_by: str = "s
 
     # Flush then sync SMS tags in bulk
     db.flush()
-    schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
+    # Defense-in-depth: explicit tenant filter — bypass leak from a sibling task
+    # would otherwise return cross-tenant schedules. Without this guard, HANDAM
+    # schedules leaked into STABLE auto-assign chip-reconcile and produced
+    # cross-tenant chips that the wrong tenant's sender then picked up.
+    tid_for_schedules = get_session_tenant_id(db)
+    if tid_for_schedules is None:
+        raise RuntimeError("auto_assign_rooms requires tenant context")
+    schedules = (
+        db.query(TemplateSchedule)
+        .filter(
+            TemplateSchedule.tenant_id == tid_for_schedules,
+            TemplateSchedule.is_active == True,
+        )
+        .all()
+    )
     for res_id in assigned_reservation_ids:
         room_assignment.sync_sms_tags(db, res_id, schedules=schedules)
 
@@ -141,7 +155,7 @@ def auto_assign_rooms(db: Session, target_date: str = None, created_by: str = "s
                     "count": len(failed_details),
                     "failures": failed_details[:10],  # first 10 only in payload
                 },
-                tenant_id=current_tenant_id.get(),
+                tenant_id=get_session_tenant_id(db),
             )
         except Exception as e:
             logger.warning(f"SSE publish failed: {e}")
@@ -176,7 +190,7 @@ def auto_assign_rooms(db: Session, target_date: str = None, created_by: str = "s
 
 def _get_unassigned_reservations(db: Session, target_date: str) -> List[Reservation]:
     """Get confirmed reservations with no assignment for target_date."""
-    tid = current_tenant_id.get()
+    tid = get_session_tenant_id(db)
     if tid is None:
         raise RuntimeError("_get_unassigned_reservations requires tenant context")
 

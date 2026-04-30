@@ -2,13 +2,13 @@
 import json
 from sqlalchemy.orm import Session
 from app.db.models import ActivityLog, Tenant
-from app.db.tenant_context import current_tenant_id
+from app.db.tenant_context import get_session_tenant_id
 from app.diag_logger import diag
 
 
 def _get_tenant_slug(db: Session) -> str | None:
     """현재 테넌트의 slug를 반환 (캐시 없이 간단 조회)."""
-    tid = current_tenant_id.get()
+    tid = get_session_tenant_id(db)
     if tid is None:
         return None
     tenant = db.get(Tenant, tid)

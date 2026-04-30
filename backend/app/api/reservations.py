@@ -545,6 +545,9 @@ async def update_reservation(
         from app.services.consecutive_stay import compute_is_long_stay
         db_reservation.is_long_stay = compute_is_long_stay(db_reservation)
         db.flush()
+        room_assignment.shift_daily_records(
+            db, db_reservation, old_dates[0], old_dates[1]
+        )
         room_assignment.reconcile_dates(db, db_reservation)
 
     # Phase 2-5a: 성별/인원 변경 시 invariant 재검증
@@ -620,8 +623,8 @@ async def delete_reservation(reservation_id: int, db: Session = Depends(get_tena
 
     # 연관 레코드 먼저 삭제 (FK 제약, 현재 테넌트만)
     from app.db.models import PartyCheckin, ReservationDailyInfo
-    from app.db.tenant_context import current_tenant_id
-    tid = current_tenant_id.get()
+    from app.db.tenant_context import get_session_tenant_id
+    tid = get_session_tenant_id(db)
     from app.services.room_assignment import clear_all_for_reservation
     clear_all_for_reservation(db, reservation_id)
     db.query(ReservationSmsAssignment).filter(ReservationSmsAssignment.reservation_id == reservation_id, ReservationSmsAssignment.tenant_id == tid).delete()
@@ -1262,8 +1265,8 @@ async def extend_stay(
     for res_id in linked_ids:
         sync_sms_tags(db, res_id, schedules=schedules)
 
-    from app.db.tenant_context import current_tenant_id
-    tid = current_tenant_id.get()
+    from app.db.tenant_context import get_session_tenant_id
+    tid = get_session_tenant_id(db)
 
     # 6. 방 배정 + 충돌 확인
     conflict_guests = []
@@ -1323,8 +1326,8 @@ async def extend_stay_assign_room(
 ):
     """연박추가 충돌 해결: 방 배정 확정"""
     from app.services.room_assignment import assign_room
-    from app.db.tenant_context import current_tenant_id
-    tid = current_tenant_id.get()
+    from app.db.tenant_context import get_session_tenant_id
+    tid = get_session_tenant_id(db)
 
     if request.move_existing_to_unassigned:
         existing = (
@@ -1387,8 +1390,8 @@ async def cancel_extend_stay(
     if not extended:
         raise HTTPException(status_code=400, detail="수동연박 예약을 찾을 수 없습니다 (수동연박만 취소 가능)")
 
-    from app.db.tenant_context import current_tenant_id
-    tid = current_tenant_id.get()
+    from app.db.tenant_context import get_session_tenant_id
+    tid = get_session_tenant_id(db)
 
     # 1. Delete room assignments for the extended reservation
     from app.services.room_assignment import clear_all_for_reservation

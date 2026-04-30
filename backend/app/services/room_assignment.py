@@ -13,7 +13,7 @@ import logging
 from app.config import KST
 from app.diag_logger import diag
 from app.db.models import RoomAssignment, Reservation, Room
-from app.db.tenant_context import current_tenant_id
+from app.db.tenant_context import get_session_tenant_id
 from app.services.activity_logger import log_activity
 from app.services.password_display import build_prefixed_password
 
@@ -512,7 +512,7 @@ def assign_room(
     old_room_display = old_assignments[0].room.room_number if old_assignments and old_assignments[0].room else None
 
     # Delete existing assignments for this reservation in the date range (현재 테넌트만)
-    tid = current_tenant_id.get()
+    tid = get_session_tenant_id(db)
     db.query(RoomAssignment).filter(
         RoomAssignment.reservation_id == reservation_id,
         RoomAssignment.date.in_(dates),
@@ -662,7 +662,7 @@ def unassign_room(
         )
 
     # Re-query since .all() consumed the query (현재 테넌트만)
-    tid = current_tenant_id.get()
+    tid = get_session_tenant_id(db)
     query = db.query(RoomAssignment).filter(
         RoomAssignment.reservation_id == reservation_id,
         RoomAssignment.tenant_id == tid,
@@ -709,7 +709,7 @@ def clear_all_for_reservation(db: Session, reservation_id: int) -> int:
     """Delete ALL RoomAssignment records for a reservation and clear denormalized fields."""
     diag("clear_all_for_reservation.enter", level="verbose", res_id=reservation_id)
     reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
-    tid = current_tenant_id.get()
+    tid = get_session_tenant_id(db)
 
     # 삭제 전에 (room_id, date) 수집 — 삭제 후 bed_order 재정렬에 사용
     to_delete = (
@@ -778,6 +778,91 @@ def sync_denormalized_field(db: Session, reservation: Reservation):
             reservation.room_password = None
 
 
+def shift_daily_records(
+    db: Session,
+    reservation: Reservation,
+    old_check_in: Optional[str],
+    old_check_out: Optional[str],
+) -> dict:
+    """예약 날짜 변경 시 ReservationDailyInfo / PartyCheckin 을 상대 인덱스로 평행이동.
+
+    매핑: new_date = old_date + (new_check_in - old_check_in)
+    새 [check_in, check_out) 범위 밖으로 떨어지는 레코드는 버린다.
+    UNIQUE(reservation_id, date) 충돌을 피하려고 스냅샷 → 삭제 → 재삽입 순서.
+    체크인이 없거나 파싱 불가능하면 no-op.
+    """
+    from app.db.models import ReservationDailyInfo, PartyCheckin
+
+    new_check_in = reservation.check_in_date
+    new_check_out = reservation.check_out_date
+    if not (old_check_in and new_check_in and new_check_out):
+        return {"shifted": 0, "dropped": 0}
+
+    try:
+        shift_days = (
+            datetime.strptime(new_check_in, "%Y-%m-%d")
+            - datetime.strptime(old_check_in, "%Y-%m-%d")
+        ).days
+    except Exception:
+        return {"shifted": 0, "dropped": 0}
+
+    valid_dates = set(_date_range(new_check_in, new_check_out))
+    tid = get_session_tenant_id(db)
+
+    summary = {"shifted": 0, "dropped": 0}
+    excluded = {"id", "date", "created_at", "updated_at"}
+
+    for Model in (ReservationDailyInfo, PartyCheckin):
+        records = (
+            db.query(Model)
+            .filter(
+                Model.reservation_id == reservation.id,
+                Model.tenant_id == tid,
+            )
+            .all()
+        )
+        if not records:
+            continue
+        snapshots = []
+        for r in records:
+            try:
+                new_date = (
+                    datetime.strptime(r.date, "%Y-%m-%d")
+                    + timedelta(days=shift_days)
+                ).strftime("%Y-%m-%d")
+            except Exception:
+                continue
+            if new_date in valid_dates:
+                data = {
+                    col.name: getattr(r, col.name)
+                    for col in Model.__table__.columns
+                    if col.name not in excluded
+                }
+                data["date"] = new_date
+                snapshots.append(data)
+                summary["shifted"] += 1
+            else:
+                summary["dropped"] += 1
+            db.delete(r)
+        db.flush()
+        for data in snapshots:
+            db.add(Model(**data))
+        db.flush()
+
+    if summary["shifted"] or summary["dropped"]:
+        diag(
+            "shift_daily_records",
+            level="info",
+            res_id=reservation.id,
+            old_check_in=old_check_in,
+            new_check_in=new_check_in,
+            shift_days=shift_days,
+            shifted=summary["shifted"],
+            dropped=summary["dropped"],
+        )
+    return summary
+
+
 def reconcile_dates(db: Session, reservation: Reservation):
     """
     Called when reservation dates change.
@@ -795,7 +880,7 @@ def reconcile_dates(db: Session, reservation: Reservation):
         return
 
     today_str = datetime.now(KST).strftime("%Y-%m-%d")
-    tid = current_tenant_id.get()
+    tid = get_session_tenant_id(db)
 
     diag(
         "reconcile_dates.enter",

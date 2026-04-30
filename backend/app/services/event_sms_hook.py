@@ -19,23 +19,24 @@ import asyncio
 import logging
 from typing import Iterable, Optional
 
-from app.db.tenant_context import current_tenant_id
+
 from app.diag_logger import diag
 
 logger = logging.getLogger(__name__)
 
 
-def schedule_event_sms_hook(reservation_ids: Iterable[int]) -> None:
+def schedule_event_sms_hook(reservation_ids: Iterable[int], tenant_id: int) -> None:
     """신규 예약 ID 리스트에 대해 event SMS 발송을 백그라운드로 시작.
 
     naver_sync 등 호출자에서 사용. 어떤 상황에서도 예외를 raise 하지 않으며,
     호출자 코드 흐름은 즉시 반환된다 (실제 발송은 background task).
+
+    옵션 C (Phase 6): tenant_id 인자 명시 필수.
     """
     try:
         ids = [int(i) for i in reservation_ids if i]
         if not ids:
             return
-        tenant_id = current_tenant_id.get(None)
         if tenant_id is None:
             diag("event_sms_hook.no_tenant_ctx", level="critical",
                  reservation_count=len(ids))
@@ -74,14 +75,16 @@ def _log_task_result(task: "asyncio.Task") -> None:
 
 
 async def _run_event_hook(reservation_ids: list[int], tenant_id: int) -> None:
-    """실제 발송 본체 — 별도 DB 세션 + 격리된 tenant 컨텍스트로 동작."""
-    from app.db.database import SessionLocal
+    """실제 발송 본체 — 별도 DB 세션 + 격리된 tenant 컨텍스트로 동작.
+
+    옵션 C (Phase 3): session_for_tenant(tenant_id) 사용. ContextVar 도 set/reset (legacy 호환).
+    """
+    from app.db.database import session_for_tenant
     from app.db.models import TemplateSchedule, Tenant
     from app.factory import get_sms_provider_for_tenant
     from app.scheduler.template_scheduler import TemplateScheduleExecutor
 
-    token = current_tenant_id.set(tenant_id)
-    db = SessionLocal()
+    db = session_for_tenant(tenant_id)
     sent_total = 0
     failed_total = 0
     eligible_total = 0
@@ -162,10 +165,7 @@ async def _run_event_hook(reservation_ids: list[int], tenant_id: int) -> None:
             db.close()
         except Exception:
             pass
-        try:
-            current_tenant_id.reset(token)
-        except Exception:
-            pass
+
 
 
 async def _send_one(db, sms_provider, schedule, reservation) -> bool:

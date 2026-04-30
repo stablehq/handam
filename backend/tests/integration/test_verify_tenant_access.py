@@ -3,7 +3,6 @@ import pytest
 from fastapi import HTTPException
 from app.db.models import User, UserRole, UserTenantRole, Tenant
 from app.auth.dependencies import verify_tenant_access
-from app.db.tenant_context import current_tenant_id
 
 
 def _make_user(db, role=UserRole.ADMIN, username="testuser"):

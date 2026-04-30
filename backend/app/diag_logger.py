@@ -140,12 +140,8 @@ def diag(event: str, level: str = "critical", **kwargs) -> None:
     if required_level > _LEVEL:
         return  # early exit — format string 비용도 없음
 
-    # 자동 주입: request_id, user_action, tenant_id
-    try:
-        from app.db.tenant_context import current_tenant_id
-        kwargs.setdefault("tid", current_tenant_id.get())
-    except Exception:
-        pass
+    # 자동 주입: request_id, user_action
+    # 옵션 C (Phase 6): tenant_id 자동 주입 제거. 호출자가 명시 인자로 'tid' 전달.
     kwargs.setdefault("req", _request_id_ctx.get())
     action = _action_ctx.get()
     if action and action != "-":

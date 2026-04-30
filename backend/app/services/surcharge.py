@@ -18,7 +18,7 @@ from app.db.models import (
     TemplateSchedule,
     RoomBizItemLink,
 )
-from app.db.tenant_context import current_tenant_id
+from app.db.tenant_context import get_session_tenant_id
 from app.diag_logger import diag
 
 logger = logging.getLogger(__name__)
@@ -182,7 +182,7 @@ def _ensure_chip(db: Session, reservation_id: int, date: str, custom_type: str) 
     ).first()
     if existing:
         return
-    tenant_id = current_tenant_id.get()
+    tenant_id = get_session_tenant_id(db)
     db.add(ReservationSmsAssignment(
         reservation_id=reservation_id,
         template_key=schedule.template.template_key,
