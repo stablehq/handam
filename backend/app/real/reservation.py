@@ -42,7 +42,7 @@ class RealReservationProvider:
         """Fetch a single page of reservations from Naver API.
 
         Args:
-            date_filter: 'REGDATE' (등록일 기준) or 'STARTDATE' (체크인일 기준)
+            date_filter: 'REGDATE' (등록일 기준) or 'USEDATE' (체크인일 기준)
         """
         try:
             diag(
@@ -98,14 +98,24 @@ class RealReservationProvider:
         """
         Fetch reservations from Naver Smart Place API.
 
-        Uses REGDATE (registration date) filter to catch all newly created
-        and cancelled reservations regardless of check-in date.
+        Default mode (no from_date) issues two complementary fetches and
+        merges by bookingId:
+          - REGDATE last 1 day  : catches newly registered / cancelled
+                                  reservations regardless of check-in date
+          - USEDATE today~tomorrow : catches every status change on
+                                  reservations whose check-in is imminent,
+                                  even when the original registration is
+                                  outside the REGDATE window
+
+        Without the USEDATE leg, a guest who booked weeks ago and cancels
+        on the day of check-in is invisible to the 5-min sync until the
+        next 09:55 reconcile (up to ~24h blackout).
 
         Args:
             target_date: Not used (kept for interface compatibility)
             from_date: Optional start date string (YYYY-MM-DD). If provided,
-                       fetches from that date to now in monthly chunks.
-                       Default: last 1 day.
+                       fetches REGDATE from that date in monthly chunks
+                       (history sync — USEDATE leg skipped).
         """
         if not self.cookie:
             logger.info("[Naver] No cookie configured — skipping sync")
@@ -133,12 +143,31 @@ class RealReservationProvider:
             data = all_data
             logger.info(f"Total fetched: {len(data)} reservations from {from_date}")
         else:
-            # 기본: 최근 1일
-            end_date = now
-            start_date = now - timedelta(days=1)
+            # 기본: REGDATE 어제~오늘 (신규/취소) + USEDATE today~tomorrow (체크인 임박 변경)
+            reg_end = now
+            reg_start = now - timedelta(days=1)
+            today_dt = datetime(now.year, now.month, now.day)
+            tomorrow_dt = today_dt + timedelta(days=1)
+
             async with httpx.AsyncClient() as client:
-                data = await self._fetch_page(client, start_date, end_date)
-                logger.info(f"Fetched {len(data)} reservations from Naver API (last 1 day)")
+                reg_data = await self._fetch_page(client, reg_start, reg_end, date_filter="REGDATE")
+                use_data = await self._fetch_page(client, today_dt, tomorrow_dt, date_filter="USEDATE")
+
+            # Raw-level dedupe by bookingId — 두 윈도우에 동시에 잡힌 예약 중복 제거.
+            # _process_raw_data 안의 user info fetch 가 무거우므로 미리 합친다.
+            seen: Dict[Any, Dict] = {}
+            for item in reg_data:
+                bid = item.get("bookingId")
+                seen[bid if bid else id(item)] = item
+            for item in use_data:
+                bid = item.get("bookingId")
+                seen[bid if bid else id(item)] = item
+            data = list(seen.values())
+
+            logger.info(
+                f"Fetched REGDATE={len(reg_data)} + USEDATE={len(use_data)} "
+                f"→ {len(data)} unique"
+            )
 
         # 공통 처리: 필터링 → 유저정보 → 변환
         return await self._process_raw_data(data)
@@ -237,7 +266,7 @@ class RealReservationProvider:
             return []
 
     async def fetch_by_checkin_date(self, target_date: str) -> List[Dict[str, Any]]:
-        """체크인 날짜(STARTDATE) 기준으로 예약 조회. Reconciliation용.
+        """체크인 날짜(USEDATE) 기준으로 예약 조회. Reconciliation용.
 
         Args:
             target_date: 'YYYY-MM-DD' 형식의 체크인 날짜
@@ -262,7 +291,7 @@ class RealReservationProvider:
                     page += 1
 
             if not all_data:
-                logger.warning(f"STARTDATE fetch returned 0 results for {target_date}")
+                logger.warning(f"USEDATE fetch returned 0 results for {target_date}")
 
             return await self._process_raw_data(all_data)
 
