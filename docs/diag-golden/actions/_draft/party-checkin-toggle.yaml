@@ -24,9 +24,8 @@ expected_trace:
     fields:
       reservation_id: "*"
       date: "*"
-      action: "*"   # checkin_new / checkin_revert 등 enum — 상황마다 다름
+      action_prefix: "*"   # checkin_new / checkin_revert 등 enum — extract_trace 가 action → action_prefix 로 정규화
       tid: "*"
-      req: "*"
 
   - event: request.exit
     category: MANDATORY

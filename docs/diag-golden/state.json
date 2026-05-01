@@ -1,16 +1,10 @@
 {
   "_comment": "ooo-log-validation 스킬이 자동 갱신하는 체크포인트. 수동 수정 지양.",
-  "last_log_timestamp": "2026-04-30 08:30:02",
-  "last_commit_sha": "2bede64",
-  "last_coverage_scan_sha": "2bede64",
-  "validated_cases_count": 3,
+  "last_log_timestamp": "2026-05-01 11:50:02",
+  "last_commit_sha": "b79ab76",
+  "last_coverage_scan_sha": "b79ab76",
+  "validated_cases_count": 4,
   "pending_golden_updates": [
-    {
-      "event": "schedule.execute.fetch_miss",
-      "reason": "정답지 작성 안 함 — 버그로 확인됨. tenant_context.py bypass 체크가 tid is None 가지 안에만 있어 잔존 tid 가 bypass 를 무력화. 픽스 적용 (HEAD). 다음 검증에서 0건이면 종결, 또 발생 시 재평가",
-      "added_commit": "462d0ac",
-      "status": "fix_deployed_pending_verification"
-    },
     {
       "event": "surcharge.reconcile_failed",
       "reason": "배포 후 실제 실패 관찰 시 정답지 작성",
@@ -65,6 +59,33 @@
       "event": "template.reordered",
       "reason": "2500e3b/dcaf42e 템플릿 DnD 정렬 — 사용자가 정렬 사용 시 관측",
       "added_commit": "2500e3b"
+    },
+    {
+      "event": "chip.tenant_mismatch",
+      "reason": "b79ab76 신규 critical 신호 — 0건이 정상. 발화 시 silent ghost chip 생성 즉시 가시화. 발화 시 즉시 정답지 작성 + 사고 분석",
+      "added_commit": "b79ab76"
+    },
+    {
+      "event": "dashboard.stats.computed",
+      "reason": "b79ab76 신규 verbose 진단 — dashboard 페이지 진입 시 발화. 운영자 미진입 윈도우라 첫 관측 대기 중. 다음 검증에서 첫 발화 시 정답지 작성",
+      "added_commit": "b79ab76"
+    },
+    {
+      "event": "daily_chip_reconcile.stale_repair",
+      "reason": "b79ab76 신규 verbose — 일일 배정 후 1회 발화 (lookahead_days=1). 2026-05-01 10:01 첫 관측 (candidates=5 repaired=5). 패턴 안정화 후 정답지 작성",
+      "added_commit": "b79ab76",
+      "first_observed": "2026-05-01 10:01:00"
+    },
+    {
+      "event": "naver_sync.cancel_chip_cleanup",
+      "reason": "b79ab76 신규 verbose — naver_sync 가 cancel 처리 시 chip 삭제 카운트. 2026-05-01 09:55 2건 첫 관측 (deleted=0/3). cross-tenant silent 삭제 방어 가시화. 정답지 작성 가능 단계",
+      "added_commit": "b79ab76",
+      "first_observed": "2026-05-01 09:55:01"
+    },
+    {
+      "event": "auto_assign.enter (bypass_active/tenant_ctx 필드 추가)",
+      "reason": "c930a7c 에서 auto_assign.enter 에 bypass_active, tenant_ctx 필드 추가 — 기존 auto-assign-button 정답지 영향 없음 (PASS 유지). sync 경로 정답지(_draft/job-detect-consecutive-stays 등) 갱신 시 반영",
+      "added_commit": "c930a7c"
     }
   ],
   "known_gaps": [
@@ -226,45 +247,45 @@
     },
     {
       "file": "backend/app/api/reservations.py",
-      "line": 770,
+      "line": 773,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-29 (재snapshot)"
+      "note": "baseline 2026-05-01 라인 시프트 (+3, b79ab76 진단 추가)"
     },
     {
       "file": "backend/app/api/reservations.py",
-      "line": 827,
+      "line": 830,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-29 (재snapshot)"
+      "note": "baseline 2026-05-01 라인 시프트 (+3, b79ab76 진단 추가)"
     },
     {
       "file": "backend/app/api/reservations.py",
-      "line": 919,
+      "line": 922,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-29 (재snapshot)"
+      "note": "baseline 2026-05-01 라인 시프트 (+3, b79ab76 진단 추가)"
     },
     {
       "file": "backend/app/api/reservations.py",
-      "line": 947,
+      "line": 950,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-29 (재snapshot)"
+      "note": "baseline 2026-05-01 라인 시프트 (+3, b79ab76 진단 추가)"
     },
     {
       "file": "backend/app/api/reservations.py",
-      "line": 1037,
+      "line": 1040,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-29 (재snapshot)"
+      "note": "baseline 2026-05-01 라인 시프트 (+3, b79ab76 진단 추가)"
     },
     {
       "file": "backend/app/api/reservations.py",
-      "line": 1094,
+      "line": 1097,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-29 (재snapshot)"
+      "note": "baseline 2026-05-01 라인 시프트 (+3, b79ab76 진단 추가)"
     },
     {
       "file": "backend/app/api/reservations.py",
-      "line": 1317,
+      "line": 1320,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-29 (재snapshot)"
+      "note": "baseline 2026-05-01 라인 시프트 (+3, b79ab76 진단 추가)"
     },
     {
       "file": "backend/app/api/rooms.py",
@@ -385,7 +406,7 @@
     "auto-assign-button": {
       "confidence": "confirmed",
       "first_seen": "2026-04-21",
-      "instance_count": 6
+      "instance_count": 7
     },
     "drag-dormitory": {
       "confidence": "confirmed",
@@ -395,7 +416,7 @@
     "drag-single-date-mode": {
       "confidence": "confirmed",
       "first_seen": "2026-04-21",
-      "instance_count": 1
+      "instance_count": 2
     },
     "drag-single-night-past": {
       "confidence": "confirmed",
@@ -445,7 +466,7 @@
     "_draft/party-checkin-toggle": {
       "confidence": "draft",
       "first_seen": "2026-04-27",
-      "instance_count": 1
+      "instance_count": 2
     },
     "_draft/reservation-extend-stay": {
       "confidence": "draft",
@@ -483,7 +504,7 @@
       "instance_count": 1
     }
   },
-  "last_validation_run": "2026-04-30T10:00:00+09:00",
+  "last_validation_run": "2026-05-01T12:00:00+09:00",
   "notes": [
     "2026-04-24 두 번째 검증 실행. 새 에러 0건 (기존 3건만 — 2건은 이미 수정, 1건 race 는 작업 예정).",
     "baseline coverage scan 58건 일괄 suppress. 다음 스캔부터 증분으로만 잡음.",
@@ -499,6 +520,12 @@
     "2026-04-29 다섯 번째 검증. 신규 에러 0건 (밤새 안정). auto_assign.failed 1건 (target_date=2026-05-02, candidates=3 assigned=1 failed=2 — 객실 잔여 부족, ActivityLog room_assign_failed 로 운영자 알림 정상 동작). 어제 커밋 9건 무관.",
     "2026-04-29 known_gaps baseline 재snapshot — 어제 Phase 1~5.1 리팩터로 줄번호 밀린 baseline 갱신. 51건 (frontend 18 + backend 33). 총량 변화: 기존 51 → 51 (새 미태깅 라우터 1건 추가, 기존 1건 태깅 보강).",
     "2026-04-30 여섯 번째 검증. 신규 에러 2건 — (1) schedule.execute.fetch_miss 11건 (12:00~13:40 schedule_id=1 매 10분 반복) → 코드+DB+로그 3단 증거로 tenant_context.py before_compile 의 bypass 체크 위치 결함 확정. fail-closed 가드 안에만 bypass 체크가 있어 잔존 tid 가 있으면 bypass=True 무력화. 1줄 short-circuit 픽스 적용. 운영 영향: schedule #1 '파티 안내 자동 발송' 11회 미발송. (2) frontend bootstrap 400 burst 16건 — 로그인 직후 currentTenantId=null 윈도우에 X-Tenant-Id 헤더 누락 → b685132 의 hardcoded fallback 제거 부수효과. GitHub issue #1 등록.",
-    "password_display.prefix_skipped 1건 (room_id=52 송악, non_digit_base) — 의도된 동작 (한글 객실명). 정답지 작성 보류, 발화 빈도가 낮아 pending 유지."
+    "password_display.prefix_skipped 1건 (room_id=52 송악, non_digit_base) — 의도된 동작 (한글 객실명). 정답지 작성 보류, 발화 빈도가 낮아 pending 유지.",
+    "2026-05-01 일곱 번째 검증. 28h 22025줄. 신규 에러 0건. 알려진 사고 흔적 INV-2 위반 2건 (res=3684/3816, 04-30 10:01) — c930a7c 픽스(10:18 배포) 전 인스턴스. 픽스 후 재발 0건 ✅. fetch_miss 0건 (12af54e 픽스 효과 확정), chip.tenant_mismatch 0건 (b79ab76 신규 critical 0발화), bootstrap 400 burst 0건. 신규 기능 정상 동작: daily_chip_reconcile.stale_repair 1건 (5건 복구), naver_sync.cancel_chip_cleanup 2건. auto_assign.failed 1건 (5/2 객실 부족 — 의도된 운영 알림).",
+    "schedule.execute.fetch_miss pending 종결 (28h 0건 확인, 픽스 효과 확정).",
+    "_draft/party-checkin-toggle.yaml 갱신 — extract_trace 정규화 (action→action_prefix, req→req_id) 와 정합 맞춤. PASS 매칭 확보. instance_count 1→2 (s7s1hwoo 케이스 매칭).",
+    "drag-* 정답지 4종 갱신 불필요 — 단일 셀 드롭은 drag-single-date-mode.yaml 에 정확히 매칭됨 (PASS, 8 MANDATORY). end_date 필드는 코드 호출자가 None 일 때 diag() 가 자동 생략 → 정답지에 이미 반영됨.",
+    "known_gaps reservations.py 7건 라인 시프트 갱신 (770→773 등, +3 lines, b79ab76 진단 추가로 인한 파일 시프트). 신규 미태깅 루트 0건.",
+    "신규 pending 5건 등록: chip.tenant_mismatch (critical, b79ab76), dashboard.stats.computed (verbose, 운영자 미진입 윈도우), daily_chip_reconcile.stale_repair (verbose, 첫 관측 05-01 10:01), naver_sync.cancel_chip_cleanup (verbose, 첫 관측 05-01 09:55, 정답지 작성 가능 단계), auto_assign.enter 필드 추가 (c930a7c)."
   ]
 }
