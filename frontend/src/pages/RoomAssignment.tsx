@@ -1434,6 +1434,12 @@ const RoomAssignment = () => {
 
 
 
+  // 단일날짜(ci===co) 예약은 ci+1, 연박은 co 사용 — chain next 슬롯 계산
+  const nextDateOf = (r: { check_in_date: string; check_out_date?: string | null }) =>
+    (r.check_out_date && r.check_out_date !== r.check_in_date)
+      ? r.check_out_date
+      : dayjs(r.check_in_date).add(1, 'day').format('YYYY-MM-DD');
+
   // Stay group modal helpers
   const loadReservationsForDate = async (date: string) => {
     setStayGroupLoading(true);
@@ -1466,10 +1472,7 @@ const RoomAssignment = () => {
     setStayGroupDirection('right');
 
     // 다음날 예약자 목록 로드 (check_out_date 기준)
-    const nextDate = res.check_out_date || res.check_in_date;
-    if (nextDate) {
-      loadReservationsForDate(nextDate);
-    }
+    loadReservationsForDate(nextDateOf(res));
   };
 
 
@@ -1488,7 +1491,7 @@ const RoomAssignment = () => {
 
     if (stayGroupDirection === 'left') {
       const firstInChain = stayGroupChain[0];
-      if (firstInChain && selected.check_out_date !== firstInChain.check_in_date) {
+      if (firstInChain && nextDateOf(selected) !== firstInChain.check_in_date) {
         toast.error('체크아웃 날짜가 다음 예약의 체크인과 일치하지 않습니다');
         return;
       }
@@ -1498,16 +1501,13 @@ const RoomAssignment = () => {
       loadReservationsForDate(prevDate);
     } else {
       const lastInChain = stayGroupChain[stayGroupChain.length - 1];
-      if (lastInChain && selected.check_in_date !== lastInChain.check_out_date) {
+      if (lastInChain && selected.check_in_date !== nextDateOf(lastInChain)) {
         toast.error('체크인 날짜가 이전 예약의 체크아웃과 일치하지 않습니다');
         return;
       }
       setStayGroupChain([...stayGroupChain, entry]);
       setStayGroupSelectedId(null);
-      const nextDate = selected.check_out_date || selected.check_in_date;
-      if (nextDate) {
-        loadReservationsForDate(nextDate);
-      }
+      loadReservationsForDate(nextDateOf(selected));
     }
   };
 
@@ -1523,7 +1523,7 @@ const RoomAssignment = () => {
     } else {
       const last = stayGroupChain[stayGroupChain.length - 1];
       if (last) {
-        loadReservationsForDate(last.check_out_date || last.check_in_date);
+        loadReservationsForDate(nextDateOf(last));
       }
     }
   };
@@ -1867,6 +1867,9 @@ const RoomAssignment = () => {
     if (values.multi_night && values.nights && values.nights >= 2 && values.date) {
       const checkIn = dayjs(values.date);
       values.check_out_date = checkIn.add(values.nights, 'day').format('YYYY-MM-DD');
+    } else if (values.date) {
+      // 단일날짜: ci=co 로 명시 — 기존 연박 → 단일 전환 시 백엔드 exclude_unset 으로 co 가 stale 되는 문제 방지
+      values.check_out_date = values.date;
     }
     delete values.multi_night;
     delete values.nights;
