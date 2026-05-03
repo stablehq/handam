@@ -13,7 +13,7 @@ from slowapi.errors import RateLimitExceeded
 from app.rate_limit import limiter
 
 
-from app.api import reservations, dashboard, scheduler, rooms, templates, template_schedules, auth, settings, activity_logs, buildings, party_checkin, events, tenants
+from app.api import reservations, reservations_room, reservations_sms, reservations_stay, dashboard, scheduler, rooms, templates, template_schedules, auth, settings, activity_logs, buildings, party_checkin, events, tenants
 from app.api.event_sms import router as event_sms_router
 from app.api.onsite_sales import router as onsite_sales_router
 from app.api.sales_report import router as sales_report_router
@@ -195,6 +195,9 @@ async def shutdown_event():
 # Include routers
 app.include_router(auth.router)
 app.include_router(reservations.router)
+app.include_router(reservations_room.router)
+app.include_router(reservations_sms.router)
+app.include_router(reservations_stay.router)
 app.include_router(rooms.router)
 app.include_router(dashboard.router)
 app.include_router(scheduler.router)

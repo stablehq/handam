@@ -1,0 +1,16 @@
+{
+  "captured_at": "2026-05-03T17:52:16",
+  "window_hours": 168,
+  "distribution": {
+    "naver_sync": 59,
+    "room_assign": 134,
+    "room_assign_failed": 15,
+    "sms_send": 85,
+    "room_move": 223
+  },
+  "watched_types": [
+    "naver_sync",
+    "room_move"
+  ],
+  "_doc": "Diag #5 baseline. reservations.py 분리 후 watched_types 의 발생 비율이 baseline ±tolerance 를 벗어나면 log_activity 호출 누락 의심."
+}
