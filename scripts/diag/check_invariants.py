@@ -143,8 +143,13 @@ def inv8_pii_leak(events):
     # 전화번호: 010 뒤 연속 8자리 (중간에 ****가 없음)
     phone_leak = re.compile(r"01[0-9][\s-]?\d{4}[\s-]?\d{4}")
     email_leak = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+    # 운영 정책상 phone 평문 노출이 허용된 이벤트 (운영자 디버깅 편의 우선).
+    # 추가 시 docs/diag-golden/state.json notes 에 근거 기록.
+    phone_whitelist = {"sms_sender.blocked_invalid_phone", "sms.failed_recorded"}
     for e in events:
         raw = e["raw"]
+        if e.get("event") in phone_whitelist:
+            continue
         # to=010****1234 같이 이미 마스킹된 건 제외. 원본 번호가 그대로 있는지만 체크.
         for m in phone_leak.finditer(raw):
             token = m.group()

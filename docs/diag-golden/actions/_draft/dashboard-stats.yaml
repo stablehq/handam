@@ -1,0 +1,51 @@
+action: dashboard.stats (대시보드 통계 조회)
+description: |
+  운영자가 대시보드 페이지 진입 시 GET /api/dashboard/stats 호출.
+  오늘 예약 수, 오늘 캠페인 발송 수, 최근 7일 성별 통계를 계산해 반환한다.
+
+  b79ab76 에서 dashboard.stats.computed verbose 진단 추가.
+  운영자 진입마다 1회 발화하는 단순 read-only 경로.
+
+reference_commit: b79ab76
+reference_case: 2026-05-01 13:44:30 req=zb8ltlgo (tid=2 first observation)
+created_at: 2026-05-03
+confidence: draft
+promotion_threshold: 3
+
+preconditions:
+  trigger_source: HTTP GET /api/dashboard/stats
+  authenticated: true
+
+expected_trace:
+  - event: request.enter
+    category: MANDATORY
+    fields:
+      method: GET
+      path: /api/dashboard/stats
+
+  - event: dashboard.stats.computed
+    category: MANDATORY
+    fields:
+      tid: "*"
+      today_reservations: "*"
+      today_campaign_sent: "*"
+      gender_days: 7
+
+  - event: request.exit
+    category: MANDATORY
+    fields:
+      status: 200
+
+forbidden_events:
+  - event: assign_room.enter
+    reason: read-only stats — 객실 배정 변경 금지
+  - event: send_single_sms.enter
+    reason: read-only stats — SMS 발송 금지
+  - event: naver_sync.enter
+    reason: read-only stats — 네이버 sync 호출 금지
+
+notes: |
+  - 401 burst 후 /auth/refresh → 재요청 패턴(2026-05-01 21:49:10 케이스)도 동일 정답지 매칭.
+    refresh leg 자체는 별도 trace.
+  - 운영자별로 tid 다름 (1 또는 2). today_reservations/today_campaign_sent 변동 범위 큼.
+  - gender_days 는 항상 7 (코드 상수).

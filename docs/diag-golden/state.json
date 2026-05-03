@@ -1,9 +1,9 @@
 {
   "_comment": "ooo-log-validation 스킬이 자동 갱신하는 체크포인트. 수동 수정 지양.",
-  "last_log_timestamp": "2026-05-01 11:50:02",
-  "last_commit_sha": "b79ab76",
-  "last_coverage_scan_sha": "b79ab76",
-  "validated_cases_count": 4,
+  "last_log_timestamp": "2026-05-03 15:25:04",
+  "last_commit_sha": "b001782",
+  "last_coverage_scan_sha": "b001782",
+  "validated_cases_count": 6,
   "pending_golden_updates": [
     {
       "event": "surcharge.reconcile_failed",
@@ -69,18 +69,6 @@
       "event": "dashboard.stats.computed",
       "reason": "b79ab76 신규 verbose 진단 — dashboard 페이지 진입 시 발화. 운영자 미진입 윈도우라 첫 관측 대기 중. 다음 검증에서 첫 발화 시 정답지 작성",
       "added_commit": "b79ab76"
-    },
-    {
-      "event": "daily_chip_reconcile.stale_repair",
-      "reason": "b79ab76 신규 verbose — 일일 배정 후 1회 발화 (lookahead_days=1). 2026-05-01 10:01 첫 관측 (candidates=5 repaired=5). 패턴 안정화 후 정답지 작성",
-      "added_commit": "b79ab76",
-      "first_observed": "2026-05-01 10:01:00"
-    },
-    {
-      "event": "naver_sync.cancel_chip_cleanup",
-      "reason": "b79ab76 신규 verbose — naver_sync 가 cancel 처리 시 chip 삭제 카운트. 2026-05-01 09:55 2건 첫 관측 (deleted=0/3). cross-tenant silent 삭제 방어 가시화. 정답지 작성 가능 단계",
-      "added_commit": "b79ab76",
-      "first_observed": "2026-05-01 09:55:01"
     },
     {
       "event": "auto_assign.enter (bypass_active/tenant_ctx 필드 추가)",
@@ -502,9 +490,24 @@
       "confidence": "draft",
       "first_seen": "2026-04-28",
       "instance_count": 1
+    },
+    "_draft/dashboard-stats": {
+      "confidence": "draft",
+      "first_seen": "2026-05-03",
+      "instance_count": 13
+    },
+    "_draft/daily-chip-reconcile-stale-repair": {
+      "confidence": "draft",
+      "first_seen": "2026-05-03",
+      "instance_count": 2
+    },
+    "_draft/naver-sync-cancel-chip-cleanup": {
+      "confidence": "draft",
+      "first_seen": "2026-05-03",
+      "instance_count": 8
     }
   },
-  "last_validation_run": "2026-05-01T12:00:00+09:00",
+  "last_validation_run": "2026-05-03T15:30:00+09:00",
   "notes": [
     "2026-04-24 두 번째 검증 실행. 새 에러 0건 (기존 3건만 — 2건은 이미 수정, 1건 race 는 작업 예정).",
     "baseline coverage scan 58건 일괄 suppress. 다음 스캔부터 증분으로만 잡음.",
@@ -526,6 +529,19 @@
     "_draft/party-checkin-toggle.yaml 갱신 — extract_trace 정규화 (action→action_prefix, req→req_id) 와 정합 맞춤. PASS 매칭 확보. instance_count 1→2 (s7s1hwoo 케이스 매칭).",
     "drag-* 정답지 4종 갱신 불필요 — 단일 셀 드롭은 drag-single-date-mode.yaml 에 정확히 매칭됨 (PASS, 8 MANDATORY). end_date 필드는 코드 호출자가 None 일 때 diag() 가 자동 생략 → 정답지에 이미 반영됨.",
     "known_gaps reservations.py 7건 라인 시프트 갱신 (770→773 등, +3 lines, b79ab76 진단 추가로 인한 파일 시프트). 신규 미태깅 루트 0건.",
-    "신규 pending 5건 등록: chip.tenant_mismatch (critical, b79ab76), dashboard.stats.computed (verbose, 운영자 미진입 윈도우), daily_chip_reconcile.stale_repair (verbose, 첫 관측 05-01 10:01), naver_sync.cancel_chip_cleanup (verbose, 첫 관측 05-01 09:55, 정답지 작성 가능 단계), auto_assign.enter 필드 추가 (c930a7c)."
+    "신규 pending 5건 등록: chip.tenant_mismatch (critical, b79ab76), dashboard.stats.computed (verbose, 운영자 미진입 윈도우), daily_chip_reconcile.stale_repair (verbose, 첫 관측 05-01 10:01), naver_sync.cancel_chip_cleanup (verbose, 첫 관측 05-01 09:55, 정답지 작성 가능 단계), auto_assign.enter 필드 추가 (c930a7c).",
+    "2026-05-03 여덟 번째 검증. 36.5h 31728줄 (5/1 11:50 ~ 5/3 00:15). 신규 에러 0건 — INV-1~7 ✅, INV-8 신규 위반 3건 (sms.failed_recorded / sms_sender.blocked_invalid_phone 의 phone 평문 노출, res_id=4793 phone='01055457405 형식 오류)은 운영 정책상 허용 (운영자 디버깅 편의 우선) → check_invariants.py inv8_pii_leak 화이트리스트에 두 이벤트 등록.",
+    "sms.failed_recorded 35ms 간격 2회 중복 기록 원인 확정 — sms_sender.py:89 (phone 검증 실패 시 record) + template_scheduler.py:228 (success=False 응답 보고 또 record). 발화 빈도 낮고 (이번 36.5h 1케이스) 카운트 어긋남 영향 미미하여 픽스 보류. 향후 phone 형식 오류 외 다른 원인의 실패가 누적되면 재검토.",
+    "신규 정답지 draft 3건 추가 (instance_count 합 23): dashboard-stats (13회 운영자 진입), daily-chip-reconcile-stale-repair (2회 cron), naver-sync-cancel-chip-cleanup (8회 cancel 처리). pending 3건 종결.",
+    "3d77461 USEDATE leg 효과 확인 — 5분 sync 마다 REGDATE+USEDATE 2 leg 정상 동작 (예: 16:20:00 로그). naver_api.fetch_page 1676회/36.5h ≈ 분당 0.77회. 부담 평가 범위 내.",
+    "Watch list 모두 0건 ✅ (chip.tenant_mismatch / tenant_list_empty / auto_logout_* / building_save_partial_failure / rooms.reordered).",
+    "auto_assign.failed 6건 모두 5/2 객실 부족 알림 (count 1→1→2→2→4→6 누진), 의도된 운영 알림.",
+    "password_display.prefix_skipped 1건 (room_id=52 송악) — 의도된 동작 유지.",
+    "2026-05-03 아홉 번째 검증 (15:30 KST). 15h10m 16086줄 (00:15 ~ 15:25). 신규 에러 0건. INV-1~8 ✅. Watch list 5종 모두 0건 ✅. 새 커밋 0건 (HEAD=b001782 동일).",
+    "auto_assign.failed 3건 — 5/2/3 객실 부족 알림 (의도된 운영 알림): 10:01 5/3 cron candidates=1 failed=1, 14:21 5/2 button candidates=5 assigned=2 failed=3, 14:43 5/3 button candidates=5 assigned=3 failed=2.",
+    "사용자 Q1~3 관련 실데이터 추적 (res_id=4761/4825 김수민): res 4761 ci=co=2026-05-01 (이상 0박 데이터), res 4825 ci=2026-05-02 co=None (수동 등록, biz_item_name=None, external_id=None). 14:15:11~32 ctx_menu:extend_stay 시도 3건 모두 stay_group.validate_failed reason=dates_not_consecutive (prev_id=4761 prev_checkout=5/1 vs curr_id=4822/4823/4824 curr_checkin=5/2 — 4822/4823/4824 은 이후 삭제됨). 14:15:42 POST 로 4825 신규 생성. 14:15:45~54 / 14:18:34 / 14:19:09~32 / 14:49:54 PUT /api/reservations/{id} 인라인 편집 7건 모두 단일 필드 (phone/customer_name/gender 그룹/check_in_date 단독). 결론: 컨텍스트 메뉴 모달은 ci+co 둘 다 보내는 코드(RoomAssignment.tsx:3922-3925), 드래그 핸들러도 ci+co 둘 다 1일 이동(1266-1269) — 정상 동작. ci 단독 변경 5건은 테이블 인라인 편집(셀 직접 수정).",
+    "Q1 근본 원인 가설: (a) 4761의 co=5/1(=ci) 자체가 이상 — 네이버 sync 가 1박을 ci=co 로 가져왔거나 사용자가 인라인으로 ci 만 수정해 co=ci 같아짐. 정상 1박이면 ci=5/1 / co=5/2. (b) 4825 의 co=None — 수동 등록 폼이 co 필수 아님. backend/app/services/consecutive_stay.py:77 의 check_out_date.isnot(None) 가드로 자동감지에서 제외. 그래서 연박묶기 모달에 5/2 (4825) 안 보임.",
+    "Q2 결과: 백엔드 customer_name=booker(item.name), visitor_name=item.visitorName 별도 컬럼. 프론트 객실배정 페이지 RoomAssignment.tsx:154,2175 는 customer_name 만 표시, visitor_name 미노출. 즉 방문자 정보가 있어도 화면에는 예약자명만 표시 (visitor 우선 fallback 없음).",
+    "Q3 결과: cross-day drag(RoomAssignment.tsx:1266-1269) 와 컨텍스트 메뉴 날짜변경(3922-3925) 모두 check_in_date + check_out_date 둘 다 보내 1일씩 같이 이동시킴 — 시간(date) 동기화 됨. 단, 인라인 편집(셀 직접 수정)은 셀 단위 단독 변경이라 ci/co 분리 가능."
   ]
 }

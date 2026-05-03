@@ -1,0 +1,40 @@
+action: daily_chip_reconcile.stale_repair (일일 stale 칩 자동 복구)
+description: |
+  매일 10:01 KST 에 실행되는 cron 작업이 lookahead_days=1 윈도우의
+  stale SMS 배정 칩을 자동 복구한다.
+
+  b79ab76 에서 추가된 verbose 진단. cross-tenant silent ghost chip 잔재를
+  주기적으로 정리해 가시화한다.
+
+  대상이 0건이면 발화하지 않음 (CONDITIONAL).
+
+reference_commit: b79ab76
+reference_case: 2026-05-02 10:01:00 candidates=5 repaired=5 (tenant 1) / candidates=50 repaired=50 (tenant 2)
+created_at: 2026-05-03
+confidence: draft
+promotion_threshold: 3
+
+preconditions:
+  trigger_source: APScheduler (daily 10:01 KST)
+  bypass_tenant_filter: true   # 전 테넌트 순회
+
+expected_trace:
+  - event: daily_chip_reconcile.stale_repair
+    category: MANDATORY
+    fields:
+      target_date: "*"        # 보통 실행일 (today)
+      lookahead_days: 1
+      candidates: "*"         # 양수 (0이면 발화 안 함)
+      repaired: "*"           # candidates 와 동일해야 정상 (모두 복구됨)
+
+forbidden_events:
+  - event: chip.tenant_mismatch
+    reason: 복구 작업 중 tenant 누출 감지 시 critical — 0이어야 함
+  - event: request.enter
+    reason: cron 기반 — HTTP 요청 없음
+
+notes: |
+  - candidates == repaired 이 정상. 미스매치 발생 시 일부 칩이 복구 실패.
+  - 테넌트 별로 1회씩 발화 → 같은 시간대 N건 (테넌트 수만큼).
+  - 2026-05-02 첫 안정 관측. 실제 운영에서 tenant=2 의 candidates=50 은
+    네이버 sync 누락으로 누적된 stale 칩 일괄 청소.

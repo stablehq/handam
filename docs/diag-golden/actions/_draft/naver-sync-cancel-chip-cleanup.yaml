@@ -1,0 +1,36 @@
+action: naver_sync.cancel_chip_cleanup (취소 처리 시 SMS 칩 정리)
+description: |
+  5분 sync 가 네이버 응답에서 cancel 상태(RC04 등) 예약을 발견하면
+  해당 예약의 미발송 SMS 칩을 삭제한다.
+
+  b79ab76 에서 추가된 verbose 진단. cross-tenant silent 삭제 방어 가시화 목적.
+  취소 케이스마다 1회 발화 (deleted=0 인 경우도 포함 — 칩 자체가 없을 때).
+
+reference_commit: b79ab76
+reference_case: 2026-05-02 14:50:01 res_id=3581 tenant_id=1 deleted=3
+created_at: 2026-05-03
+confidence: draft
+promotion_threshold: 3
+
+preconditions:
+  trigger_source: naver_sync (5min cron) — RC04 등 취소 상태 감지
+  parent_event: naver_sync.enter
+
+expected_trace:
+  - event: naver_sync.cancel_chip_cleanup
+    category: MANDATORY
+    fields:
+      res_id: "*"
+      tenant_id: "*"
+      deleted: "*"            # 0~N. 0이면 정리할 칩이 없었던 정상 케이스
+
+forbidden_events:
+  - event: chip.tenant_mismatch
+    reason: 취소 처리 중 tenant 누출 감지 시 critical — 0이어야 함
+
+notes: |
+  - 단독 정답지가 아닌 naver_sync 의 sub-event. 동일 req=- 안에서 발생.
+  - deleted 분포 (관측): 0이 대다수, 가끔 1~3.
+  - tenant_id 필드는 정리 대상 예약의 소속 테넌트 — 호출 컨텍스트의 tenant 와
+    일치해야 함 (mismatch 시 chip.tenant_mismatch 발화).
+  - 향후 _draft/naver-sync-sub-events.yaml 에 통합 가능 (검토 필요).
