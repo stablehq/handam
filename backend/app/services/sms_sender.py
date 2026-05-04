@@ -184,6 +184,10 @@ async def send_single_sms(
         mms=is_mms,
     )
 
+    # LMS 제목: 템플릿에 lms_title 가 설정돼 있으면 provider 에 전달.
+    # 빈/None 이면 provider 가 본문 첫 줄을 자동 추출 (Aligo 기본 동작).
+    title_kwargs = {"title": _template_obj.lms_title} if _template_obj.lms_title else {}
+
     if is_mms:
         # MMS 템플릿은 전용 프록시 경로로 라우팅. 프로바이더가 메서드 미구현이면
         # 즉시 실패로 기록 (예: 테스트 mock). 런타임 중에는 Real 만 사용.
@@ -195,9 +199,9 @@ async def send_single_sms(
                 "error": f"MMS 미지원 provider: {type(sms_provider).__name__}",
             }
         else:
-            result = await send_party_mms(to=reservation.phone, message=message_content)
+            result = await send_party_mms(to=reservation.phone, message=message_content, **title_kwargs)
     else:
-        result = await sms_provider.send_sms(to=reservation.phone, message=message_content)
+        result = await sms_provider.send_sms(to=reservation.phone, message=message_content, **title_kwargs)
 
     success = bool(result.get("success"))
     if not skip_activity_log:

@@ -117,6 +117,7 @@ class MessageTemplate(TenantMixin, Base):
     template_key = Column("key", String(100), nullable=False)
     name = Column(String(200), nullable=False)
     short_label = Column(String(10), nullable=True)  # 2-4 char abbreviation for chip display
+    lms_title = Column(String(30), nullable=True)  # LMS 제목 (Aligo 30바이트, 한글 ~14자). null 이면 본문 첫 줄 자동
     content = Column(Text, nullable=False)
     variables = Column(Text, nullable=True)  # JSON list of variable names
     category = Column(String(50), nullable=True)  # 'room_guide', 'party_guide', etc.

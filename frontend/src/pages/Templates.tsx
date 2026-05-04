@@ -58,6 +58,7 @@ interface Template {
   template_key: string;
   name: string;
   short_label: string | null;
+  lms_title: string | null;
   content: string;
   variables: string | null;
   category: string | null;
@@ -438,6 +439,7 @@ const Templates: React.FC = () => {
   const [tKey, setTKey] = useState('');
   const [tName, setTName] = useState('');
   const [tShortLabel, setTShortLabel] = useState('');
+  const [tLmsTitle, setTLmsTitle] = useState('');
   const [tContent, setTContent] = useState('');
   const [tVariables, setTVariables] = useState('');
   const [tActive, setTActive] = useState(true);
@@ -598,7 +600,7 @@ const Templates: React.FC = () => {
 
   const openCreateTemplate = () => {
     setEditingTemplate(null);
-    setTKey(''); setTName(''); setTShortLabel(''); setTContent('');
+    setTKey(''); setTName(''); setTShortLabel(''); setTLmsTitle(''); setTContent('');
     setTVariables(''); setTActive(true); setTKeyError('');
     setTParticipantBuffer(0);
     setTMaleBuffer(0);
@@ -616,6 +618,7 @@ const Templates: React.FC = () => {
   const openEditTemplate = (t: Template) => {
     setEditingTemplate(t);
     setTKey(t.template_key); setTName(t.name); setTShortLabel(t.short_label ?? '');
+    setTLmsTitle(t.lms_title ?? '');
     setTContent(t.content); setTVariables(t.variables ?? '');
     setTActive(t.active); setTKeyError('');
     setTParticipantBuffer(t.participant_buffer || 0);
@@ -654,11 +657,22 @@ const Templates: React.FC = () => {
     if (!tName.trim()) { toast.error('템플릿 이름을 입력하세요'); return; }
     if (!tContent.trim()) { toast.error('메시지 내용을 입력하세요'); return; }
 
+    // LMS 제목 EUC-KR 30바이트 제한 (한글 2바이트, ASCII 1바이트)
+    const titleTrimmed = tLmsTitle.trim();
+    if (titleTrimmed) {
+      const titleBytes = [...titleTrimmed].reduce((s, ch) => s + (ch.charCodeAt(0) > 127 ? 2 : 1), 0);
+      if (titleBytes > 30) {
+        toast.error(`LMS 제목은 최대 30바이트입니다 (현재 ${titleBytes}바이트)`);
+        return;
+      }
+    }
+
     setSavingTemplate(true);
     try {
       const data = {
         template_key: tKey, name: tName, content: tContent,
         short_label: tShortLabel || null,
+        lms_title: tLmsTitle.trim() || null,
         variables: tVariables || undefined,
         active: tActive,
         participant_buffer: tParticipantBuffer,
@@ -1479,6 +1493,30 @@ const Templates: React.FC = () => {
 
           {/* Right column: content */}
           <div className="flex flex-col gap-4 min-h-0">
+            {/* LMS title (optional) */}
+            <div className="space-y-2">
+              <Label htmlFor="t-lms-title">
+                LMS 제목 <span className="text-caption font-normal text-[#8B95A1]">(선택, LMS만 적용)</span>
+              </Label>
+              <input
+                id="t-lms-title"
+                type="text"
+                placeholder="비워두면 본문 첫 줄을 자동 추출"
+                value={tLmsTitle}
+                onChange={e => setTLmsTitle(e.target.value)}
+                maxLength={30}
+                className="w-full rounded-lg border border-[#E5E8EB] bg-white px-3 py-2 text-body text-[#191F28] placeholder:text-[#B0B8C1] focus:border-[#3182F6] focus:outline-none focus:ring-1 focus:ring-[#3182F6] dark:border-gray-600 dark:bg-[#1E1E24] dark:text-gray-100 dark:placeholder:text-gray-600"
+              />
+              {(() => {
+                const byteLen = [...tLmsTitle].reduce((sum, ch) => sum + (ch.charCodeAt(0) > 127 ? 2 : 1), 0);
+                return (
+                  <p className={`text-caption tabular-nums ${byteLen > 30 ? 'text-[#F04452]' : 'text-[#8B95A1]'}`}>
+                    {byteLen}<span className="mx-0.5">/</span>30 bytes (한글 약 14자)
+                  </p>
+                );
+              })()}
+            </div>
+
             {/* Content */}
             <div className="flex flex-col flex-1 space-y-2 min-h-0">
               <Label htmlFor="t-content">

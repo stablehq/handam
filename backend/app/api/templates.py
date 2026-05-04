@@ -4,7 +4,7 @@ Message Templates API
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime, timezone
 
 from app.api.deps import get_tenant_scoped_db, _remap_active_field
@@ -19,6 +19,23 @@ router_misc = APIRouter()
 
 
 # Pydantic models
+def _validate_lms_title(value: Optional[str]) -> Optional[str]:
+    """Aligo LMS 제목 30바이트 제한 (EUC-KR 기준, 한글 2바이트). 빈 문자열은 None 으로 정규화."""
+    if value is None:
+        return None
+    v = value.strip()
+    if not v:
+        return None
+    try:
+        byte_len = len(v.encode("euc-kr"))
+    except UnicodeEncodeError:
+        # EUC-KR 미지원 문자 → utf-8 fallback (보수적으로 더 큰 값 사용)
+        byte_len = len(v.encode("utf-8"))
+    if byte_len > 30:
+        raise ValueError(f"LMS 제목은 최대 30바이트입니다 (현재 {byte_len}바이트, 한글 약 14자)")
+    return v
+
+
 class TemplateCreate(BaseModel):
     template_key: str
     name: str
@@ -27,12 +44,18 @@ class TemplateCreate(BaseModel):
     category: Optional[str] = None
     active: bool = True
     short_label: Optional[str] = None
+    lms_title: Optional[str] = Field(default=None, max_length=30)
     participant_buffer: Optional[int] = 0
     male_buffer: Optional[int] = 0
     female_buffer: Optional[int] = 0
     gender_ratio_buffers: Optional[str] = None
     round_unit: Optional[int] = 0
     round_mode: Optional[str] = 'ceil'
+
+    @field_validator("lms_title", mode="before")
+    @classmethod
+    def _check_lms_title(cls, v):
+        return _validate_lms_title(v)
 
 
 class TemplateUpdate(BaseModel):
@@ -43,12 +66,18 @@ class TemplateUpdate(BaseModel):
     category: Optional[str] = None
     active: Optional[bool] = None
     short_label: Optional[str] = None
+    lms_title: Optional[str] = Field(default=None, max_length=30)
     participant_buffer: Optional[int] = None
     male_buffer: Optional[int] = None
     female_buffer: Optional[int] = None
     gender_ratio_buffers: Optional[str] = None
     round_unit: Optional[int] = None
     round_mode: Optional[str] = None
+
+    @field_validator("lms_title", mode="before")
+    @classmethod
+    def _check_lms_title(cls, v):
+        return _validate_lms_title(v)
 
 
 class TemplateResponse(BaseModel):
@@ -63,6 +92,7 @@ class TemplateResponse(BaseModel):
     updated_at: datetime
     schedule_count: int = 0
     short_label: Optional[str] = None
+    lms_title: Optional[str] = None
     participant_buffer: Optional[int] = 0
     male_buffer: Optional[int] = 0
     female_buffer: Optional[int] = 0
@@ -115,6 +145,7 @@ def get_templates(
             "updated_at": template.updated_at,
             "schedule_count": len(template.schedules) if hasattr(template, 'schedules') else 0,
             "short_label": template.short_label,
+            "lms_title": template.lms_title,
             "participant_buffer": template.participant_buffer or 0,
             "male_buffer": template.male_buffer or 0,
             "female_buffer": template.female_buffer or 0,
@@ -186,6 +217,7 @@ def get_template(template_id: int, db: Session = Depends(get_tenant_scoped_db), 
         "updated_at": template.updated_at,
         "schedule_count": len(template.schedules) if hasattr(template, 'schedules') else 0,
         "short_label": template.short_label,
+        "lms_title": template.lms_title,
         "participant_buffer": template.participant_buffer or 0,
         "male_buffer": template.male_buffer or 0,
         "female_buffer": template.female_buffer or 0,
@@ -217,6 +249,7 @@ def create_template(template: TemplateCreate, db: Session = Depends(get_tenant_s
         category=template.category,
         is_active=template.active,
         short_label=template.short_label,
+        lms_title=template.lms_title,
         participant_buffer=template.participant_buffer or 0,
         male_buffer=template.male_buffer or 0,
         female_buffer=template.female_buffer or 0,
@@ -244,6 +277,7 @@ def create_template(template: TemplateCreate, db: Session = Depends(get_tenant_s
         "updated_at": db_template.updated_at,
         "schedule_count": 0,
         "short_label": db_template.short_label,
+        "lms_title": db_template.lms_title,
         "participant_buffer": db_template.participant_buffer or 0,
         "male_buffer": db_template.male_buffer or 0,
         "female_buffer": db_template.female_buffer or 0,
@@ -304,6 +338,7 @@ def update_template(template_id: int, template: TemplateUpdate, db: Session = De
         "updated_at": db_template.updated_at,
         "schedule_count": len(db_template.schedules) if hasattr(db_template, 'schedules') else 0,
         "short_label": db_template.short_label,
+        "lms_title": db_template.lms_title,
         "participant_buffer": db_template.participant_buffer or 0,
         "male_buffer": db_template.male_buffer or 0,
         "female_buffer": db_template.female_buffer or 0,
