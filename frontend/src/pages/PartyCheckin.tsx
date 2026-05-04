@@ -275,8 +275,10 @@ export default function PartyCheckin() {
 
   const renderGuestTable = (guestList: PartyGuest[], label: string) => (
     <div className="section-card overflow-hidden">
-      <div className="section-header">
-        <span className={`text-subheading font-semibold ${label === '언스테이블' ? 'text-[#FF6B2C]' : 'text-[#191F28] dark:text-white'}`}>{label}</span>
+      <div className={`section-header ${label ? '' : 'justify-end'}`}>
+        {label && (
+          <span className={`text-subheading font-semibold ${label === '언스테이블' ? 'text-[#FF6B2C]' : 'text-[#191F28] dark:text-white'}`}>{label}</span>
+        )}
         <span className="text-caption text-[#8B95A1] tabular-nums">{guestList.filter(g => g.checked_in).length}/{guestList.length}명</span>
       </div>
       {loading ? (
@@ -432,8 +434,8 @@ export default function PartyCheckin() {
             </div>
           </div>
 
-          {/* 스테이블 체크인 테이블 */}
-          {renderGuestTable(guests, '스테이블')}
+          {/* 스테이블 체크인 테이블 (언스테이블 운영 테넌트만 라벨 노출) */}
+          {renderGuestTable(guests, hasUnstable ? '스테이블' : '')}
 
           {/* 언스테이블 체크인 테이블 */}
           {hasUnstable && renderGuestTable(unstableGuests, '언스테이블')}
