@@ -6,7 +6,7 @@ description: |
 
 reference_session: 2026-04-24
 created_at: 2026-04-27
-confidence: draft
+confidence: confirmed
 promotion_threshold: 3
 
 preconditions:
@@ -20,8 +20,6 @@ expected_trace:
       reservation_id: "*"
       gender_changed: "*"          # bool — True / False
       naver_room_type_changed: "*" # bool — True / False
-      tid: "*"
-      req: "-"
 
 forbidden_events:
   - event: request.enter

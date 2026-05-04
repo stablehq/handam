@@ -9,7 +9,7 @@ description: |
 reference_commit: b79ab76
 reference_case: 2026-05-01 13:44:30 req=zb8ltlgo (tid=2 first observation)
 created_at: 2026-05-03
-confidence: draft
+confidence: confirmed
 promotion_threshold: 3
 
 preconditions:

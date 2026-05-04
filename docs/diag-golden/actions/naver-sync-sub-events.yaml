@@ -7,7 +7,7 @@ description: |
 
 reference_session: 2026-04-27
 created_at: 2026-04-28
-confidence: draft
+confidence: confirmed
 promotion_threshold: 3
 
 preconditions:
@@ -23,8 +23,6 @@ expected_trace:
       added_count: "*"          # 이 사이클에서 새로 추가된 예약 수
       date_changed_count: "*"   # 날짜 변경된 예약 수
       dates: "*"                # 추가/변경 대상 날짜 배열 (비어있을 수도 있음 — [] 관측됨)
-      tid: "*"
-      req: "-"
     notes: |
       - added_count=0 인 사이클에는 phase5 이벤트 자체가 기록되지 않을 수 있음.
         (2026-04-27 관측: added_count >= 1 인 케이스에서만 출현)
@@ -41,8 +39,6 @@ expected_trace:
       members_scanned: "*"         # 스캔한 그룹 멤버(예약) 수
       bed_orders_updated: "*"      # 실제로 bed_order 가 수정된 수
       window_max_checkin: "*"      # 스캔 윈도우 상한 날짜 (today+5 내외)
-      tid: "*"
-      req: "-"
     notes: |
       - bed_orders_updated=0 은 정상 케이스 (bed_order 가 이미 올바른 상태).
       - window_max_checkin 은 today 기준 5일 후 체크인까지를 스캔하는 윈도우 상한.

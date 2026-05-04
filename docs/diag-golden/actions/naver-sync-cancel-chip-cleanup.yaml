@@ -9,7 +9,7 @@ description: |
 reference_commit: b79ab76
 reference_case: 2026-05-02 14:50:01 res_id=3581 tenant_id=1 deleted=3
 created_at: 2026-05-03
-confidence: draft
+confidence: confirmed
 promotion_threshold: 3
 
 preconditions:

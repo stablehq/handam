@@ -1,9 +1,9 @@
 {
   "_comment": "ooo-log-validation 스킬이 자동 갱신하는 체크포인트. 수동 수정 지양.",
-  "last_log_timestamp": "2026-05-03 15:25:04",
-  "last_commit_sha": "b001782",
-  "last_coverage_scan_sha": "b001782",
-  "validated_cases_count": 6,
+  "last_log_timestamp": "2026-05-04 11:30:59",
+  "last_commit_sha": "8eb5709",
+  "last_coverage_scan_sha": "8eb5709",
+  "validated_cases_count": 29,
   "pending_golden_updates": [
     {
       "event": "surcharge.reconcile_failed",
@@ -63,11 +63,6 @@
     {
       "event": "chip.tenant_mismatch",
       "reason": "b79ab76 신규 critical 신호 — 0건이 정상. 발화 시 silent ghost chip 생성 즉시 가시화. 발화 시 즉시 정답지 작성 + 사고 분석",
-      "added_commit": "b79ab76"
-    },
-    {
-      "event": "dashboard.stats.computed",
-      "reason": "b79ab76 신규 verbose 진단 — dashboard 페이지 진입 시 발화. 운영자 미진입 윈도우라 첫 관측 대기 중. 다음 검증에서 첫 발화 시 정답지 작성",
       "added_commit": "b79ab76"
     },
     {
@@ -151,37 +146,7 @@
     },
     {
       "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 1896,
-      "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-29 (재snapshot)"
-    },
-    {
-      "file": "frontend/src/pages/RoomAssignment.tsx",
       "line": 1899,
-      "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-29 (재snapshot)"
-    },
-    {
-      "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 3387,
-      "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-29 (재snapshot)"
-    },
-    {
-      "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 3834,
-      "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-29 (재snapshot)"
-    },
-    {
-      "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 3854,
-      "kind": "frontend_untagged_api",
-      "note": "baseline 2026-04-29 (재snapshot)"
-    },
-    {
-      "file": "frontend/src/pages/RoomAssignment.tsx",
-      "line": 3922,
       "kind": "frontend_untagged_api",
       "note": "baseline 2026-04-29 (재snapshot)"
     },
@@ -232,48 +197,6 @@
       "line": 610,
       "kind": "backend_mutation_no_diag",
       "note": "baseline 2026-04-29 (재snapshot)"
-    },
-    {
-      "file": "backend/app/api/reservations.py",
-      "line": 773,
-      "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-05-01 라인 시프트 (+3, b79ab76 진단 추가)"
-    },
-    {
-      "file": "backend/app/api/reservations.py",
-      "line": 830,
-      "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-05-01 라인 시프트 (+3, b79ab76 진단 추가)"
-    },
-    {
-      "file": "backend/app/api/reservations.py",
-      "line": 922,
-      "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-05-01 라인 시프트 (+3, b79ab76 진단 추가)"
-    },
-    {
-      "file": "backend/app/api/reservations.py",
-      "line": 950,
-      "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-05-01 라인 시프트 (+3, b79ab76 진단 추가)"
-    },
-    {
-      "file": "backend/app/api/reservations.py",
-      "line": 1040,
-      "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-05-01 라인 시프트 (+3, b79ab76 진단 추가)"
-    },
-    {
-      "file": "backend/app/api/reservations.py",
-      "line": 1097,
-      "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-05-01 라인 시프트 (+3, b79ab76 진단 추가)"
-    },
-    {
-      "file": "backend/app/api/reservations.py",
-      "line": 1320,
-      "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-05-01 라인 시프트 (+3, b79ab76 진단 추가)"
     },
     {
       "file": "backend/app/api/rooms.py",
@@ -382,6 +305,78 @@
       "line": 155,
       "kind": "backend_mutation_no_diag",
       "note": "baseline 2026-04-29 (재snapshot)"
+    },
+    {
+      "file": "backend/app/api/reservations.py",
+      "line": 473,
+      "kind": "backend_mutation_no_diag",
+      "note": "baseline 2026-05-04 (0737dff 분리 후 잔존: sync/naver POST)"
+    },
+    {
+      "file": "backend/app/api/reservations_room.py",
+      "line": 156,
+      "kind": "backend_mutation_no_diag",
+      "note": "baseline 2026-05-04 (0737dff 분리: daily-info PUT)"
+    },
+    {
+      "file": "backend/app/api/reservations_sms.py",
+      "line": 63,
+      "kind": "backend_mutation_no_diag",
+      "note": "baseline 2026-05-04 (0737dff 분리: sms-assign DELETE)"
+    },
+    {
+      "file": "backend/app/api/reservations_sms.py",
+      "line": 91,
+      "kind": "backend_mutation_no_diag",
+      "note": "baseline 2026-05-04 (0737dff 분리: sms-toggle PATCH)"
+    },
+    {
+      "file": "backend/app/api/reservations_sms.py",
+      "line": 181,
+      "kind": "backend_mutation_no_diag",
+      "note": "baseline 2026-05-04 (0737dff 분리: sms-send-by-tag POST)"
+    },
+    {
+      "file": "backend/app/api/reservations_stay.py",
+      "line": 46,
+      "kind": "backend_mutation_no_diag",
+      "note": "baseline 2026-05-04 (0737dff 분리: detect-consecutive POST)"
+    },
+    {
+      "file": "backend/app/api/reservations_stay.py",
+      "line": 269,
+      "kind": "backend_mutation_no_diag",
+      "note": "baseline 2026-05-04 (0737dff 분리: extend-stay/assign-room POST)"
+    },
+    {
+      "file": "frontend/src/pages/RoomAssignment.tsx",
+      "line": 1902,
+      "kind": "frontend_untagged_api",
+      "note": "baseline 2026-05-04 라인 시프트 (+6, baa0738 9회차 픽스)"
+    },
+    {
+      "file": "frontend/src/pages/RoomAssignment.tsx",
+      "line": 3390,
+      "kind": "frontend_untagged_api",
+      "note": "baseline 2026-05-04 라인 시프트 (+3, baa0738)"
+    },
+    {
+      "file": "frontend/src/pages/RoomAssignment.tsx",
+      "line": 3837,
+      "kind": "frontend_untagged_api",
+      "note": "baseline 2026-05-04 라인 시프트 (+3, baa0738)"
+    },
+    {
+      "file": "frontend/src/pages/RoomAssignment.tsx",
+      "line": 3857,
+      "kind": "frontend_untagged_api",
+      "note": "baseline 2026-05-04 라인 시프트 (+3, baa0738)"
+    },
+    {
+      "file": "frontend/src/pages/RoomAssignment.tsx",
+      "line": 3925,
+      "kind": "frontend_untagged_api",
+      "note": "baseline 2026-05-04 라인 시프트 (+3, baa0738)"
     }
   ],
   "golden_policy": {
@@ -399,12 +394,12 @@
     "drag-dormitory": {
       "confidence": "confirmed",
       "first_seen": "2026-04-21",
-      "instance_count": 1
+      "instance_count": 7
     },
     "drag-single-date-mode": {
       "confidence": "confirmed",
       "first_seen": "2026-04-21",
-      "instance_count": 2
+      "instance_count": 15
     },
     "drag-single-night-past": {
       "confidence": "confirmed",
@@ -424,7 +419,7 @@
     "undo-assign": {
       "confidence": "confirmed",
       "first_seen": "2026-04-21",
-      "instance_count": 1
+      "instance_count": 2
     },
     "_draft/sms-toggle-send": {
       "confidence": "draft",
@@ -436,10 +431,11 @@
       "first_seen": "2026-04-24",
       "instance_count": 2
     },
-    "_draft/event-sms-hook-cron": {
-      "confidence": "draft",
+    "event-sms-hook-cron": {
+      "confidence": "confirmed",
       "first_seen": "2026-04-27",
-      "instance_count": 1
+      "instance_count": 15,
+      "promoted_at": "2026-05-04"
     },
     "_draft/job-sync-unstable-reservations": {
       "confidence": "draft",
@@ -451,10 +447,11 @@
       "first_seen": "2026-04-27",
       "instance_count": 1
     },
-    "_draft/party-checkin-toggle": {
-      "confidence": "draft",
+    "party-checkin-toggle": {
+      "confidence": "confirmed",
       "first_seen": "2026-04-27",
-      "instance_count": 2
+      "instance_count": 19,
+      "promoted_at": "2026-05-04"
     },
     "_draft/reservation-extend-stay": {
       "confidence": "draft",
@@ -466,10 +463,11 @@
       "first_seen": "2026-04-27",
       "instance_count": 1
     },
-    "_draft/naver-sync-sms-field-changed": {
-      "confidence": "draft",
+    "naver-sync-sms-field-changed": {
+      "confidence": "confirmed",
       "first_seen": "2026-04-27",
-      "instance_count": 1
+      "instance_count": 3,
+      "promoted_at": "2026-05-04"
     },
     "_draft/chip-reconcile-party3-mms": {
       "confidence": "draft",
@@ -479,35 +477,44 @@
     "_draft/unassign-room-drag-to-pool": {
       "confidence": "draft",
       "first_seen": "2026-04-28",
-      "instance_count": 1
+      "instance_count": 2
     },
     "_draft/naver-sync-tenant-failed": {
       "confidence": "draft",
       "first_seen": "2026-04-28",
       "instance_count": 1
     },
-    "_draft/naver-sync-sub-events": {
-      "confidence": "draft",
+    "naver-sync-sub-events": {
+      "confidence": "confirmed",
       "first_seen": "2026-04-28",
+      "instance_count": 15,
+      "promoted_at": "2026-05-04"
+    },
+    "dashboard-stats": {
+      "confidence": "confirmed",
+      "first_seen": "2026-05-03",
+      "instance_count": 19,
+      "promoted_at": "2026-05-04"
+    },
+    "daily-chip-reconcile-stale-repair": {
+      "confidence": "confirmed",
+      "first_seen": "2026-05-03",
+      "instance_count": 3,
+      "promoted_at": "2026-05-04"
+    },
+    "naver-sync-cancel-chip-cleanup": {
+      "confidence": "confirmed",
+      "first_seen": "2026-05-03",
+      "instance_count": 11,
+      "promoted_at": "2026-05-04"
+    },
+    "_draft/ctx-menu-delete-guest": {
+      "confidence": "draft",
+      "first_seen": "2026-05-04",
       "instance_count": 1
-    },
-    "_draft/dashboard-stats": {
-      "confidence": "draft",
-      "first_seen": "2026-05-03",
-      "instance_count": 13
-    },
-    "_draft/daily-chip-reconcile-stale-repair": {
-      "confidence": "draft",
-      "first_seen": "2026-05-03",
-      "instance_count": 2
-    },
-    "_draft/naver-sync-cancel-chip-cleanup": {
-      "confidence": "draft",
-      "first_seen": "2026-05-03",
-      "instance_count": 8
     }
   },
-  "last_validation_run": "2026-05-03T15:30:00+09:00",
+  "last_validation_run": "2026-05-04T11:35:00+09:00",
   "notes": [
     "2026-04-24 두 번째 검증 실행. 새 에러 0건 (기존 3건만 — 2건은 이미 수정, 1건 race 는 작업 예정).",
     "baseline coverage scan 58건 일괄 suppress. 다음 스캔부터 증분으로만 잡음.",
@@ -542,6 +549,20 @@
     "사용자 Q1~3 관련 실데이터 추적 (res_id=4761/4825 김수민): res 4761 ci=co=2026-05-01 (이상 0박 데이터), res 4825 ci=2026-05-02 co=None (수동 등록, biz_item_name=None, external_id=None). 14:15:11~32 ctx_menu:extend_stay 시도 3건 모두 stay_group.validate_failed reason=dates_not_consecutive (prev_id=4761 prev_checkout=5/1 vs curr_id=4822/4823/4824 curr_checkin=5/2 — 4822/4823/4824 은 이후 삭제됨). 14:15:42 POST 로 4825 신규 생성. 14:15:45~54 / 14:18:34 / 14:19:09~32 / 14:49:54 PUT /api/reservations/{id} 인라인 편집 7건 모두 단일 필드 (phone/customer_name/gender 그룹/check_in_date 단독). 결론: 컨텍스트 메뉴 모달은 ci+co 둘 다 보내는 코드(RoomAssignment.tsx:3922-3925), 드래그 핸들러도 ci+co 둘 다 1일 이동(1266-1269) — 정상 동작. ci 단독 변경 5건은 테이블 인라인 편집(셀 직접 수정).",
     "Q1 근본 원인 가설: (a) 4761의 co=5/1(=ci) 자체가 이상 — 네이버 sync 가 1박을 ci=co 로 가져왔거나 사용자가 인라인으로 ci 만 수정해 co=ci 같아짐. 정상 1박이면 ci=5/1 / co=5/2. (b) 4825 의 co=None — 수동 등록 폼이 co 필수 아님. backend/app/services/consecutive_stay.py:77 의 check_out_date.isnot(None) 가드로 자동감지에서 제외. 그래서 연박묶기 모달에 5/2 (4825) 안 보임.",
     "Q2 결과: 백엔드 customer_name=booker(item.name), visitor_name=item.visitorName 별도 컬럼. 프론트 객실배정 페이지 RoomAssignment.tsx:154,2175 는 customer_name 만 표시, visitor_name 미노출. 즉 방문자 정보가 있어도 화면에는 예약자명만 표시 (visitor 우선 fallback 없음).",
-    "Q3 결과: cross-day drag(RoomAssignment.tsx:1266-1269) 와 컨텍스트 메뉴 날짜변경(3922-3925) 모두 check_in_date + check_out_date 둘 다 보내 1일씩 같이 이동시킴 — 시간(date) 동기화 됨. 단, 인라인 편집(셀 직접 수정)은 셀 단위 단독 변경이라 ci/co 분리 가능."
+    "Q3 결과: cross-day drag(RoomAssignment.tsx:1266-1269) 와 컨텍스트 메뉴 날짜변경(3922-3925) 모두 check_in_date + check_out_date 둘 다 보내 1일씩 같이 이동시킴 — 시간(date) 동기화 됨. 단, 인라인 편집(셀 직접 수정)은 셀 단위 단독 변경이라 ci/co 분리 가능.",
+    "2026-05-04 열 번째 검증 (11:35 KST). 20.1h 16690줄 (5/3 15:25:04 ~ 5/4 11:30:59). 신규 에러 0건. INV-1~8 ✅. Watch list 5종 모두 0건 ✅. chip.tenant_mismatch 0건, fetch_miss 0건.",
+    "user-action 24건 (request.enter+action= 기준): drag_guest_to_room 21건 (single-date 13 + dormitory 6 PASS, +draft party-checkin matching 별도), undo_assign 1 PASS, drop_on_pool 1 (DIFF — _draft/unassign-room-drag-to-pool 의 spurious tid:* + created_by=system 기대 결함), ctx_menu:delete_guest 1 (NEW flow → _draft/ctx-menu-delete-guest.yaml 신규 작성, 5 MANDATORY PASS).",
+    "party_checkin.toggled 17건 모두 _draft/party-checkin-toggle DIFF — 단순 spurious tid:* 누락. 8개 draft (party-checkin/unassign-pool/event-sms-hook/naver-sync-* 등) 가 동일하게 tid:* 를 잘못 명시 (실제 로그에 tid 미존재). 일괄 클린업 별도 작업 필요 — 본 검증에서는 노이즈로 간주, draft 갱신 보류.",
+    "auto_assign.failed 2건 모두 5/9 객실 부족 알림 (의도된 운영 알림, sync 트리거 16:50/20:40).",
+    "401 171건 — bootstrap 윈도우 패턴 정상 (events/stream 87, reservations 30, tenants 28 등 7건씩 1h 주기 burst). 404 2건 모두 PHPUnit eval-stdin scan bot.",
+    "신규 커밋 4건 (b001782..8eb5709): 0737dff refactor(reservations.py 4-way split), 33302d4 chore(8회차 검증 결과), baa0738 fix(연박묶기 9회차), 8eb5709 fix(파티체크인 라벨). diag() 신규 추가 0건 — 백엔드 분리는 코드 이동만이라 정답지 영향 없음.",
+    "known_gaps 갱신 — reservations.py 7건 → 4개 신규 파일로 재배치 (reservations.py:473 + reservations_room.py:156 + reservations_sms.py:63/91/181 + reservations_stay.py:46/269). RoomAssignment.tsx 5건 라인 시프트 (+3~+6, baa0738 25줄 추가).",
+    "pending dashboard.stats.computed 종결 — 8회차 (33302d4) 에서 draft 작성됨, 본 회차 6건 매칭 확인.",
+    "TASKS.md 9회차 항목 (RoomAssignment.tsx 캐시 미스터리 res_id=4761, 방문자명 노출 정책) 별도 추적 — 본 검증 범위 외.",
+    "2026-05-04 10회차 후속 — 8개 draft yaml 의 spurious 필드 일괄 정리 완료. 제거: tid:* (7개 파일, dashboard-stats 는 실제로 emit 하므로 보존), req:*/req:'-' (모든 파일), ms:* (unassign-room-drag-to-pool). action:* → action_prefix:* 일괄 변환. unassign-room-drag-to-pool.yaml created_by: system → '*' (manual 케이스도 허용).",
+    "후속 정리 후 PASS 매칭 (10회차 윈도우 내): party-checkin-toggle 17, unassign-room-drag-to-pool 1, event-sms-hook-cron 14 cron runs, naver-sync-sub-events 14, naver-sync-sms-field-changed 2. instance_count 누적 반영.",
+    "promotion_threshold(=3) 도달 후보 — 사용자 승인 대기: party-checkin-toggle(19), event-sms-hook-cron(15), naver-sync-sub-events(15), dashboard-stats(19), naver-sync-cancel-chip-cleanup(4), naver-sync-sms-field-changed(3). 다음 검증 회차 또는 별도 승인 시 _draft/ → actions/ 이동.",
+    "diag_logger.py retention 픽스 — TimedRotatingFileHandler.namer 추가 (refactor-diag.log.YYYY-MM-DD → .gz). 기존 _gzip_rotator 의 dest 경로도 .gz 종결 가정으로 수정. backupCount=7 cleanup 이 .gz 파일까지 인식 → 다음 자정 UTC rotation 부터 7일 초과 .gz 자동 삭제. sandbox 테스트로 getFilesToDelete() 가 13개 중 6개 정확히 식별 확인.",
+    "2026-05-04 10회차 후속 — draft → confirmed 승격 7건: party-checkin-toggle, dashboard-stats, event-sms-hook-cron, naver-sync-sub-events, naver-sync-cancel-chip-cleanup, naver-sync-sms-field-changed, daily-chip-reconcile-stale-repair. _draft/ 잔존 10건: ctx-menu-delete-guest, unassign-room-drag-to-pool (count=2), chip-reconcile-party3-mms, naver-sync-tenant-failed (둘 다 미관측), 그 외 1회 관측 draft 5건."
   ]
 }

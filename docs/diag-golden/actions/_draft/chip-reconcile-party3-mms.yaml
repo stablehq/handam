@@ -20,8 +20,6 @@ expected_trace:
     category: MANDATORY
     fields:
       date: "*"    # today (절대 날짜 → "*")
-      tid: "*"
-      req: "-"     # cron 경로 — req_id 없음
 
   - event: party3_mms.reconcile.done
     category: MANDATORY
@@ -31,8 +29,6 @@ expected_trace:
       existing: "*"  # 기존 chip 수
       created: "*"   # 신규 생성 수
       deleted: "*"   # 삭제 수
-      tid: "*"
-      req: "-"
 
 forbidden_events:
   - event: party3_mms.reconcile.error

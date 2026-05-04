@@ -1,0 +1,59 @@
+action: ctx_menu_delete_guest (객실배정 컨텍스트 메뉴 → 게스트 삭제)
+description: |
+  RoomAssignment 페이지에서 게스트 카드 우클릭 → "삭제" 컨텍스트 메뉴.
+  DELETE /api/reservations/{res_id} 엔드포인트, action=ctx_menu:delete_guest.
+  clear_all_for_reservation 으로 RoomAssignment 행 전부 삭제 → 예약 본 row 삭제.
+
+reference_session: 2026-05-04
+created_at: 2026-05-04
+confidence: draft
+promotion_threshold: 3
+
+preconditions:
+  user_action: 게스트 카드 우클릭 → 컨텍스트 메뉴 "삭제"
+  action_tag: ctx_menu:delete_guest
+
+expected_trace:
+  - event: request.enter
+    category: MANDATORY
+    fields:
+      method: DELETE
+      path: /api/reservations/*   # res_id 는 "*"
+      action_prefix: ctx_menu
+
+  - event: clear_all_for_reservation.enter
+    category: MANDATORY
+    fields:
+      res_id: "*"
+      action_prefix: ctx_menu
+
+  - event: clear_all_for_reservation.exit
+    category: MANDATORY
+    fields:
+      res_id: "*"
+      deleted: "*"   # 삭제된 RoomAssignment 행 수 (배정 없으면 0)
+      action_prefix: ctx_menu
+
+  - event: reservation.deleted
+    category: MANDATORY
+    fields:
+      reservation_id: "*"
+      actor: "*"        # admin | staff
+      action_prefix: ctx_menu
+
+  - event: request.exit
+    category: MANDATORY
+    fields:
+      status: 200
+      action_prefix: ctx_menu
+
+forbidden_events:
+  - event: request.error
+    reason: 성공 경로 — 에러 없어야 함
+
+notes: |
+  - 첫 관측 2026-05-04 10:56:42 req=m5kuy86b (res_id=4864 actor=admin).
+  - tid 필드는 이 경로 이벤트들에 출력되지 않음 — 정답지에 명시 금지
+    (드래그 풀의 _draft 들이 tid:* 를 잘못 명시하여 false DIFF 발생 중,
+    동일 함정 회피).
+  - clear_all_for_reservation.exit 의 deleted=0 은 미배정 게스트 삭제일 때 정상.

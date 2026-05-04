@@ -26,8 +26,6 @@ expected_trace:
       tenant_id: "*"
       tenant_slug: "*"   # handam | stable | 그 외
       error: "*"         # 자유 텍스트 (JSON 파싱 오류 메시지, 네트워크 오류 등)
-      tid: "*"
-      req: "-"           # cron 경로
 
 alerts:
   - condition: error contains "Expecting value"

@@ -7,7 +7,7 @@ description: |
 reference_commit: 3849bae
 reference_case: 2026-04-27 로그 세션 (scheduled × 62, no_schedules × 62)
 created_at: 2026-04-27
-confidence: draft
+confidence: confirmed
 promotion_threshold: 3
 
 preconditions:
@@ -20,16 +20,12 @@ expected_trace:
     fields:
       reservation_count: "*"
       tenant_id: "*"
-      tid: "*"
-      req: "-"
 
   - event: event_sms_hook.no_schedules
     category: CONDITIONAL  # 해당 테넌트에 매칭 스케줄 없을 때만 함께 발생
     condition: 매칭 스케줄 0건인 테넌트
     fields:
       tenant_id: "*"
-      tid: "*"
-      req: "-"
 
 forbidden_events:
   - event: request.enter

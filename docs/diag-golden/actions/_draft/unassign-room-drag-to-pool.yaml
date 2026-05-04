@@ -29,18 +29,14 @@ expected_trace:
       res_id: "*"
       from_date: "*"   # 배정 시작 날짜
       end_date: "*"    # 배정 종료 날짜
-      tid: "*"
-      req: "*"
-      action: drop_on_pool
+      action_prefix: drop_on_pool
 
   - event: activity_log.created
     category: MANDATORY
     fields:
       type: room_move
       status: success
-      created_by: system
-      tid: "*"
-      req: "*"
+      created_by: "*"   # manual (사용자 드롭) | system (sync 등) — 둘 다 허용
 
   - event: compact_bed_orders
     category: CONDITIONAL
@@ -67,9 +63,7 @@ expected_trace:
     category: MANDATORY
     fields:
       res_id: "*"
-      tid: "*"
-      req: "*"
-      action: drop_on_pool
+      action_prefix: drop_on_pool
 
   - event: filter.apply.enter
     category: VARIABLE_COUNT
@@ -97,16 +91,12 @@ expected_trace:
       expected: "*"
       existing: "*"
       created: "*"
-      tid: "*"
-      req: "*"
 
   - event: request.exit
     category: MANDATORY
     fields:
       status: 200
-      ms: "*"
-      req: "*"
-      action: drop_on_pool
+      action_prefix: drop_on_pool
 
 forbidden_events:
   - event: request.error
