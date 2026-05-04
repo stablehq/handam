@@ -39,16 +39,23 @@ _action_ctx: ContextVar[str] = ContextVar("diag_user_action", default="-")
 _logger: Optional[logging.Logger] = None
 
 
+def _gzip_namer(default_name: str) -> str:
+    # default_name = ".../refactor-diag.log.YYYY-MM-DD"
+    # backupCount cleanup 이 .gz 까지 식별하도록 namer 와 rotator 모두 .gz suffix 사용.
+    return default_name + ".gz"
+
+
 def _gzip_rotator(source: str, dest: str) -> None:
-    """어제 파일을 gzip으로 압축해 저장."""
+    # dest 는 _gzip_namer 가 이미 .gz 로 끝낸 경로.
     try:
-        with open(source, "rb") as f_in, gzip.open(f"{dest}.gz", "wb") as f_out:
+        with open(source, "rb") as f_in, gzip.open(dest, "wb") as f_out:
             shutil.copyfileobj(f_in, f_out)
         os.remove(source)
     except Exception:
-        # gzip 실패해도 rotation 자체는 성공해야 하므로 원본 이름 유지
+        # gzip 실패해도 rotation 자체는 성공해야 하므로 원본 이름(.gz 제거) 유지
+        fallback = dest[:-3] if dest.endswith(".gz") else dest
         try:
-            os.rename(source, dest)
+            os.rename(source, fallback)
         except Exception:
             pass
 
@@ -84,6 +91,7 @@ def get_diag_logger() -> logging.Logger:
             encoding="utf-8",
         )
         handler.rotator = _gzip_rotator
+        handler.namer = _gzip_namer
         handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
         _logger.addHandler(handler)
         _logger.setLevel(logging.INFO)
