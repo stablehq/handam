@@ -37,6 +37,7 @@ import {
 import { useIsMobile } from '../hooks/use-mobile';
 import GuestContextMenu from '../components/GuestContextMenu';
 import TableSettingsModal from '../components/TableSettingsModal';
+import type { SmsAssignment, Reservation, ConfirmState } from './RoomAssignment/types';
 
 import {
   PRESET_HIGHLIGHT_STYLES,
@@ -138,50 +139,8 @@ function RoomMemoEditor({ roomId, memo, onSave }: RoomMemoEditorProps) {
   );
 }
 
-interface SmsAssignment {
-  id: number;
-  reservation_id: number;
-  template_key: string;
-  assigned_at: string;
-  sent_at: string | null;
-  assigned_by: string;
-  date: string;
-  send_status?: string | null;
-  send_error?: string | null;
-}
-
-interface Reservation {
-  id: number;
-  customer_name: string;
-  phone: string;
-  check_in_date: string;
-  check_in_time: string;
-  status: string;
-  room_id: number | null;
-  room_number: string | null;
-  room_password: string | null;
-  room_assigned_by: string | null;
-  naver_room_type: string | null;
-  section: string;  // 'room', 'unassigned', 'party', 'unstable'
-  unstable_party?: boolean;
-  gender: string | null;
-  male_count: number | null;
-  female_count: number | null;
-  party_size: number | null;
-  party_type: string | null;  // '1'=1차만, '2'=1+2차, '2차만'
-  notes: string | null;
-  check_out_date: string | null;
-  booking_source?: string;
-  sms_assignments: SmsAssignment[];
-  stay_group_id?: string | null;
-  stay_group_order?: number | null;
-  is_long_stay?: boolean;
-  bed_order?: number;
-  highlight_color?: string | null;
-  has_unstable_booking?: boolean;
-  cancelled_at?: string | null;
-  created_at?: string;
-}
+// 데이터 shape 타입은 RoomAssignment/types.ts 로 분리 (Phase 1 단순 분리).
+// SmsAssignment, Reservation, ConfirmState 는 파일 상단 import 참조.
 
 
 
@@ -437,12 +396,7 @@ const InlineInput = ({ value, field, resId, className, placeholder, onSave, auto
   );
 };
 
-interface ConfirmState {
-  open: boolean;
-  title: string;
-  content: string;
-  onOk: () => void;
-}
+// ConfirmState 는 RoomAssignment/types.ts 로 이동 (Phase 1).
 
 const RoomAssignment = () => {
   const { tenants, currentTenantId } = useTenantStore();
