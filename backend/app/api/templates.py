@@ -190,9 +190,15 @@ def get_template_labels(
         priority_keys = ["party_info", "room_info", "sub_room_info"]
 
     # 활성 스케줄에서 template_id 별 가장 이른 발송 시각(분 단위) 계산.
-    # hour/minute 가 있는 스케줄만 대상. 같은 template 에 여러 스케줄이 묶이면
-    # 가장 이른 시각을 사용.
-    SCHEDULE_TIME_MAX = 24 * 60  # 시각 미상 정렬용 (모든 정상 시각보다 큼)
+    # 예약일 기준 day-offset 까지 고려:
+    #   today      → 0 (예약일 당일 발송)
+    #   yesterday  → +1 (예약일 다음 날 발송 — 후기 류)
+    #   tomorrow   → -1 (예약일 전날 발송 — 사전 안내 류)
+    #   기타       → 0 (today_checkout 등은 안전하게 same-day 취급)
+    # 정렬 값 = offset*1440 + hour*60 + minute → 같은 template 의 여러 스케줄이
+    # 묶이면 가장 이른 값을 사용.
+    DAY_OFFSET = {'today': 0, 'yesterday': 1, 'tomorrow': -1}
+    SCHEDULE_TIME_MAX = 10 * 24 * 60  # 시각 미상 정렬용 (모든 정상 시각보다 큼)
     schedule_time_by_template: dict[int, int] = {}
     schedules = db.query(TemplateSchedule).filter(
         TemplateSchedule.is_active == True,
@@ -200,10 +206,11 @@ def get_template_labels(
     for s in schedules:
         if s.hour is None or s.minute is None:
             continue
-        minutes_in_day = s.hour * 60 + s.minute
+        offset = DAY_OFFSET.get(s.date_target or 'today', 0)
+        minutes_total = offset * 1440 + s.hour * 60 + s.minute
         existing = schedule_time_by_template.get(s.template_id)
-        if existing is None or minutes_in_day < existing:
-            schedule_time_by_template[s.template_id] = minutes_in_day
+        if existing is None or minutes_total < existing:
+            schedule_time_by_template[s.template_id] = minutes_total
 
     templates = db.query(MessageTemplate).filter(MessageTemplate.is_active == True).all()
     templates.sort(key=lambda t: (
