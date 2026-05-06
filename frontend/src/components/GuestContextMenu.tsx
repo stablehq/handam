@@ -2,7 +2,6 @@ import React, { useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Undo2, Music, Trash2, Link2, X, Zap, XCircle, CalendarPlus, CalendarMinus, Palette, ChevronRight, Calendar } from 'lucide-react';
 import { GOOGLE_SHEETS_PALETTE } from '../lib/highlight-colors';
-import { useClickOutside } from '@/hooks/use-click-outside';
 
 interface GuestContextMenuProps {
   position: { x: number; y: number };
@@ -50,10 +49,19 @@ export default function GuestContextMenu({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const paletteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 자체 닫기 — Escape 또는 메뉴 바깥(palette submenu 포함하는 menuRef 영역 외부) 클릭/탭 시 onClose 호출.
-  // 부모(RoomAssignment) 의 backdrop 과 중복이지만 동일 효과 (둘 다 setContextMenu(null)) 로 무해.
-  // 다른 페이지에서 재사용해도 self-contained.
-  useClickOutside(menuRef, onClose, true);
+  // Escape 만 자체 처리. outside-click 은 부모(RoomAssignment) 의 backdrop 이 담당.
+  //
+  // 이전엔 useClickOutside(touchstart/mousedown) 가 document 레벨에서 즉시 발화해
+  // backdrop 보다 먼저 onClose 를 호출 → backdrop 이 unmount 되어 underlying drop
+  // zone 이 후속 click 을 받아 모바일에서 예약자 이동이 잘못 발생하는 버그가 있었음.
+  // 이제 backdrop 의 onClick 만으로 닫게 해 click 이벤트가 backdrop 위에서 완결됨.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   useEffect(() => {
     if (!menuRef.current) return;
