@@ -48,6 +48,8 @@ import { DateChangeModal } from './RoomAssignment/modals/DateChangeModal';
 import { StayGroupChainModal } from './RoomAssignment/modals/StayGroupChainModal';
 import { SendConfirmModal } from './RoomAssignment/modals/SendConfirmModal';
 import { ReservationFormModal } from './RoomAssignment/modals/ReservationFormModal';
+import { ExtendStayConflictModal } from './RoomAssignment/modals/ExtendStayConflictModal';
+import { QuickMenuBar } from './RoomAssignment/components/QuickMenuBar';
 
 import {
   PRESET_HIGHLIGHT_STYLES,
@@ -2823,138 +2825,58 @@ const RoomAssignment = () => {
         onSubmit={handleSubmit}
       />
 
-      {/* Quick Menu — createPortal 로 document.body 직속 렌더 + transform 없는 중앙정렬.
-          ancestor 의 transform/filter/contain 등이 fixed positioning 의 containing block 을
-          가로채는 모바일 브라우저 버그를 회피. 래퍼는 viewport 폭(left-0 right-0)을 잡고
-          flex justify-center 로 안쪽 카드를 중앙. 래퍼 pointer-events-none, 카드 only
-          pointer-events-auto 로 click 가로채지 않게. */}
-      {createPortal(
-      <div className="fixed bottom-4 left-0 right-0 z-50 flex justify-center pointer-events-none">
-      <div className="rounded-2xl shadow-lg bg-white dark:bg-[#1E1E24] border border-[#E5E8EB] dark:border-gray-800 px-4 py-2.5 pointer-events-auto">
-        <div className="flex items-center gap-3">
-          <span className="text-[9px] font-bold tracking-widest leading-tight text-[#B0B8C1] dark:text-[#4E5968]">QUICK<br/>MENU</span>
-          <Tooltip content={autoAssigning ? '배정 중...' : '객실 자동 배정'} placement="top">
-            <div className="inline-block">
-              <button
-                onClick={() => setAutoAssignConfirm(true)}
-                disabled={autoAssigning}
-                className="h-10 w-10 flex items-center justify-center rounded-full bg-[#3182F6] text-white hover:bg-[#1B64DA] active:bg-[#1554B5] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-              >
-                {autoAssigning ? <Spinner size="sm" /> : <BedDouble className="h-[18px] w-[18px]" />}
-              </button>
-            </div>
-          </Tooltip>
-          <Tooltip content="파티 게스트 추가" placement="top">
-            <div className="inline-block">
-              <button
-                onClick={handleQuickAddParty}
-                className="h-10 w-10 flex items-center justify-center rounded-full bg-white dark:bg-[#2C2C34] border border-[#E5E8EB] dark:border-gray-700 text-[#4E5968] dark:text-gray-300 hover:bg-[#F2F4F6] dark:hover:bg-[#35353E] active:bg-[#E5E8EB] transition-colors cursor-pointer"
-              >
-                <UserRoundPlus className="h-[18px] w-[18px]" />
-              </button>
-            </div>
-          </Tooltip>
-          <Tooltip content={isMobile ? '되돌리기' : '되돌리기 (Ctrl+Z)'} placement="top">
-            <div className="inline-block">
-              <button
-                onClick={handleUndo}
-                disabled={undoStack.length === 0}
-                className="h-10 w-10 flex items-center justify-center rounded-full bg-white dark:bg-[#2C2C34] border border-[#E5E8EB] dark:border-gray-700 text-[#4E5968] dark:text-gray-300 hover:bg-[#F2F4F6] dark:hover:bg-[#35353E] active:bg-[#E5E8EB] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
-              >
-                <Undo2 className="h-[18px] w-[18px]" />
-              </button>
-            </div>
-          </Tooltip>
-          {selectionActive && isMobile && (
-            <>
-              <div className="w-px h-6 bg-[#E5E8EB] dark:bg-gray-700" />
-              <Tooltip content="컨텍스트 메뉴" placement="top">
-                <div className="inline-block">
-                  <button
-                    ref={mobileContextBtnRef}
-                    onClick={() => {
-                      if (mobileContextMenuOpen) {
-                        setContextMenu(null);
-                        setMobileContextMenuOpen(false);
-                      } else {
-                        const ids = [...selectedGuestIds];
-                        if (ids.length === 0) return;
-                        const rect = mobileContextBtnRef.current!.getBoundingClientRect();
-                        setContextMenu({ x: rect.left, y: rect.top - 8, targetIds: ids });
-                        setMobileContextMenuOpen(true);
-                      }
-                    }}
-                    className={`h-10 w-10 flex items-center justify-center rounded-full border transition-colors cursor-pointer ${
-                      mobileContextMenuOpen
-                        ? 'bg-[#3182F6] border-[#3182F6] text-white'
-                        : 'bg-white dark:bg-[#2C2C34] border-[#E5E8EB] dark:border-gray-700 text-[#4E5968] dark:text-gray-300 hover:bg-[#F2F4F6] dark:hover:bg-[#35353E] active:bg-[#E5E8EB]'
-                    }`}
-                  >
-                    <Menu className="h-[18px] w-[18px]" />
-                  </button>
-                </div>
-              </Tooltip>
-              <Tooltip
-                content={
-                  selectedGuestIds.size !== 1
-                    ? '1명 선택 시만 전화 가능'
-                    : '선택한 게스트에게 전화'
-                }
-                placement="top"
-              >
-                <div className="inline-block">
-                  <button
-                    onClick={() => {
-                      if (selectedGuestIds.size !== 1) return;
-                      const id = [...selectedGuestIds][0];
-                      const found = findReservation(id);
-                      const phone = found?.res?.phone?.trim();
-                      if (!phone) {
-                        toast.warning('연락처가 등록되지 않은 게스트입니다');
-                        return;
-                      }
-                      window.location.href = `tel:${phone}`;
-                    }}
-                    disabled={selectedGuestIds.size !== 1}
-                    className="h-10 w-10 flex items-center justify-center rounded-full bg-[#00C9A7]/10 text-[#00C9A7] border border-[#00C9A7]/20 hover:bg-[#00C9A7]/20 active:bg-[#00C9A7]/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                  >
-                    <Phone className="h-[18px] w-[18px]" />
-                  </button>
-                </div>
-              </Tooltip>
-              <Tooltip content="게스트 삭제" placement="top">
-                <div className="inline-block">
-                  <button
-                    onClick={() => {
-                      const ids = [...selectedGuestIds];
-                      if (ids.length === 0) return;
-                      if (ids.length > 1) {
-                        showConfirm('게스트 일괄 삭제', `${ids.length}명을 삭제하시겠습니까?`, async () => {
-                          for (const id of ids) {
-                            try { await reservationsAPI.delete(id); } catch { /* skip */ }
-                          }
-                          toast.success(`${ids.length}명 삭제 완료`);
-                          setSelectedGuestIds(new Set());
-                          fetchReservations(selectedDate);
-                        });
-                      } else {
-                        handleDeleteGuest(ids[0]);
-                        setSelectedGuestIds(new Set());
-                      }
-                    }}
-                    className="h-10 w-10 flex items-center justify-center rounded-full bg-[#F04452]/10 text-[#F04452] border border-[#F04452]/20 hover:bg-[#F04452]/20 active:bg-[#F04452]/30 transition-colors cursor-pointer"
-                  >
-                    <Trash2 className="h-[18px] w-[18px]" />
-                  </button>
-                </div>
-              </Tooltip>
-            </>
-          )}
-        </div>
-      </div>
-      </div>,
-      document.body,
-      )}
+      <QuickMenuBar
+        autoAssigning={autoAssigning}
+        onAutoAssign={() => setAutoAssignConfirm(true)}
+        onPartyAdd={handleQuickAddParty}
+        canUndo={undoStack.length > 0}
+        onUndo={handleUndo}
+        isMobile={isMobile}
+        selectionActive={selectionActive}
+        selectedCount={selectedGuestIds.size}
+        mobileContextBtnRef={mobileContextBtnRef}
+        mobileContextMenuOpen={mobileContextMenuOpen}
+        onToggleMobileContext={() => {
+          if (mobileContextMenuOpen) {
+            setContextMenu(null);
+            setMobileContextMenuOpen(false);
+          } else {
+            const ids = [...selectedGuestIds];
+            if (ids.length === 0) return;
+            const rect = mobileContextBtnRef.current!.getBoundingClientRect();
+            setContextMenu({ x: rect.left, y: rect.top - 8, targetIds: ids });
+            setMobileContextMenuOpen(true);
+          }
+        }}
+        onCallSelected={() => {
+          if (selectedGuestIds.size !== 1) return;
+          const id = [...selectedGuestIds][0];
+          const found = findReservation(id);
+          const phone = found?.res?.phone?.trim();
+          if (!phone) {
+            toast.warning('연락처가 등록되지 않은 게스트입니다');
+            return;
+          }
+          window.location.href = `tel:${phone}`;
+        }}
+        onDeleteSelected={() => {
+          const ids = [...selectedGuestIds];
+          if (ids.length === 0) return;
+          if (ids.length > 1) {
+            showConfirm('게스트 일괄 삭제', `${ids.length}명을 삭제하시겠습니까?`, async () => {
+              for (const id of ids) {
+                try { await reservationsAPI.delete(id); } catch { /* skip */ }
+              }
+              toast.success(`${ids.length}명 삭제 완료`);
+              setSelectedGuestIds(new Set());
+              fetchReservations(selectedDate);
+            });
+          } else {
+            handleDeleteGuest(ids[0]);
+            setSelectedGuestIds(new Set());
+          }
+        }}
+      />
 
       <ConfirmDialog
         state={confirmState}
@@ -3079,81 +3001,43 @@ const RoomAssignment = () => {
         onComplete={handleStayGroupComplete}
       />
 
-      {/* Extend Stay Conflict Modal */}
-      <Modal
-        show={!!extendStayConflict?.open}
+      <ExtendStayConflictModal
+        data={extendStayConflict}
         onClose={() => setExtendStayConflict(null)}
-        size="md"
-      >
-        <ModalHeader>방 배정 충돌</ModalHeader>
-        <ModalBody>
-          <div className="space-y-3">
-            <p className="text-body text-[#191F28] dark:text-white">
-              <span className="font-semibold">{extendStayConflict?.roomNumber}호</span>에 이미 배정된 게스트가 있습니다.
-            </p>
-            <div className="rounded-lg bg-[#F2F4F6] dark:bg-[#2C2C34] p-3">
-              {extendStayConflict?.existingGuests.map((name, i) => (
-                <div key={i} className="text-body text-[#4E5968] dark:text-gray-300">{name}</div>
-              ))}
-            </div>
-          </div>
-        </ModalBody>
-        <ModalFooter>
-          <div className="flex gap-2 w-full">
-            <Button
-              color="blue"
-              className="flex-1"
-              onClick={async () => {
-                if (!extendStayConflict) return;
-                try {
-                  await api.post(`/api/reservations/${extendStayConflict.newResId}/extend-stay/assign-room`, {
-                    new_reservation_id: extendStayConflict.newResId,
-                    room_id: extendStayConflict.roomId,
-                    date: selectedDate.add(1, 'day').format('YYYY-MM-DD'),
-                    move_existing_to_unassigned: false,
-                  });
-                  toast.success('같은 방에 배정 완료');
-                } catch { toast.error('배정 실패'); }
-                setExtendStayConflict(null);
-                fetchReservations(selectedDate);
-              }}
-            >
-              같은방에 유지
-            </Button>
-            <Button
-              color="light"
-              className="flex-1"
-              onClick={async () => {
-                if (!extendStayConflict) return;
-                try {
-                  await api.post(`/api/reservations/${extendStayConflict.newResId}/extend-stay/assign-room`, {
-                    new_reservation_id: extendStayConflict.newResId,
-                    room_id: extendStayConflict.roomId,
-                    date: selectedDate.add(1, 'day').format('YYYY-MM-DD'),
-                    move_existing_to_unassigned: true,
-                  });
-                  toast.success('기존 게스트 미배정 → 새 게스트 배정 완료');
-                } catch { toast.error('배정 실패'); }
-                setExtendStayConflict(null);
-                fetchReservations(selectedDate);
-              }}
-            >
-              미배정으로 이동
-            </Button>
-            <Button
-              color="light"
-              className="flex-1"
-              onClick={() => {
-                toast.info('방 배정 없이 연박추가 완료');
-                setExtendStayConflict(null);
-                fetchReservations(selectedDate);
-              }}
-            >
-              취소
-            </Button>
-          </div>
-        </ModalFooter>
-      </Modal>
+        onKeepSameRoom={async () => {
+          if (!extendStayConflict) return;
+          try {
+            await api.post(`/api/reservations/${extendStayConflict.newResId}/extend-stay/assign-room`, {
+              new_reservation_id: extendStayConflict.newResId,
+              room_id: extendStayConflict.roomId,
+              date: selectedDate.add(1, 'day').format('YYYY-MM-DD'),
+              move_existing_to_unassigned: false,
+            });
+            toast.success('같은 방에 배정 완료');
+          } catch { toast.error('배정 실패'); }
+          setExtendStayConflict(null);
+          fetchReservations(selectedDate);
+        }}
+        onMoveExistingToPool={async () => {
+          if (!extendStayConflict) return;
+          try {
+            await api.post(`/api/reservations/${extendStayConflict.newResId}/extend-stay/assign-room`, {
+              new_reservation_id: extendStayConflict.newResId,
+              room_id: extendStayConflict.roomId,
+              date: selectedDate.add(1, 'day').format('YYYY-MM-DD'),
+              move_existing_to_unassigned: true,
+            });
+            toast.success('기존 게스트 미배정 → 새 게스트 배정 완료');
+          } catch { toast.error('배정 실패'); }
+          setExtendStayConflict(null);
+          fetchReservations(selectedDate);
+        }}
+        onSkipAssign={() => {
+          toast.info('방 배정 없이 연박추가 완료');
+          setExtendStayConflict(null);
+          fetchReservations(selectedDate);
+        }}
+      />
 
       <DateChangeModal
         data={dateChangeModal}
