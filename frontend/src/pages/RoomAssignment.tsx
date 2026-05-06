@@ -1868,8 +1868,10 @@ const RoomAssignment = () => {
       const checkIn = dayjs(values.date);
       values.check_out_date = checkIn.add(values.nights, 'day').format('YYYY-MM-DD');
     } else if (values.date) {
-      // 단일날짜: ci=co 로 명시 — 기존 연박 → 단일 전환 시 백엔드 exclude_unset 으로 co 가 stale 되는 문제 방지
-      values.check_out_date = values.date;
+      // 1박: co=null 로 보내야 _filter_last_day 가 당일 케이스로 인식해
+      // last_night 스케줄(연박유도/후기 등)에 정상 포함됨.
+      // 연박→단일 전환 시 백엔드 exclude_unset 회피 위해 명시 null 전송.
+      values.check_out_date = null;
     }
     delete values.multi_night;
     delete values.nights;

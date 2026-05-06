@@ -42,27 +42,6 @@ def _is_double_room(db: Session, room: Room) -> bool:
     return False
 
 
-def _has_test_marker(db: Session, reservation_id: int, date: str) -> bool:
-    """[테스트 기간 전용] 예약/일자별 메모에 '테스트' 포함 여부.
-
-    Reservation.notes 또는 ReservationDailyInfo(date).notes 중 하나라도
-    '테스트' 포함하면 True. 테스트 기간 종료 시 이 함수 호출부와 함께 제거.
-    """
-    from app.db.models import Reservation, ReservationDailyInfo
-    reservation = db.query(Reservation).filter(
-        Reservation.id == reservation_id
-    ).first()
-    if reservation and reservation.notes and '테스트' in reservation.notes:
-        return True
-    daily = db.query(ReservationDailyInfo).filter(
-        ReservationDailyInfo.reservation_id == reservation_id,
-        ReservationDailyInfo.date == date,
-    ).first()
-    if daily and daily.notes and '테스트' in daily.notes:
-        return True
-    return False
-
-
 def _find_schedule(db: Session, custom_type: str) -> Optional[TemplateSchedule]:
     return db.query(TemplateSchedule).filter(
         TemplateSchedule.schedule_category == 'custom_schedule',
@@ -101,14 +80,6 @@ def reconcile_surcharge(
     """
     diag("surcharge.reconcile.enter", level="verbose", res_id=reservation_id, date=date)
     try:
-        # 0. [테스트 기간 전용] notes 에 '테스트' 포함된 예약에만 발송.
-        #    테스트 기간 종료 시 이 블록 제거하여 일반 발송으로 전환.
-        if not _has_test_marker(db, reservation_id, date):
-            _delete_all_surcharge_chips(db, reservation_id, date)
-            diag("surcharge.skipped_no_test_marker",
-                 level="verbose", res_id=reservation_id, date=date)
-            return
-
         # 1. RoomAssignment 조회
         q = db.query(RoomAssignment).filter(
             RoomAssignment.reservation_id == reservation_id,
