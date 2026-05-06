@@ -46,6 +46,7 @@ import { MultiNightConfirmModal } from './RoomAssignment/modals/MultiNightConfir
 import { AutoAssignConfirmModal } from './RoomAssignment/modals/AutoAssignConfirmModal';
 import { DateChangeModal } from './RoomAssignment/modals/DateChangeModal';
 import { StayGroupChainModal } from './RoomAssignment/modals/StayGroupChainModal';
+import { SendConfirmModal } from './RoomAssignment/modals/SendConfirmModal';
 
 import {
   PRESET_HIGHLIGHT_STYLES,
@@ -3097,76 +3098,17 @@ const RoomAssignment = () => {
         onClose={() => setMultiNightConfirm(null)}
       />
 
-      {/* 발송 확인 모달 */}
-      <Modal show={!!sendConfirm} onClose={() => setSendConfirm(null)} size="md" popup>
-        <ModalHeader />
-        <ModalBody>
-          <div className="text-center">
-            <Send className="mx-auto mb-4 h-10 w-10 text-[#3182F6]" />
-            <h3 className="mb-2 text-heading font-semibold text-gray-800 dark:text-white">
-              SMS 발송 확인
-            </h3>
-            <p className="mb-6 text-body text-[#4E5968] dark:text-gray-300">
-              {sendConfirm?.type === 'campaign'
-                ? `${templateLabels.find(t => t.template_key === selectedTemplateKey)?.name || selectedTemplateKey} — ${targets.length}건을 발송하시겠습니까?`
-                : (() => {
-                    const r = reservations.find(r => r.id === sendConfirm?.resId);
-                    const dateStr = selectedDate.format('YYYY-MM-DD');
-                    const todayAssignment = r?.sms_assignments?.find(a => a.template_key === sendConfirm?.templateKey && a.date === dateStr)
-                      || r?.sms_assignments?.find(a => a.template_key === sendConfirm?.templateKey);
-                    const isSent = todayAssignment ? !!todayAssignment.sent_at : false;
-                    return isSent
-                      ? `${sendConfirm?.customerName}님의 ${sendConfirm?.templateName} 발송을 취소하시겠습니까?`
-                      : `${sendConfirm?.customerName}님에게 ${sendConfirm?.templateName}을(를) 발송하시겠습니까?`;
-                  })()}
-            </p>
-            <div className="flex flex-col items-center gap-4">
-              <div className="flex justify-center gap-3">
-                <Button color="blue" onClick={() => {
-                  if (sendConfirm?.type === 'campaign') {
-                    handleSendCampaign();
-                  } else if (sendConfirm?.type === 'toggle' && sendConfirm.resId && sendConfirm.templateKey) {
-                    setSendConfirm(null);
-                    doSmsToggle(sendConfirm.resId, sendConfirm.templateKey);
-                  }
-                }}>
-                  {(() => {
-                    const r = reservations.find(r => r.id === sendConfirm?.resId);
-                    const dStr = selectedDate.format('YYYY-MM-DD');
-                    const ta = r?.sms_assignments?.find(a => a.template_key === sendConfirm?.templateKey && a.date === dStr)
-                      || r?.sms_assignments?.find(a => a.template_key === sendConfirm?.templateKey);
-                    const isSent = ta ? !!ta.sent_at : false;
-                    return isSent ? '발송 취소' : '발송';
-                  })()}
-                </Button>
-                <Button color="light" onClick={() => setSendConfirm(null)}>
-                  취소
-                </Button>
-              </div>
-              {sendConfirm?.type === 'toggle' && (() => {
-                const r = reservations.find(r => r.id === sendConfirm?.resId);
-                const dStr = selectedDate.format('YYYY-MM-DD');
-                const ta = r?.sms_assignments?.find(a => a.template_key === sendConfirm?.templateKey && a.date === dStr);
-                const isSent = ta ? !!ta.sent_at : false;
-                if (isSent) return null;
-                return (
-                  <button
-                    className="text-caption text-[#8B95A1] underline hover:text-[#4E5968] dark:text-gray-500 dark:hover:text-gray-300"
-                    onClick={() => {
-                      if (sendConfirm.resId && sendConfirm.templateKey) {
-                        setSendConfirm(null);
-                        doSmsToggle(sendConfirm.resId, sendConfirm.templateKey, true);
-                      }
-                    }}
-                  >
-                    발송 없이 완료 처리
-                  </button>
-                );
-              })()}
-            </div>
-          </div>
-        </ModalBody>
-      </Modal>
+      <SendConfirmModal
+        data={sendConfirm}
+        onClose={() => setSendConfirm(null)}
+        reservations={reservations}
+        templateLabels={templateLabels}
+        selectedTemplateKey={selectedTemplateKey}
+        targetsCount={targets.length}
+        selectedDate={selectedDate}
+        onSendCampaign={handleSendCampaign}
+        onSmsToggle={doSmsToggle}
+      />
 
       {/* Slide animations (transform only, no opacity = no flicker) */}
       <style>{`
