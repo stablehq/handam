@@ -2110,6 +2110,9 @@ const RoomAssignment = () => {
   }, [selectedGuestIds, handleDropOnRoom, handleDropOnPool, handleDropOnParty, selectedDate, findReservation]);
 
   const onZoneHover = useCallback((zoneId: string) => {
+    // 모바일은 hover 가 실제 사용자 의도가 아님 — 터치 후 합성 mouseenter 가 발화해
+    // "여기에 놓으세요" 가 잘못 표시되는 문제 방지.
+    if (isMobile) return;
     if (selectedGuestIds.size === 0) return;
     if (zoneId.startsWith('next-room-')) {
       setDragOverNextRoom(Number(zoneId.replace('next-room-', '')));
@@ -2125,7 +2128,7 @@ const RoomAssignment = () => {
       else if (zoneId === 'pool') { setDragOverPool(true); setDragOverNextPool(false); }
       else if (zoneId === 'party') { setDragOverPartyZone(true); setDragOverNextParty(false); }
     }
-  }, [selectedGuestIds.size]);
+  }, [selectedGuestIds.size, isMobile]);
 
   const onZoneLeave = useCallback(() => {
     setDragOverRoom(null);
