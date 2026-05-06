@@ -3921,7 +3921,9 @@ const RoomAssignment = () => {
               const { resId, checkIn, checkOut } = dateChangeModal;
               if (!checkIn) { toast.error('체크인 날짜를 입력하세요'); return; }
               if (!checkOut) { toast.error('체크아웃 날짜를 입력하세요'); return; }
-              if (checkOut <= checkIn) { toast.error('체크아웃은 체크인 이후여야 합니다'); return; }
+              // co == ci 는 백엔드에서 "당일 1박" 으로 NULL 과 동일 취급되므로 허용.
+              // co < ci 만 차단.
+              if (checkOut < checkIn) { toast.error('체크아웃은 체크인보다 이전일 수 없습니다'); return; }
               const hadRoom = findReservation(resId)?.res?.room_id;
               try {
                 await reservationsAPI.update(resId, {
