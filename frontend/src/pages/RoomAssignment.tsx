@@ -41,6 +41,9 @@ import type { SmsAssignment, Reservation, ConfirmState } from './RoomAssignment/
 import { RoomMemoEditor } from './RoomAssignment/components/RoomMemoEditor';
 import { SmsCell } from './RoomAssignment/components/SmsCell';
 import { InlineInput } from './RoomAssignment/components/InlineInput';
+import { ConfirmDialog } from './RoomAssignment/modals/ConfirmDialog';
+import { MultiNightConfirmModal } from './RoomAssignment/modals/MultiNightConfirmModal';
+import { AutoAssignConfirmModal } from './RoomAssignment/modals/AutoAssignConfirmModal';
 
 import {
   PRESET_HIGHLIGHT_STYLES,
@@ -3082,80 +3085,15 @@ const RoomAssignment = () => {
       document.body,
       )}
 
-      {/* Confirm Dialog */}
-      <Modal
-        show={confirmState.open}
+      <ConfirmDialog
+        state={confirmState}
         onClose={() => setConfirmState((s) => ({ ...s, open: false }))}
-        size="sm"
-      >
-        <ModalBody>
-          <div className="text-center">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#F04452]/10 dark:bg-[#F04452]/10">
-              <Trash2 className="h-6 w-6 text-[#F04452]" />
-            </div>
-            <h3 className="mb-2 text-lg font-semibold text-[#191F28] dark:text-white">{confirmState.title}</h3>
-            <p className="mb-5 text-sm text-[#8B95A1] dark:text-[#8B95A1]">{confirmState.content}</p>
-            <div className="flex justify-center gap-3">
-              <Button
-                color="blue"
-                onClick={() => {
-                  setConfirmState((s) => ({ ...s, open: false }));
-                  confirmState.onOk();
-                }}
-              >
-                확인
-              </Button>
-              <Button
-                color="light"
-                onClick={() => setConfirmState((s) => ({ ...s, open: false }))}
-              >
-                취소
-              </Button>
-            </div>
-          </div>
-        </ModalBody>
-      </Modal>
+      />
 
-      {/* Multi-night room move confirmation */}
-      <Modal
-        show={!!multiNightConfirm?.open}
+      <MultiNightConfirmModal
+        data={multiNightConfirm}
         onClose={() => setMultiNightConfirm(null)}
-        size="sm"
-      >
-        <ModalBody>
-          <div className="text-center">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#E8F3FF] dark:bg-[#3182F6]/10">
-              <BedDouble className="h-6 w-6 text-[#3182F6]" />
-            </div>
-            <h3 className="mb-2 text-lg font-semibold text-[#191F28] dark:text-white">연박 객실 이동</h3>
-            <p className="mb-5 text-sm text-[#8B95A1] dark:text-[#8B95A1]">
-              <span className="font-semibold text-[#191F28] dark:text-white">{multiNightConfirm?.resName}</span> 님을{' '}
-              <span className="font-semibold text-[#3182F6]">{multiNightConfirm?.roomNumber}</span>(으)로 이동합니다.
-              <br />이후 날짜도 같은 객실로 배정하시겠습니까?
-            </p>
-            <div className="flex justify-center gap-3">
-              <Button
-                color="blue"
-                onClick={() => multiNightConfirm?.onConfirm(true)}
-              >
-                오늘 이후 전체
-              </Button>
-              <Button
-                color="light"
-                onClick={() => multiNightConfirm?.onConfirm(false)}
-              >
-                이 날짜만
-              </Button>
-              <Button
-                color="light"
-                onClick={() => setMultiNightConfirm(null)}
-              >
-                취소
-              </Button>
-            </div>
-          </div>
-        </ModalBody>
-      </Modal>
+      />
 
       {/* 발송 확인 모달 */}
       <Modal show={!!sendConfirm} onClose={() => setSendConfirm(null)} size="md" popup>
@@ -3242,45 +3180,13 @@ const RoomAssignment = () => {
         .date-slide-right { animation: slideRight 0.15s ease-out; }
       `}</style>
 
-      {/* 객실 자동 배정 모달 */}
-      <Modal size="md" show={autoAssignConfirm} onClose={() => setAutoAssignConfirm(false)}>
-        <ModalHeader>객실 자동 배정</ModalHeader>
-        <ModalBody>
-          <p className="text-body text-[#4E5968] dark:text-gray-300 mb-4">
-            미배정 예약자를 상품 매칭에 따라 객실에 자동 배정합니다.
-          </p>
-          <p className="text-label font-medium text-[#8B95A1] mb-2">
-            배정 대상 ({unassigned.length}명)
-          </p>
-          {unassigned.length === 0 ? (
-            <p className="text-body text-[#8B95A1] py-4 text-center">미배정 예약자가 없습니다.</p>
-          ) : (
-            <div className="divide-y divide-[#E5E8EB] dark:divide-gray-700">
-              {unassigned.map((guest) => (
-                <div key={guest.id} className="flex items-center justify-between py-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-body font-medium text-[#191F28] dark:text-white">
-                      {guest.customer_name}
-                    </span>
-                    <span className="text-caption text-[#8B95A1]">{guest.phone}</span>
-                  </div>
-                  <span className="text-caption text-[#8B95A1]">
-                    {guest.naver_room_type || '-'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </ModalBody>
-        <ModalFooter>
-          <Button color="light" onClick={() => setAutoAssignConfirm(false)}>
-            취소
-          </Button>
-          <Button color="blue" onClick={handleAutoAssign} disabled={autoAssigning}>
-            {autoAssigning ? <><Spinner size="sm" className="mr-2" />배정 중...</> : '배정 진행'}
-          </Button>
-        </ModalFooter>
-      </Modal>
+      <AutoAssignConfirmModal
+        open={autoAssignConfirm}
+        onClose={() => setAutoAssignConfirm(false)}
+        unassigned={unassigned}
+        onConfirm={handleAutoAssign}
+        loading={autoAssigning}
+      />
 
       {/* Table Settings Modal (replaces old Group Settings Modal) */}
       <TableSettingsModal
