@@ -3287,8 +3287,14 @@ const RoomAssignment = () => {
         </ModalFooter>
       </Modal>
 
-      {/* Quick Menu — fixed bottom bar */}
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-2xl shadow-lg bg-white dark:bg-[#1E1E24] border border-[#E5E8EB] dark:border-gray-800 px-4 py-2.5">
+      {/* Quick Menu — fixed bottom bar.
+          모바일/iOS Safari 에서 fixed + transform(translateX -50%) 조합이 가로 스크롤
+          페이지에서 viewport 대신 document 에 anchor 되는 버그가 있어, transform 없이
+          flex justify-center 로 중앙 정렬. 바깥 wrapper 가 viewport 폭(left-0 right-0)을
+          잡아 안쪽 카드를 화면 중앙에 둔다. wrapper 는 pointer-events-none 으로 클릭
+          가로채지 않게 하고, 안쪽 카드만 pointer-events-auto. */}
+      <div className="fixed bottom-4 left-0 right-0 z-50 flex justify-center pointer-events-none">
+      <div className="rounded-2xl shadow-lg bg-white dark:bg-[#1E1E24] border border-[#E5E8EB] dark:border-gray-800 px-4 py-2.5 pointer-events-auto">
         <div className="flex items-center gap-3">
           <span className="text-[9px] font-bold tracking-widest leading-tight text-[#B0B8C1] dark:text-[#4E5968]">QUICK<br/>MENU</span>
           <Tooltip content={autoAssigning ? '배정 중...' : '객실 자동 배정'} placement="top">
@@ -3409,6 +3415,7 @@ const RoomAssignment = () => {
             </>
           )}
         </div>
+      </div>
       </div>
 
       {/* Confirm Dialog */}
