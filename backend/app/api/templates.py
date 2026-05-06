@@ -163,10 +163,18 @@ def get_template_labels(
     db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get template labels for chip display — 테넌트별 우선순위 지원"""
+    """Get template labels for chip display — 테넌트별 우선순위 지원.
+
+    정렬 규칙:
+      1. priority_keys 에 정의된 템플릿 — 그 배열 순서대로 (앞 고정)
+      2. 그 외 — 다음 발송 시각(now 기준 24h 내)으로 정렬, 시각 미상은 끝으로
+      3. 동률 tiebreaker: template_key 알파벳순
+    """
     import json as _json
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
     from app.db.tenant_context import get_session_tenant_id
-    from app.db.models import Tenant
+    from app.db.models import Tenant, TemplateSchedule
 
     # 테넌트별 chip_priority_keys 로드
     priority_keys = []
@@ -182,9 +190,28 @@ def get_template_labels(
     if not priority_keys:
         priority_keys = ["party_info", "room_info", "sub_room_info"]
 
+    # 활성 스케줄에서 template_id 별 다음 발송 시각 계산.
+    # hour/minute 가 있는 스케줄만 대상 (interval/event 등은 시각 미상으로 취급).
+    now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
+    far_future = now_kst + timedelta(days=365)
+    next_fire_by_template: dict[int, datetime] = {}
+    schedules = db.query(TemplateSchedule).filter(
+        TemplateSchedule.is_active == True,
+    ).all()
+    for s in schedules:
+        if s.hour is None or s.minute is None:
+            continue
+        fire_dt = now_kst.replace(hour=s.hour, minute=s.minute, second=0, microsecond=0)
+        if fire_dt <= now_kst:
+            fire_dt = fire_dt + timedelta(days=1)
+        existing = next_fire_by_template.get(s.template_id)
+        if existing is None or fire_dt < existing:
+            next_fire_by_template[s.template_id] = fire_dt
+
     templates = db.query(MessageTemplate).filter(MessageTemplate.is_active == True).all()
     templates.sort(key=lambda t: (
         priority_keys.index(t.template_key) if t.template_key in priority_keys else len(priority_keys),
+        next_fire_by_template.get(t.id, far_future),
         t.template_key,
     ))
     return [
