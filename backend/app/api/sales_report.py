@@ -121,8 +121,9 @@ async def get_sales_report(
         total = 0
         di_for_date = daily_info_map.get(d, {})
         for r in all_reservations:
-            # 해당 날짜에 숙박 중인지 체크
-            if r.check_out_date:
+            # 해당 날짜에 숙박 중인지 체크.
+            # check_out_date 가 None 이거나 check_in_date 와 같으면 "당일 1박" 으로 동일 취급.
+            if r.check_out_date and r.check_out_date != r.check_in_date:
                 if not (r.check_in_date <= d < r.check_out_date):
                     continue
             else:

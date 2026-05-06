@@ -1,7 +1,7 @@
 """
 Reservations API — shared schemas and helpers
 """
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
@@ -9,12 +9,20 @@ from datetime import datetime
 from app.db.models import Reservation
 
 
+def _validate_dates(check_in: Optional[str], check_out: Optional[str]) -> None:
+    """check_out_date 가 check_in_date 보다 이전이면 거부.
+    같은 날짜(co == ci)는 허용 — 읽기 측에서 NULL 과 동일하게 취급한다.
+    """
+    if check_in and check_out and check_out < check_in:
+        raise ValueError("체크아웃은 체크인보다 이전일 수 없습니다")
+
+
 class ReservationCreate(BaseModel):
     customer_name: str
     phone: str
     check_in_date: str  # YYYY-MM-DD
     check_in_time: str  # HH:MM
-    check_out_date: Optional[str] = None  # YYYY-MM-DD (연박 시)
+    check_out_date: Optional[str] = None  # YYYY-MM-DD (연박 시). co == ci 는 NULL 과 동일 취급.
     status: str = "pending"
     notes: Optional[str] = None
     gender: Optional[str] = None
@@ -25,6 +33,12 @@ class ReservationCreate(BaseModel):
     booking_source: str = "manual"
     naver_room_type: Optional[str] = None  # Original reservation room type
     section: Optional[str] = None  # 'room', 'unassigned', 'party', 'unstable'
+
+    @model_validator(mode='after')
+    def _check_date_order(self):
+        _validate_dates(self.check_in_date, self.check_out_date)
+        return self
+
 
 class ReservationUpdate(BaseModel):
     customer_name: Optional[str] = None
@@ -43,6 +57,12 @@ class ReservationUpdate(BaseModel):
     naver_room_type: Optional[str] = None  # Original reservation room type
     section: Optional[str] = None  # 'room', 'unassigned', 'party', 'unstable'
     highlight_color: Optional[str] = None
+
+    @model_validator(mode='after')
+    def _check_date_order(self):
+        # payload 안에 둘 다 들어왔을 때만 비교 (단독 변경은 DB 기존 값 모르므로 통과).
+        _validate_dates(self.check_in_date, self.check_out_date)
+        return self
 
 
 class SmsAssignmentResponse(BaseModel):

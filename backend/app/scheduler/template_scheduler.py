@@ -686,8 +686,9 @@ class TemplateScheduleExecutor:
             group_max_checkout = {gid: max_co for gid, max_co in rows}
 
         for res in results:
-            if res.check_out_date is None:
-                # 당일 예약: check_in 이 곧 마지막 투숙일
+            # check_out_date IS NULL 또는 check_out_date == check_in_date 는
+            # 모두 "당일 1박" 케이스로 동일 취급 — check_in 이 곧 마지막 투숙일.
+            if res.check_out_date is None or res.check_out_date == res.check_in_date:
                 if res.check_in_date == target_date:
                     filtered.append(res)
                 continue
