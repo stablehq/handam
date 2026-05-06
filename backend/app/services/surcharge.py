@@ -8,6 +8,7 @@
 """
 import logging
 from typing import Optional, List
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -146,23 +147,34 @@ def _ensure_chip(db: Session, reservation_id: int, date: str, custom_type: str) 
     schedule = _find_schedule(db, custom_type)
     if not schedule or not schedule.template or not schedule.template.is_active:
         return
+    template_key = schedule.template.template_key
+    # uq_res_sms_template_date: (reservation_id, template_key, date) 와 동일 키로 검사.
+    # schedule_id 기준 검사는 manual 발송(schedule_id IS NULL)이나 동일 template_key 의
+    # 다른 schedule 행을 못 봐서 INSERT 충돌 → 외부 트랜잭션 오염을 유발.
     existing = db.query(ReservationSmsAssignment).filter(
         ReservationSmsAssignment.reservation_id == reservation_id,
         ReservationSmsAssignment.date == date,
-        ReservationSmsAssignment.schedule_id == schedule.id,
+        ReservationSmsAssignment.template_key == template_key,
     ).first()
     if existing:
         return
     tenant_id = get_session_tenant_id(db)
-    db.add(ReservationSmsAssignment(
-        reservation_id=reservation_id,
-        template_key=schedule.template.template_key,
-        date=date,
-        assigned_by='auto',
-        schedule_id=schedule.id,
-        sent_at=None,
-        tenant_id=tenant_id,
-    ))
+    # SAVEPOINT 로 감싸 동시 reconcile race 시 IntegrityError 가
+    # 호출자(예: 메모/룸 PUT) 트랜잭션을 롤백시키지 않게 한다.
+    try:
+        with db.begin_nested():
+            db.add(ReservationSmsAssignment(
+                reservation_id=reservation_id,
+                template_key=template_key,
+                date=date,
+                assigned_by='auto',
+                schedule_id=schedule.id,
+                sent_at=None,
+                tenant_id=tenant_id,
+            ))
+    except IntegrityError:
+        diag("surcharge.chip_insert_race",
+             level="warn", res_id=reservation_id, date=date, custom_type=custom_type)
 
 
 def _remove_chip(db: Session, reservation_id: int, date: str, custom_type: str) -> None:
