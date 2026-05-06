@@ -44,6 +44,7 @@ import { InlineInput } from './RoomAssignment/components/InlineInput';
 import { ConfirmDialog } from './RoomAssignment/modals/ConfirmDialog';
 import { MultiNightConfirmModal } from './RoomAssignment/modals/MultiNightConfirmModal';
 import { AutoAssignConfirmModal } from './RoomAssignment/modals/AutoAssignConfirmModal';
+import { DateChangeModal } from './RoomAssignment/modals/DateChangeModal';
 
 import {
   PRESET_HIGHLIGHT_STYLES,
@@ -3462,66 +3463,28 @@ const RoomAssignment = () => {
         </ModalFooter>
       </Modal>
 
-      {/* Date Change Modal */}
-      <Modal
-        show={!!dateChangeModal?.open}
+      <DateChangeModal
+        data={dateChangeModal}
+        onChange={(next) => setDateChangeModal(next)}
         onClose={() => setDateChangeModal(null)}
-        size="md"
-      >
-        <ModalHeader>예약 날짜 변경 — {dateChangeModal?.customerName}</ModalHeader>
-        <ModalBody>
-          <div className="flex items-end gap-3">
-            <div className="flex-1">
-              <Label className="mb-1 block text-label font-medium text-[#4E5968] dark:text-gray-300">체크인</Label>
-              <TextInput
-                type="date"
-                value={dateChangeModal?.checkIn || ''}
-                onChange={(e) => setDateChangeModal(prev => prev ? { ...prev, checkIn: e.target.value } : null)}
-              />
-            </div>
-            <span className="pb-2 text-[#8B95A1]">~</span>
-            <div className="flex-1">
-              <Label className="mb-1 block text-label font-medium text-[#4E5968] dark:text-gray-300">체크아웃</Label>
-              <TextInput
-                type="date"
-                value={dateChangeModal?.checkOut || ''}
-                onChange={(e) => setDateChangeModal(prev => prev ? { ...prev, checkOut: e.target.value } : null)}
-              />
-            </div>
-          </div>
-        </ModalBody>
-        <ModalFooter>
-          <div className="flex gap-2 justify-end w-full">
-            <Button color="light" onClick={() => setDateChangeModal(null)}>취소</Button>
-            <Button color="blue" onClick={async () => {
-              if (!dateChangeModal) return;
-              const { resId, checkIn, checkOut } = dateChangeModal;
-              if (!checkIn) { toast.error('체크인 날짜를 입력하세요'); return; }
-              if (!checkOut) { toast.error('체크아웃 날짜를 입력하세요'); return; }
-              // co == ci 는 백엔드에서 "당일 1박" 으로 NULL 과 동일 취급되므로 허용.
-              // co < ci 만 차단.
-              if (checkOut < checkIn) { toast.error('체크아웃은 체크인보다 이전일 수 없습니다'); return; }
-              const hadRoom = findReservation(resId)?.res?.room_id;
-              try {
-                await reservationsAPI.update(resId, {
-                  check_in_date: checkIn,
-                  check_out_date: checkOut,
-                });
-                toast.success('예약 날짜 변경 완료');
-                if (hadRoom) {
-                  toast.info('날짜 변경으로 기존 객실 배정이 해제될 수 있습니다', { duration: 5000 });
-                }
-                setDateChangeModal(null);
-                fetchReservations(selectedDate);
-              } catch (err: any) {
-                toast.error(err?.response?.data?.detail || '날짜 변경 실패');
-              }
-            }}>
-              변경
-            </Button>
-          </div>
-        </ModalFooter>
-      </Modal>
+        onSubmit={async (resId, checkIn, checkOut) => {
+          const hadRoom = findReservation(resId)?.res?.room_id;
+          try {
+            await reservationsAPI.update(resId, {
+              check_in_date: checkIn,
+              check_out_date: checkOut,
+            });
+            toast.success('예약 날짜 변경 완료');
+            if (hadRoom) {
+              toast.info('날짜 변경으로 기존 객실 배정이 해제될 수 있습니다', { duration: 5000 });
+            }
+            setDateChangeModal(null);
+            fetchReservations(selectedDate);
+          } catch (err: any) {
+            toast.error(err?.response?.data?.detail || '날짜 변경 실패');
+          }
+        }}
+      />
 
       {/* Context menu */}
       {contextMenu && contextMenuActions && (
