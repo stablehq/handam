@@ -1,9 +1,9 @@
 {
   "_comment": "ooo-log-validation 스킬이 자동 갱신하는 체크포인트. 수동 수정 지양.",
-  "last_log_timestamp": "2026-05-04 11:30:59",
-  "last_commit_sha": "8eb5709",
-  "last_coverage_scan_sha": "8eb5709",
-  "validated_cases_count": 29,
+  "last_log_timestamp": "2026-05-06 07:50:04",
+  "last_commit_sha": "06c94d8",
+  "last_coverage_scan_sha": "06c94d8",
+  "validated_cases_count": 30,
   "pending_golden_updates": [
     {
       "event": "surcharge.reconcile_failed",
@@ -21,11 +21,6 @@
       "added_commit": "cb2671b"
     },
     {
-      "event": "stay_group.link_api.*|stay_group.unlink_api.*",
-      "reason": "수동 연박 링크/해제 API — staff 수작업 흔적 추적",
-      "added_session": "2026-04-24"
-    },
-    {
       "event": "reservation.extend_stay_cancelled",
       "reason": "연박 취소 경로 — reservation-extend-stay 정답지와 분리된 실패 경로",
       "added_session": "2026-04-24"
@@ -33,21 +28,6 @@
     {
       "event": "reservation.invalid_status",
       "reason": "MED — status enum 400 경로 추적. 배포 후 관찰 시 정답지 작성",
-      "added_session": "2026-04-24"
-    },
-    {
-      "event": "sms_assignment.duplicate",
-      "reason": "MED — SMS 409 중복 경로. 배포 후 관찰 시 정답지",
-      "added_session": "2026-04-24"
-    },
-    {
-      "event": "stay_group.validate_failed",
-      "reason": "MED — consecutive_stay 검증 실패 하위 경로. 호출측 link_api 와 중복 정보 가능",
-      "added_session": "2026-04-24"
-    },
-    {
-      "event": "password_display.prefix_skipped",
-      "reason": "MED — door_password 에 비정상 문자 섞여 prefix 생략된 경우. 보안 시그널",
       "added_session": "2026-04-24"
     },
     {
@@ -69,6 +49,27 @@
       "event": "auto_assign.enter (bypass_active/tenant_ctx 필드 추가)",
       "reason": "c930a7c 에서 auto_assign.enter 에 bypass_active, tenant_ctx 필드 추가 — 기존 auto-assign-button 정답지 영향 없음 (PASS 유지). sync 경로 정답지(_draft/job-detect-consecutive-stays 등) 갱신 시 반영",
       "added_commit": "c930a7c"
+    },
+    {
+      "event": "stay_group.unlinked (excluded 필드 추가)",
+      "reason": "옵션 D 픽스 (이슈 #2) — exclude_from_auto_link 파라미터 도입. 기존 정답지 _draft/ctx-menu-stay-group-unlink 에 excluded=True 필드 추가 필요. naver_sync 경로는 excluded=False",
+      "added_session": "2026-05-06"
+    },
+    {
+      "event": "stay_group.detect.exit (excluded_skipped 필드 추가)",
+      "reason": "옵션 D 픽스 (이슈 #2) — detect 가 excluded 예약을 skip 한 카운트. _draft/job-detect-consecutive-stays 정답지 갱신 필요",
+      "added_session": "2026-05-06"
+    },
+    {
+      "event": "stay_group.relinked_after_exclude",
+      "reason": "옵션 D 픽스 (이슈 #2) 신규 critical 신호 — link_reservations() 에서 excluded=True 였던 예약을 명시적 재링크. 발화 시 사용자가 영구 unlink 의도를 번복한 케이스",
+      "added_session": "2026-05-06"
+    },
+    {
+      "event": "sms_assignment.duplicate",
+      "reason": "11회차 (5/4 14:54 req=dva3k6x9) 첫 관측 — existing_sent=False 정상 차단. 정답지 작성 가능 단계. 다음 회차 또는 별도 처리",
+      "added_session": "2026-05-06",
+      "first_observed": "2026-05-04 14:54:51"
     }
   ],
   "known_gaps": [
@@ -377,6 +378,12 @@
       "line": 3925,
       "kind": "frontend_untagged_api",
       "note": "baseline 2026-05-04 라인 시프트 (+3, baa0738)"
+    },
+    {
+      "file": "backend/app/api/templates.py",
+      "line": 421,
+      "kind": "backend_mutation_no_diag",
+      "note": "POST /{template_id}/preview — read-only preview, mutation 아님. 영구 suppress (06c94d8 LMS 제목 추가 시 발생)"
     }
   ],
   "golden_policy": {
@@ -450,7 +457,7 @@
     "party-checkin-toggle": {
       "confidence": "confirmed",
       "first_seen": "2026-04-27",
-      "instance_count": 19,
+      "instance_count": 43,
       "promoted_at": "2026-05-04"
     },
     "_draft/reservation-extend-stay": {
@@ -508,13 +515,24 @@
       "instance_count": 11,
       "promoted_at": "2026-05-04"
     },
-    "_draft/ctx-menu-delete-guest": {
-      "confidence": "draft",
+    "ctx-menu-delete-guest": {
+      "confidence": "confirmed",
       "first_seen": "2026-05-04",
+      "instance_count": 5,
+      "promoted_at": "2026-05-06"
+    },
+    "_draft/ctx-menu-stay-group-unlink": {
+      "confidence": "draft",
+      "first_seen": "2026-05-06",
+      "instance_count": 1
+    },
+    "_draft/drop-on-party": {
+      "confidence": "draft",
+      "first_seen": "2026-05-06",
       "instance_count": 1
     }
   },
-  "last_validation_run": "2026-05-04T11:35:00+09:00",
+  "last_validation_run": "2026-05-06T11:00:00+09:00",
   "notes": [
     "2026-04-24 두 번째 검증 실행. 새 에러 0건 (기존 3건만 — 2건은 이미 수정, 1건 race 는 작업 예정).",
     "baseline coverage scan 58건 일괄 suppress. 다음 스캔부터 증분으로만 잡음.",
@@ -563,6 +581,18 @@
     "후속 정리 후 PASS 매칭 (10회차 윈도우 내): party-checkin-toggle 17, unassign-room-drag-to-pool 1, event-sms-hook-cron 14 cron runs, naver-sync-sub-events 14, naver-sync-sms-field-changed 2. instance_count 누적 반영.",
     "promotion_threshold(=3) 도달 후보 — 사용자 승인 대기: party-checkin-toggle(19), event-sms-hook-cron(15), naver-sync-sub-events(15), dashboard-stats(19), naver-sync-cancel-chip-cleanup(4), naver-sync-sms-field-changed(3). 다음 검증 회차 또는 별도 승인 시 _draft/ → actions/ 이동.",
     "diag_logger.py retention 픽스 — TimedRotatingFileHandler.namer 추가 (refactor-diag.log.YYYY-MM-DD → .gz). 기존 _gzip_rotator 의 dest 경로도 .gz 종결 가정으로 수정. backupCount=7 cleanup 이 .gz 파일까지 인식 → 다음 자정 UTC rotation 부터 7일 초과 .gz 자동 삭제. sandbox 테스트로 getFilesToDelete() 가 13개 중 6개 정확히 식별 확인.",
-    "2026-05-04 10회차 후속 — draft → confirmed 승격 7건: party-checkin-toggle, dashboard-stats, event-sms-hook-cron, naver-sync-sub-events, naver-sync-cancel-chip-cleanup, naver-sync-sms-field-changed, daily-chip-reconcile-stale-repair. _draft/ 잔존 10건: ctx-menu-delete-guest, unassign-room-drag-to-pool (count=2), chip-reconcile-party3-mms, naver-sync-tenant-failed (둘 다 미관측), 그 외 1회 관측 draft 5건."
+    "2026-05-04 10회차 후속 — draft → confirmed 승격 7건: party-checkin-toggle, dashboard-stats, event-sms-hook-cron, naver-sync-sub-events, naver-sync-cancel-chip-cleanup, naver-sync-sms-field-changed, daily-chip-reconcile-stale-repair. _draft/ 잔존 10건: ctx-menu-delete-guest, unassign-room-drag-to-pool (count=2), chip-reconcile-party3-mms, naver-sync-tenant-failed (둘 다 미관측), 그 외 1회 관측 draft 5건.",
+    "2026-05-06 11회차 검증. 44.3h 28864줄 (5/4 11:30 ~ 5/6 07:50). 신규 에러 0건. INV-1~8 ✅. Watch list 5종 모두 0건 ✅.",
+    "5/4 12:24:21~22 dashboard 400 burst 4건 — 6회차(4/30) GitHub issue #1 fix 회귀 가능성. 그러나 단발성 1회뿐이고 그 이후 ~43시간 0건. (a) 1회성 race 로 모니터링, 다음 회차에 재발 시 코드 재검토 트리거. 패턴: 로그인 200 직후 dashboard/stats + dashboard/today-schedules 가 ms=2~7 으로 즉시 400 → currentTenantId=null 윈도우 X-Tenant-Id 누락 의심.",
+    "11회차 user-action 분류: drag_guest_to_room 12 (single-date+dormitory 매칭), ctx_menu:delete_guest 4 (ctx-menu-delete-guest 매칭, 5건 누적 → confirmed 승격), ctx_menu:extend_stay 4 (모두 dates_not_consecutive 정상 거부, 5/5 11:03~04 res 4865 → 4896~4899 1일 갭), ctx_menu:stay_group_unlink 1 (정상 unlink + DB 반영), drop_on_party 1, party_checkin.toggled 24 (party-checkin-toggle 매칭).",
+    "신규 정답지 draft 2건: _draft/ctx-menu-stay-group-unlink (1건), _draft/drop-on-party (1건, drag-to-pool 와 trace 동일하나 사용자 결정으로 별도 분리).",
+    "승격 1건: ctx-menu-delete-guest draft → confirmed (5건 누적, promotion_threshold=3 도달).",
+    "코드 결함 발견 + GitHub 이슈 #2 등록: unlink_from_group() (consecutive_stay.py:223) 에 영구 unlink 플래그 부재 — detect_and_link 5분 cron 이 idempotent 재묶음 가능. 옵션 D (stay_group_excluded boolean) + Critical 분기 (exclude_from_auto_link 파라미터, 호출 5곳 중 사용자 의도 1곳만 True) 픽스 진행 중. 11회차 케이스 res 4865 는 우연히 res 4839.check_out < today 라 detect 스캔에서 빠져 안 묶임 — 미래 시점 연박이면 재묶임 위험.",
+    "pending #7 (sms_assignment.duplicate) 첫 관측 (5/4 14:54 req=dva3k6x9, res 4878 party_alert) — existing_sent=False 정상 차단. 정답지 작성 단계 — 다음 회차에 처리.",
+    "auto_assign.failed 7건 모두 5/16 cron 객실 부족 알림 (의도된 운영 알림, 누진 카운트).",
+    "404 6건 모두 봇 스캐너 (/api/.env, /api/vendor/phpunit/...). 401 burst 시간당 최대 67건 (5/5 16시) — 정상 bootstrap 윈도우 패턴.",
+    "신규 커밋 3건 (8eb5709..06c94d8): 661c567 chore(diag-golden 10회차 후속), 53b9ccb fix(diag retention TimedRotatingFileHandler), 06c94d8 feat(LMS 제목 커스텀 입력). diag() 신규 추가 0건 — 정답지 영향 없음.",
+    "신규 coverage gap 1건 — backend/app/api/templates.py:421 POST /preview (read-only preview, mutation 아님, 영구 suppress).",
+    "2026-05-06 11회차 후속 — pending 4건 정리 (A 옵션): stay_group.link_api.*|unlink_api.* 종결(ctx-menu-stay-group-unlink 정답지 작성됨), sms_assignment.duplicate 4/24 entry 제거(5/6 entry 와 중복), password_display.prefix_skipped 종결(9회차 의도된 동작 확정), stay_group.validate_failed 종결(9+11회차 합 5건 모두 정상 dates_not_consecutive 거부). pending 17→13건."
   ]
 }

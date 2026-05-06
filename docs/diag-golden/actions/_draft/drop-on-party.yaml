@@ -1,0 +1,112 @@
+action: drop_on_party (객실 카드 → 파티 영역 드롭)
+description: |
+  RoomAssignment 페이지에서 배정된 객실 카드를 파티 영역으로 드래그 앤 드롭.
+  PUT /api/reservations/{res_id}/room 엔드포인트, action=drop_on_party.
+  unassign_room 후 reconcile_chips_for_reservation 이 연쇄 실행되어 SMS 칩 상태 갱신.
+
+  unassign-room-drag-to-pool 과 trace 모양은 거의 동일하나 action_prefix 가 다름:
+  drop_on_pool = 미배정 풀로 (객실 비우기)
+  drop_on_party = 파티 영역으로 (파티 참여)
+
+reference_session: 2026-05-06
+created_at: 2026-05-06
+confidence: draft
+promotion_threshold: 3
+
+preconditions:
+  user_action: 객실 카드를 파티 영역으로 드래그 앤 드롭
+  action_tag: drop_on_party
+  has_assignment: true   # 배정 상태인 예약
+
+expected_trace:
+  - event: request.enter
+    category: MANDATORY
+    fields:
+      method: PUT
+      path: /api/reservations/*/room
+      action_prefix: drop_on_party
+
+  - event: unassign_room.enter
+    category: MANDATORY
+    fields:
+      res_id: "*"
+      from_date: "*"
+      action_prefix: drop_on_party
+
+  - event: activity_log.created
+    category: MANDATORY
+    fields:
+      type: room_move
+      status: success
+      created_by: "*"   # manual | system 등
+
+  - event: compact_bed_orders
+    category: CONDITIONAL
+    condition: 도미토리 bed_order 압축이 필요한 경우 (cells 제거 후)
+    fields:
+      cells_count: "*"
+      changed: "*"
+
+  - event: unassign_room.compact
+    category: CONDITIONAL
+    condition: compact_bed_orders 실행 시 함께 기록됨
+    fields:
+      res_id: "*"
+      cells_count: "*"
+      changed: "*"
+
+  - event: unassign_room.exit
+    category: MANDATORY
+    fields:
+      res_id: "*"
+      deleted: "*"
+      action_prefix: drop_on_party
+
+  - event: reconcile_chips_for_reservation.enter
+    category: MANDATORY
+    fields:
+      res_id: "*"
+      action_prefix: drop_on_party
+
+  - event: filter.apply.enter
+    category: VARIABLE_COUNT
+    min: 1
+    fields:
+      schedule_id: "*"
+      target_date: "*"
+
+  - event: filter.applied
+    category: VARIABLE_COUNT
+    min: 1
+    fields:
+      filter_type: "*"
+      conditions_count: "*"
+
+  - event: filter.apply.exit
+    category: VARIABLE_COUNT
+    min: 1
+
+  - event: reconcile_chips_for_reservation.exit
+    category: MANDATORY
+    fields:
+      res_id: "*"
+      expected: "*"
+      existing: "*"
+      created: "*"
+
+  - event: request.exit
+    category: MANDATORY
+    fields:
+      status: 200
+      action_prefix: drop_on_party
+
+forbidden_events:
+  - event: request.error
+    reason: 성공 경로 — 에러 없어야 함
+
+notes: |
+  - 첫 관측 2026-05-06 검증 (5/4 14:54:45 req=c67y7mdf, res_id=4878,
+    expected=2 existing=3 created=0 — 칩 정합성 정상).
+  - drop_on_pool 과 비교: 백엔드 코드 경로(PUT /reservations/*/room → unassign_room) 동일.
+    프론트 UX 만 다름 (드롭 영역). 정답지를 분리한 이유는 운영 분류 명확화.
+  - tid 필드는 이 경로 이벤트들에 출력되지 않음 — 정답지에 명시 금지.

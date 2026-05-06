@@ -121,7 +121,7 @@ async def unlink_stay_group(
             Reservation.stay_group_id == res.stay_group_id
         ).all()]
 
-    unlinked = unlink_from_group(db, reservation_id)
+    unlinked = unlink_from_group(db, reservation_id, exclude_from_auto_link=True)
     if not unlinked:
         diag("stay_group.unlink_api.not_in_group", level="critical",
              reservation_id=reservation_id)

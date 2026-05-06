@@ -11,6 +11,13 @@
   - 기존 단일 그룹 + 새 예약 → 새 manual-UUID (항상 manual 접두사)
   - 서로 다른 두 그룹 통째 합치기 → 새 manual-UUID
   - 기존 그룹에 stale CANCELLED 멤버가 있어도 자동 확장이 제외
+
+stay_group_excluded 옵션 D 픽스 (11회차 diag):
+  - 사용자 수동 unlink → excluded=True 박힘
+  - 시스템 자동 unlink (기본값 False) → excluded 변경 없음
+  - excluded=True 예약은 detect 스캔에서 제외
+  - 수동 link 시 chain 멤버의 excluded=False 로 reset
+  - 시스템 자동 unlink 후 detect 가 다시 묶을 수 있음
 """
 import pytest
 
@@ -18,6 +25,7 @@ from app.db.models import Reservation, ReservationStatus
 from app.services.consecutive_stay import (
     _validate_link_inputs,
     link_reservations,
+    unlink_from_group,
 )
 
 
@@ -282,3 +290,128 @@ class TestPatchCancelledUnlinks:
         assert r3.stay_group_order == 1
         assert r1.is_last_in_group is False
         assert r3.is_last_in_group is True
+
+
+# ---------------------------------------------------------------------------
+# stay_group_excluded 옵션 D 픽스 (11회차 diag)
+# ---------------------------------------------------------------------------
+
+class TestStayGroupExcluded:
+    """stay_group_excluded 플래그 동작 검증."""
+
+    def test_user_unlink_sets_excluded_flag(self, db):
+        """exclude_from_auto_link=True 호출 → DB 에 stay_group_excluded=True 박힘."""
+        r1 = _make_reservation(db, check_in="2026-04-01", check_out="2026-04-02", stay_group_id="manual-A")
+        r1.stay_group_order = 0
+        r1.is_last_in_group = False
+        r1.is_long_stay = True
+        r2 = _make_reservation(db, check_in="2026-04-02", check_out="2026-04-03", stay_group_id="manual-A")
+        r2.stay_group_order = 1
+        r2.is_last_in_group = True
+        r2.is_long_stay = True
+        db.flush()
+
+        result = unlink_from_group(db, r1.id, exclude_from_auto_link=True)
+
+        assert result is True
+        assert r1.stay_group_id is None
+        assert r1.stay_group_excluded is True
+
+    def test_default_unlink_does_not_set_excluded(self, db):
+        """인자 없이 호출(기본값 False) → stay_group_excluded=False 유지 (네이버 sync/cascade 회귀 방지)."""
+        r1 = _make_reservation(db, check_in="2026-04-01", check_out="2026-04-02", stay_group_id="manual-A")
+        r1.stay_group_order = 0
+        r1.is_last_in_group = False
+        r1.is_long_stay = True
+        r2 = _make_reservation(db, check_in="2026-04-02", check_out="2026-04-03", stay_group_id="manual-A")
+        r2.stay_group_order = 1
+        r2.is_last_in_group = True
+        r2.is_long_stay = True
+        db.flush()
+
+        result = unlink_from_group(db, r1.id)  # exclude_from_auto_link 기본값 False
+
+        assert result is True
+        assert r1.stay_group_id is None
+        assert r1.stay_group_excluded is False
+
+    def test_detect_skips_excluded_reservations(self, db):
+        """excluded=True 인 예약은 detect 스캔에서 빠져 재묶이지 않음.
+
+        detect 날짜 범위 내 예약으로 세팅해야 실제 필터 동작을 검증할 수 있음.
+        """
+        from app.services.consecutive_stay import detect_and_link_consecutive_stays
+        from app.config import today_kst_date
+        from datetime import timedelta
+
+        today = today_kst_date()
+        d1 = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+        d2 = (today + timedelta(days=2)).strftime("%Y-%m-%d")
+        d3 = (today + timedelta(days=3)).strftime("%Y-%m-%d")
+
+        r1 = _make_reservation(db, check_in=d1, check_out=d2)
+        r2 = _make_reservation(db, check_in=d2, check_out=d3)
+        # r1 을 사용자가 수동 unlink → excluded=True
+        r1.stay_group_excluded = True
+        db.flush()
+
+        result = detect_and_link_consecutive_stays(db, tenant_id=1)
+
+        # r1 이 excluded 라 chain 이 형성되지 않음 (r2 단독은 2명 미만이라 그룹 안 됨)
+        assert result["linked"] == 0
+        db.refresh(r1)
+        db.refresh(r2)
+        assert r1.stay_group_id is None
+        assert r2.stay_group_id is None
+
+    def test_link_reservations_clears_excluded_flag(self, db):
+        """수동 link 시 chain 멤버의 stay_group_excluded=False 로 reset."""
+        r1 = _make_reservation(db, check_in="2026-04-01", check_out="2026-04-02")
+        r2 = _make_reservation(db, check_in="2026-04-02", check_out="2026-04-03")
+        # r1 이 이전에 excluded 상태였음
+        r1.stay_group_excluded = True
+        db.flush()
+
+        group_id, linked_ids = link_reservations(db, [r1.id, r2.id])
+
+        assert group_id.startswith("manual-")
+        assert r1.stay_group_excluded is False
+        assert r2.stay_group_excluded is False
+
+    def test_status_cancelled_then_restored_can_relink(self, db):
+        """시스템 자동 unlink (exclude_from_auto_link=False) 후 detect 가 다시 묶을 수 있음.
+
+        detect 날짜 범위: check_out >= today AND check_in <= today+5.
+        동적으로 날짜를 생성해 범위 내 예약을 보장.
+        """
+        from app.services.consecutive_stay import detect_and_link_consecutive_stays
+        from app.config import today_kst_date
+        from datetime import timedelta
+
+        today = today_kst_date()
+        d1 = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+        d2 = (today + timedelta(days=2)).strftime("%Y-%m-%d")
+        d3 = (today + timedelta(days=3)).strftime("%Y-%m-%d")
+
+        r1 = _make_reservation(db, check_in=d1, check_out=d2, stay_group_id="manual-A")
+        r1.stay_group_order = 0
+        r1.is_last_in_group = False
+        r1.is_long_stay = True
+        r2 = _make_reservation(db, check_in=d2, check_out=d3, stay_group_id="manual-A")
+        r2.stay_group_order = 1
+        r2.is_last_in_group = True
+        r2.is_long_stay = True
+        db.flush()
+
+        # 시스템 자동 unlink (CANCELLED 처리 등) — exclude_from_auto_link=False (기본값)
+        unlink_from_group(db, r1.id)
+        assert r1.stay_group_excluded is False  # excluded 미설정
+
+        # detect 실행 → 두 예약 다시 CONFIRMED 이고 excluded=False 라 재묶임
+        result = detect_and_link_consecutive_stays(db, tenant_id=1)
+
+        assert result["linked"] > 0
+        db.refresh(r1)
+        db.refresh(r2)
+        assert r1.stay_group_id is not None
+        assert r1.stay_group_id == r2.stay_group_id

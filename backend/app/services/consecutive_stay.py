@@ -69,6 +69,21 @@ def detect_and_link_consecutive_stays(db: Session, tenant_id: int = None) -> dic
     from app.config import today_kst, today_kst_date
     today_str = today_kst()
     max_checkin = (today_kst_date() + timedelta(days=5)).strftime("%Y-%m-%d")
+    # excluded 카운트: stay_group_excluded=True 인 예약은 자동 재묶기에서 제외
+    excluded_skipped = (
+        db.query(Reservation)
+        .filter(
+            Reservation.tenant_id == tid,
+            Reservation.status == ReservationStatus.CONFIRMED,
+            Reservation.check_out_date.isnot(None),
+            Reservation.check_out_date >= today_str,
+            Reservation.check_in_date <= max_checkin,
+            Reservation.phone.isnot(None),
+            Reservation.phone != "",
+            Reservation.stay_group_excluded == True,
+        )
+        .count()
+    )
     reservations = (
         db.query(Reservation)
         .filter(
@@ -79,6 +94,7 @@ def detect_and_link_consecutive_stays(db: Session, tenant_id: int = None) -> dic
             Reservation.check_in_date <= max_checkin,
             Reservation.phone.isnot(None),
             Reservation.phone != "",
+            Reservation.stay_group_excluded == False,
         )
         .order_by(Reservation.check_in_date)
         .all()
@@ -217,14 +233,25 @@ def detect_and_link_consecutive_stays(db: Session, tenant_id: int = None) -> dic
         unlinked=result["unlinked"],
         groups=result["groups"],
         siblings_skipped=siblings_skipped,
+        excluded_skipped=excluded_skipped,
     )
     return result
 
 
-def unlink_from_group(db: Session, reservation_id: int) -> bool:
+def unlink_from_group(
+    db: Session,
+    reservation_id: int,
+    exclude_from_auto_link: bool = False,
+) -> bool:
     """
     Remove a reservation from its stay group.
     Re-orders remaining members. If only 1 member remains, dissolves the group.
+
+    Args:
+        exclude_from_auto_link: True 이면 stay_group_excluded=True 를 설정해
+            자동 재묶기(detect_and_link_consecutive_stays)에서 영구 제외.
+            사용자 의도(수동 unlink) 경로에서만 True 로 호출해야 함.
+            시스템 자동 unlink(네이버 sync, cascade) 경로는 기본값 False 사용.
 
     Returns True if the reservation was unlinked.
     """
@@ -243,10 +270,13 @@ def unlink_from_group(db: Session, reservation_id: int) -> bool:
         level="critical",
         res_id=reservation_id,
         group_id=group_id,
+        excluded=exclude_from_auto_link,
     )
     res.stay_group_id = None
     res.stay_group_order = None
     res.is_last_in_group = None
+    if exclude_from_auto_link:
+        res.stay_group_excluded = True
     res.is_long_stay = compute_is_long_stay(res)
 
     # Re-order remaining members
@@ -374,11 +404,23 @@ def link_reservations(db: Session, reservation_ids: List[int]) -> tuple[str, Lis
     # 수동 개입 표시 — 항상 새 manual- UUID 로 격리
     group_id = f"manual-{uuid.uuid4()}"
 
+    relinked_ids = []
     for order, res in enumerate(reservations):
+        if res.stay_group_excluded:
+            relinked_ids.append(res.id)
         res.stay_group_id = group_id
         res.stay_group_order = order
         res.is_last_in_group = (order == len(reservations) - 1)
         res.is_long_stay = True
+        res.stay_group_excluded = False  # 수동 link 시 excluded 플래그 해제
+
+    if relinked_ids:
+        diag(
+            "stay_group.relinked_after_exclude",
+            level="critical",
+            group_id=group_id,
+            res_ids=relinked_ids,
+        )
 
     diag(
         "stay_group.manually_linked",

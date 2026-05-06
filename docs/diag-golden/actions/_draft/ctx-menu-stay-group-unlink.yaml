@@ -1,0 +1,96 @@
+action: ctx_menu_stay_group_unlink (객실배정 컨텍스트 메뉴 → 연박 묶음 풀기)
+description: |
+  RoomAssignment 페이지에서 게스트 카드 우클릭 → "연박 묶음 풀기" 컨텍스트 메뉴.
+  DELETE /api/reservations/{res_id}/stay-group/unlink, action=ctx_menu:stay_group_unlink.
+  unlink_from_group 으로 stay_group_id 제거 후 그룹의 모든 멤버에 대해
+  reconcile_chips_for_reservation 연쇄 실행 → SMS 칩 상태 갱신.
+
+reference_session: 2026-05-06
+created_at: 2026-05-06
+confidence: draft
+promotion_threshold: 3
+
+preconditions:
+  user_action: 게스트 카드 우클릭 → 컨텍스트 메뉴 "연박 묶음 풀기"
+  action_tag: ctx_menu:stay_group_unlink
+  has_stay_group: true   # stay_group_id 가 있는 예약
+
+expected_trace:
+  - event: request.enter
+    category: MANDATORY
+    fields:
+      method: DELETE
+      path: /api/reservations/*/stay-group/unlink   # res_id 는 "*"
+      action_prefix: ctx_menu
+
+  - event: stay_group.unlinked
+    category: MANDATORY
+    fields:
+      res_id: "*"
+      group_id: "*"   # 풀린 그룹의 UUID 또는 manual-* prefix
+      action_prefix: ctx_menu
+
+  - event: reconcile_chips_for_reservation.enter
+    category: VARIABLE_COUNT
+    min: 1   # 그룹 멤버 수만큼 발화 (1+, 보통 2)
+    fields:
+      res_id: "*"
+
+  - event: filter.apply.enter
+    category: VARIABLE_COUNT
+    min: 1
+    fields:
+      schedule_id: "*"
+      target_date: "*"
+      only_date_independent: "*"
+
+  - event: filter.applied
+    category: VARIABLE_COUNT
+    min: 1
+    fields:
+      filter_type: "*"
+      conditions_count: "*"
+
+  - event: filter.apply.exit
+    category: VARIABLE_COUNT
+    min: 1
+
+  - event: reconcile_chips_for_reservation.exit
+    category: VARIABLE_COUNT
+    min: 1
+    fields:
+      res_id: "*"
+      expected: "*"
+      existing: "*"
+      created: "*"
+
+  - event: stay_group.unlink_api.done
+    category: MANDATORY
+    fields:
+      reservation_id: "*"
+      affected_count: "*"   # 그룹에 속해 있던 멤버 수
+      actor: "*"            # admin | staff
+
+  - event: request.exit
+    category: MANDATORY
+    fields:
+      status: 200
+
+forbidden_events:
+  - event: stay_group.unlink_api.not_in_group
+    reason: 정상 경로 — 그룹에 속한 예약을 unlink 하므로 발화하면 안 됨
+  - event: request.error
+    reason: 성공 경로 — 에러 없어야 함
+
+notes: |
+  - 첫 관측 2026-05-06 검증 (5/4 12:25:21 req=9v59whax, res_id=4865, group_id=f1230c8a-...,
+    affected_count=2 — 두 멤버 모두 영향).
+  - reconcile_chips_for_reservation 은 cascade — 풀린 그룹의 각 멤버마다 발화 (보통 2회).
+  - tid 필드는 이 경로 이벤트들에 출력되지 않음 — 정답지에 명시 금지.
+
+  ⚠️ KNOWN ISSUE (별도 GitHub 이슈로 추적):
+  unlink_from_group() 자체는 정상 동작하지만, detect_and_link_consecutive_stays() (5분 cron)
+  가 같은 (이름, 전화, 연박조건) 만족하는 두 예약을 idempotent 하게 다시 묶을 수 있음.
+  즉 사용자가 영구로 풀고 싶어도 다음 sync에 자동 재묶임될 수 있음.
+  옵션 D (stay_group_excluded boolean 컬럼) + Critical 분기 (exclude_from_auto_link 파라미터)
+  로 픽스 진행 중. 픽스 후 정답지에 stay_group.unlinked 의 excluded 필드 추가 예정.

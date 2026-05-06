@@ -38,20 +38,29 @@ def _make_res(db, *, check_in, check_out, booking_source="naver", external_id=No
     return r
 
 
+def _dates_from_today(offset_start: int, count: int):
+    """오늘 기준 동적 날짜 생성. detect 범위(today ~ today+5) 내 보장."""
+    from app.config import today_kst_date
+    from datetime import timedelta
+    today = today_kst_date()
+    return [(today + timedelta(days=offset_start + i)).strftime("%Y-%m-%d") for i in range(count + 1)]
+
+
 class TestConsecutiveStaySplitGuard:
     def test_sibling_excluded_primary_chains_with_next_day(self, db):
-        """primary + sibling (4-26~4-27) + 다음날 진짜 예약 (4-27~4-28) →
+        """primary + sibling (d1~d2) + 다음날 진짜 예약 (d2~d3) →
         primary 만 chain 에 들어가야 함. sibling 은 stay_group 누락."""
+        d1, d2, d3 = _dates_from_today(1, 2)
         primary = _make_res(
-            db, check_in="2026-04-26", check_out="2026-04-27",
+            db, check_in=d1, check_out=d2,
             booking_source="naver", external_id="12345", naver_booking_id="12345",
         )
         sibling = _make_res(
-            db, check_in="2026-04-26", check_out="2026-04-27",
+            db, check_in=d1, check_out=d2,
             booking_source="naver_split",  # external_id/naver_booking_id NULL
         )
         next_day = _make_res(
-            db, check_in="2026-04-27", check_out="2026-04-28",
+            db, check_in=d2, check_out=d3,
             booking_source="naver", external_id="67890", naver_booking_id="67890",
         )
 
@@ -69,12 +78,13 @@ class TestConsecutiveStaySplitGuard:
     def test_sibling_alone_no_fake_chain(self, db):
         """sibling 1건 + 다음날 진짜 예약 1건 → sibling 은 후보에서 빠지므로
         identity_map 에 1건만 남아 chain 형성 안 됨."""
+        d1, d2, d3 = _dates_from_today(1, 2)
         sibling = _make_res(
-            db, check_in="2026-04-26", check_out="2026-04-27",
+            db, check_in=d1, check_out=d2,
             booking_source="naver_split",
         )
         next_day = _make_res(
-            db, check_in="2026-04-27", check_out="2026-04-28",
+            db, check_in=d2, check_out=d3,
             booking_source="naver", external_id="67890", naver_booking_id="67890",
         )
 
@@ -88,12 +98,13 @@ class TestConsecutiveStaySplitGuard:
 
     def test_two_naver_naturally_chain_unaffected(self, db):
         """sibling 없는 평범한 연박 케이스: 가드가 정상 동작에 영향 없음."""
+        d1, d2, d3 = _dates_from_today(1, 2)
         r1 = _make_res(
-            db, check_in="2026-04-26", check_out="2026-04-27",
+            db, check_in=d1, check_out=d2,
             booking_source="naver", external_id="A", naver_booking_id="A",
         )
         r2 = _make_res(
-            db, check_in="2026-04-27", check_out="2026-04-28",
+            db, check_in=d2, check_out=d3,
             booking_source="naver", external_id="B", naver_booking_id="B",
         )
 

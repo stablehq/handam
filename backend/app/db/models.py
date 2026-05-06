@@ -87,6 +87,7 @@ class Reservation(TenantMixin, Base):
     stay_group_order = Column(Integer, nullable=True)                # Order within group (0, 1, 2...)
     is_last_in_group = Column(Boolean, nullable=True)                # True: last reservation in consecutive stay group
     is_long_stay = Column(Boolean, default=False)                    # 연박자(2박+) OR 연장자(stay_group_id) 통합
+    stay_group_excluded = Column(Boolean, nullable=False, server_default='false', default=False)  # True: 사용자가 수동 unlink → 자동 재묶기 방지
     highlight_color = Column(String(20), nullable=True)              # UI highlight color for reservation card
 
     # Extended Naver booking data
