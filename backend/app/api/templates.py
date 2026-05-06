@@ -167,12 +167,11 @@ def get_template_labels(
 
     정렬 규칙:
       1. priority_keys 에 정의된 템플릿 — 그 배열 순서대로 (앞 고정)
-      2. 그 외 — 다음 발송 시각(now 기준 24h 내)으로 정렬, 시각 미상은 끝으로
+      2. 그 외 — 하루 내 발송 시각(시:분) 오름차순. 시각 미상(스케줄 미연결,
+         interval/event 등)은 끝으로
       3. 동률 tiebreaker: template_key 알파벳순
     """
     import json as _json
-    from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
     from app.db.tenant_context import get_session_tenant_id
     from app.db.models import Tenant, TemplateSchedule
 
@@ -190,28 +189,26 @@ def get_template_labels(
     if not priority_keys:
         priority_keys = ["party_info", "room_info", "sub_room_info"]
 
-    # 활성 스케줄에서 template_id 별 다음 발송 시각 계산.
-    # hour/minute 가 있는 스케줄만 대상 (interval/event 등은 시각 미상으로 취급).
-    now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
-    far_future = now_kst + timedelta(days=365)
-    next_fire_by_template: dict[int, datetime] = {}
+    # 활성 스케줄에서 template_id 별 가장 이른 발송 시각(분 단위) 계산.
+    # hour/minute 가 있는 스케줄만 대상. 같은 template 에 여러 스케줄이 묶이면
+    # 가장 이른 시각을 사용.
+    SCHEDULE_TIME_MAX = 24 * 60  # 시각 미상 정렬용 (모든 정상 시각보다 큼)
+    schedule_time_by_template: dict[int, int] = {}
     schedules = db.query(TemplateSchedule).filter(
         TemplateSchedule.is_active == True,
     ).all()
     for s in schedules:
         if s.hour is None or s.minute is None:
             continue
-        fire_dt = now_kst.replace(hour=s.hour, minute=s.minute, second=0, microsecond=0)
-        if fire_dt <= now_kst:
-            fire_dt = fire_dt + timedelta(days=1)
-        existing = next_fire_by_template.get(s.template_id)
-        if existing is None or fire_dt < existing:
-            next_fire_by_template[s.template_id] = fire_dt
+        minutes_in_day = s.hour * 60 + s.minute
+        existing = schedule_time_by_template.get(s.template_id)
+        if existing is None or minutes_in_day < existing:
+            schedule_time_by_template[s.template_id] = minutes_in_day
 
     templates = db.query(MessageTemplate).filter(MessageTemplate.is_active == True).all()
     templates.sort(key=lambda t: (
         priority_keys.index(t.template_key) if t.template_key in priority_keys else len(priority_keys),
-        next_fire_by_template.get(t.id, far_future),
+        schedule_time_by_template.get(t.id, SCHEDULE_TIME_MAX),
         t.template_key,
     ))
     return [
