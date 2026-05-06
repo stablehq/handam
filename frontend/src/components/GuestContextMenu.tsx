@@ -71,20 +71,7 @@ export default function GuestContextMenu({
 
   const plural = targetCount > 1 ? ` (${targetCount}명)` : '';
 
-  const items: { icon: React.ReactNode; label: string; onClick: () => void; disabled: boolean; danger?: boolean }[] = [
-    {
-      icon: <Undo2 className="h-4 w-4" />,
-      label: `미배정으로 이동${plural}`,
-      onClick: onMoveToPool,
-      disabled: currentSection === 'unassigned',
-    },
-    {
-      icon: <Music className="h-4 w-4" />,
-      label: `파티만으로 이동${plural}`,
-      onClick: onMoveToParty,
-      disabled: currentSection === 'party',
-    },
-  ];
+  const items: { icon: React.ReactNode; label: string; onClick: () => void; disabled: boolean; danger?: boolean }[] = [];
 
   if (onExtendStay) {
     items.push({
@@ -139,10 +126,10 @@ export default function GuestContextMenu({
       disabled: false,
     });
   } else if (currentSection !== 'unstable' && onCopyToUnstable) {
-    // 객실/미배정/파티만 → "언스테이블에 복사" 추가
+    // 객실/미배정/파티만 → "언스 파티참여" 추가
     items.push({
       icon: <Zap className="h-4 w-4" />,
-      label: `언스테이블에 복사${plural}`,
+      label: `언스 파티참여${plural}`,
       onClick: onCopyToUnstable,
       disabled: false,
     });
