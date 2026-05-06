@@ -1842,6 +1842,21 @@ const RoomAssignment = () => {
         });
         setContextMenu(null);
       } : undefined,
+      onCall: (targetIds.length === 1) ? () => {
+        const found = findReservation(targetIds[0]);
+        const res = found?.res;
+        const phone = res?.phone?.trim();
+        const name = res?.customer_name || '게스트';
+        if (!phone) {
+          toast.warning('연락처가 등록되지 않은 게스트입니다');
+          setContextMenu(null);
+          return;
+        }
+        setContextMenu(null);
+        showConfirm('전화걸기', `${name}(${phone}) 에게 전화 거시겠습니까?`, () => {
+          window.location.href = `tel:${phone}`;
+        });
+      } : undefined,
     };
   }, [contextMenu, reservations, nextDayReservations, findReservation, sectionOverrides, handleDropOnPool, handleDropOnParty, handleDeleteGuest, selectedDate, fetchReservations, handleStayGroupUnlink, openStayGroupModalForRes, showConfirm, activeRoomEntries]);
 
@@ -3981,6 +3996,7 @@ const RoomAssignment = () => {
           onExtendStay={contextMenuActions.onExtendStay}
           onCancelExtendStay={contextMenuActions.onCancelExtendStay}
           onChangeDates={contextMenuActions.onChangeDates}
+          onCall={contextMenuActions.onCall}
           hideDelete={isMobile && mobileContextMenuOpen}
           onClose={() => { setContextMenu(null); setMobileContextMenuOpen(false); }}
         />

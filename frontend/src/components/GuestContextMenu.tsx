@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Undo2, Music, Trash2, Link2, X, Zap, XCircle, CalendarPlus, CalendarMinus, Palette, ChevronRight, Calendar } from 'lucide-react';
+import { Undo2, Music, Trash2, Link2, X, Zap, XCircle, CalendarPlus, CalendarMinus, Palette, ChevronRight, Calendar, Phone } from 'lucide-react';
 import { GOOGLE_SHEETS_PALETTE } from '../lib/highlight-colors';
 
 interface GuestContextMenuProps {
@@ -20,6 +20,7 @@ interface GuestContextMenuProps {
   onExtendStay?: () => void;
   onCancelExtendStay?: () => void;
   onChangeDates?: () => void;
+  onCall?: () => void;
   hideDelete?: boolean;
   onClose: () => void;
 }
@@ -41,6 +42,7 @@ export default function GuestContextMenu({
   onExtendStay,
   onCancelExtendStay,
   onChangeDates,
+  onCall,
   hideDelete,
   onClose,
 }: GuestContextMenuProps) {
@@ -248,6 +250,16 @@ export default function GuestContextMenu({
       {!isUnstableCopy && !hideDelete && (
         <>
           <div className="border-t border-[#E5E8EB] dark:border-gray-800 my-1" />
+
+          {onCall && targetCount === 1 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onCall(); }}
+              className="w-full px-3 py-2 text-body flex items-center gap-2 text-[#191F28] dark:text-white hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34] cursor-pointer transition-colors"
+            >
+              <Phone className="h-4 w-4" />
+              전화걸기
+            </button>
+          )}
 
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
