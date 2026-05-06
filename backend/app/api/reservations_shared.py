@@ -31,6 +31,7 @@ class ReservationUpdate(BaseModel):
     phone: Optional[str] = None
     check_in_date: Optional[str] = None
     check_in_time: Optional[str] = None
+    check_out_date: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None
     gender: Optional[str] = None
