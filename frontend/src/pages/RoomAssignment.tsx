@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import api, { reservationsAPI, roomsAPI, templatesAPI, smsAssignmentsAPI, stayGroupAPI, settingsAPI } from '../services/api';
 import { normalizeUtcString } from '../lib/utils';
 import { useTenantStore } from '@/stores/tenant-store';
@@ -3287,12 +3288,12 @@ const RoomAssignment = () => {
         </ModalFooter>
       </Modal>
 
-      {/* Quick Menu — fixed bottom bar.
-          모바일/iOS Safari 에서 fixed + transform(translateX -50%) 조합이 가로 스크롤
-          페이지에서 viewport 대신 document 에 anchor 되는 버그가 있어, transform 없이
-          flex justify-center 로 중앙 정렬. 바깥 wrapper 가 viewport 폭(left-0 right-0)을
-          잡아 안쪽 카드를 화면 중앙에 둔다. wrapper 는 pointer-events-none 으로 클릭
-          가로채지 않게 하고, 안쪽 카드만 pointer-events-auto. */}
+      {/* Quick Menu — createPortal 로 document.body 직속 렌더 + transform 없는 중앙정렬.
+          ancestor 의 transform/filter/contain 등이 fixed positioning 의 containing block 을
+          가로채는 모바일 브라우저 버그를 회피. 래퍼는 viewport 폭(left-0 right-0)을 잡고
+          flex justify-center 로 안쪽 카드를 중앙. 래퍼 pointer-events-none, 카드 only
+          pointer-events-auto 로 click 가로채지 않게. */}
+      {createPortal(
       <div className="fixed bottom-4 left-0 right-0 z-50 flex justify-center pointer-events-none">
       <div className="rounded-2xl shadow-lg bg-white dark:bg-[#1E1E24] border border-[#E5E8EB] dark:border-gray-800 px-4 py-2.5 pointer-events-auto">
         <div className="flex items-center gap-3">
@@ -3416,7 +3417,9 @@ const RoomAssignment = () => {
           )}
         </div>
       </div>
-      </div>
+      </div>,
+      document.body,
+      )}
 
       {/* Confirm Dialog */}
       <Modal
