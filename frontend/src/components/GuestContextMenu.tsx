@@ -68,14 +68,50 @@ export default function GuestContextMenu({
   useEffect(() => {
     if (!menuRef.current) return;
     const rect = menuRef.current.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    let x = position.x;
-    let y = position.y;
-    if (x + rect.width > vw - 8) x = vw - rect.width - 8;
-    if (y + rect.height > vh - 8) y = vh - rect.height - 8;
-    if (x < 8) x = 8;
-    if (y < 8) y = 8;
+    // 모바일 핀치줌 대응: visualViewport (실제 보이는 영역) 기준으로 배치.
+    // layout viewport (window.innerWidth) 만 보면 잘림.
+    const vv = window.visualViewport;
+    const vLeft = vv ? vv.offsetLeft : 0;
+    const vTop = vv ? vv.offsetTop : 0;
+    const vWidth = vv ? vv.width : window.innerWidth;
+    const vHeight = vv ? vv.height : window.innerHeight;
+    const margin = 8;
+
+    const x0 = position.x;
+    const y0 = position.y;
+    const w = rect.width;
+    const h = rect.height;
+
+    // 4방향 빈 공간 측정 → 메뉴를 어디 anchor 할지 결정
+    const spaceRight = (vLeft + vWidth) - x0;
+    const spaceLeft = x0 - vLeft;
+    const spaceBottom = (vTop + vHeight) - y0;
+    const spaceTop = y0 - vTop;
+
+    // 가로: 오른쪽에 자리 있으면 터치 우측, 아니면 좌측, 둘 다 안 되면 우측 정렬
+    let x: number;
+    if (spaceRight >= w + margin) {
+      x = x0;
+    } else if (spaceLeft >= w + margin) {
+      x = x0 - w;
+    } else {
+      x = vLeft + vWidth - w - margin;
+    }
+
+    // 세로: 아래쪽 우선, 안 되면 위쪽, 둘 다 안 되면 아래 정렬
+    let y: number;
+    if (spaceBottom >= h + margin) {
+      y = y0;
+    } else if (spaceTop >= h + margin) {
+      y = y0 - h;
+    } else {
+      y = vTop + vHeight - h - margin;
+    }
+
+    // 최종 clamp — visual viewport 안으로 강제
+    x = Math.max(vLeft + margin, Math.min(x, vLeft + vWidth - w - margin));
+    y = Math.max(vTop + margin, Math.min(y, vTop + vHeight - h - margin));
+
     setAdjusted({ x, y });
   }, [position]);
 
@@ -148,7 +184,22 @@ export default function GuestContextMenu({
   return createPortal(
     <div
       ref={menuRef}
-      style={{ position: 'fixed', left: adjusted.x, top: adjusted.y, zIndex: 10000, WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' } as React.CSSProperties}
+      style={{
+        position: 'fixed',
+        left: adjusted.x,
+        top: adjusted.y,
+        zIndex: 10000,
+        WebkitTouchCallout: 'none',
+        WebkitUserSelect: 'none',
+        userSelect: 'none',
+        // 핀치줌 시 visual viewport 가 너무 작으면 메뉴 너비도 축소.
+        // calc 안의 100vw 는 layout viewport 라 일반 케이스엔 영향 없음.
+        // 핀치줌은 위 effect 의 visualViewport 측정으로 좌표가 보정되며
+        // overflow 시에만 maxWidth 가 작동.
+        maxWidth: 'calc(100vw - 16px)',
+        maxHeight: 'calc(100vh - 16px)',
+        overflowY: 'auto',
+      } as React.CSSProperties}
       className="w-48 rounded-xl border border-[#E5E8EB] dark:border-gray-800 bg-white dark:bg-[#1E1E24] shadow-lg py-1 animate-in fade-in zoom-in-95 duration-100 select-none"
       onContextMenu={(e) => e.preventDefault()}
     >
