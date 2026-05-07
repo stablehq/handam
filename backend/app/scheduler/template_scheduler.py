@@ -560,14 +560,17 @@ class TemplateScheduleExecutor:
         if restrict_to_ids:
             query = query.filter(Reservation.id.in_(restrict_to_ids))
 
-        # No safety guard — max_checkin_days provides its own range limit
         today_str = today_kst()
 
-        # 1) N일 이내 체크인
+        # 1) 안전장치: 과거 체크인 (이미 체크아웃했거나 mid-stay) 무조건 제외.
+        #    max_checkin_days 가 비어있어도 항상 적용 — 운영자가 실수로 빈 값
+        #    저장해도 과거 예약자에게 발송되는 사고 방지.
+        query = query.filter(Reservation.check_in_date >= today_str)
+
+        # 2) 옵션: 체크인 N일 이내 상한 (max_checkin_days 가 설정된 경우만)
         if schedule.max_checkin_days:
             max_date_str = (today_kst_date() + timedelta(days=schedule.max_checkin_days)).strftime('%Y-%m-%d')
             query = query.filter(
-                Reservation.check_in_date >= today_str,
                 Reservation.check_in_date <= max_date_str,
             )
 
