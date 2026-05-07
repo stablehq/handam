@@ -3204,7 +3204,16 @@ const RoomAssignment = () => {
         <>
           <div
             className="fixed inset-0 z-[55]"
-            onClick={() => { setContextMenu(null); setMobileContextMenuOpen(false); }}
+            onClick={() => {
+              // long-press 직후 합성 click 은 메뉴 열린 직후 발화 → 즉시 닫힘 방지.
+              // 한 번만 무시하고 flag 리셋해 다음 backdrop click 은 정상 닫기.
+              if (longPressFiredRef.current) {
+                longPressFiredRef.current = false;
+                return;
+              }
+              setContextMenu(null);
+              setMobileContextMenuOpen(false);
+            }}
             onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); setMobileContextMenuOpen(false); }}
           />
         <GuestContextMenu
