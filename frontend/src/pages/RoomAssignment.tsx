@@ -1735,6 +1735,14 @@ const RoomAssignment = () => {
   // 날짜 전환/언마운트 시 보류 중인 deselect 타이머 정리 (stale callback 방지)
   useEffect(() => () => cancelDeselect(), [selectedDate, cancelDeselect]);
 
+  // Long-press 감지 (모바일) — iOS Safari 가 user-select: none span 에서
+  // contextmenu 이벤트를 안 발화하는 케이스 회피. 500ms 타이머로 자체 감지.
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
+  useEffect(() => () => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+  }, []);
+
   const onGripClick = useCallback((e: React.MouseEvent | React.PointerEvent, resId: number) => {
     const pe = e as React.PointerEvent;
     if (pe.button !== 0 && pe.pointerType === 'mouse') return;
@@ -1889,8 +1897,52 @@ const RoomAssignment = () => {
         } cursor-pointer`}
         style={isCustomHex && !isSelected ? getCustomBgStyle(res.highlight_color!, isDarkMode) : undefined}
         onContextMenu={(e) => { if (!isCancelled) onGuestContextMenu(e, res.id, zone); }}
+        onTouchStart={(e) => {
+          if (isCancelled) return;
+          const target = e.target as HTMLElement;
+          // input 활성 편집 중이거나 인터랙티브 요소면 long-press 제외
+          if (target.closest('input, textarea, button, a, [role="button"], [data-interactive]')) return;
+          longPressFiredRef.current = false;
+          const t = e.touches[0];
+          const x = t.clientX;
+          const y = t.clientY;
+          if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = setTimeout(() => {
+            longPressFiredRef.current = true;
+            longPressTimerRef.current = null;
+            // 합성 MouseEvent 형태로 onGuestContextMenu 호출 (clientX/Y 만 필요)
+            onGuestContextMenu(
+              { preventDefault: () => {}, stopPropagation: () => {}, clientX: x, clientY: y } as React.MouseEvent,
+              res.id,
+              zone,
+            );
+          }, 500);
+        }}
+        onTouchMove={() => {
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+        }}
+        onTouchEnd={() => {
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+        }}
+        onTouchCancel={() => {
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+        }}
         onClick={(e: React.MouseEvent) => {
           if (isCancelled) return;
+          // long-press 직후 발화하는 합성 click 무시 (선택 토글 방지)
+          if (longPressFiredRef.current) {
+            longPressFiredRef.current = false;
+            return;
+          }
           if (showGrip && !(e.target as HTMLElement).closest('input, textarea, select, [data-interactive], button, a, [role="button"]')) {
             if (selectionActive && !selectedGuestIds.has(res.id)) {
               return;
