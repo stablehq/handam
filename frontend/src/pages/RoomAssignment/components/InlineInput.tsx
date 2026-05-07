@@ -109,7 +109,10 @@ export const InlineInput = ({
       // touchAction: 'manipulation' 제거 — iOS에서 long-press → contextmenu 도 같이
       // 차단해 컨텍스트 메뉴가 안 뜸. 더블탭 줌은 handleTouchEnd 의 preventDefault 로
       // 충분히 막힘 (RoomMemoEditor 도 동일 방식).
-      className={`${compact ? '' : 'w-full'} text-body truncate select-none ${disabled ? '' : 'cursor-text'} ${className || ''}`}
+      // non-compact 모드: block + 세로 padding 으로 셀 전체를 더블클릭 영역으로 확장
+      // (값 비어있을 때 클릭 범위가 좁아 수정 활성화 어렵던 문제 해결)
+      // compact 모드 (이름): 컨텐츠 너비 유지로 inline span 그대로
+      className={`${compact ? '' : 'w-full block py-1.5'} text-body truncate select-none ${disabled ? '' : 'cursor-text'} ${className || ''}`}
     >
       {value || (
         <span className="text-[#B0B8C1] dark:text-[#4E5968]">
