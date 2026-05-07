@@ -670,12 +670,9 @@ const RoomAssignment = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => {
-    if (quickAddedId) {
-      const timer = setTimeout(() => setQuickAddedId(null), 500);
-      return () => clearTimeout(timer);
-    }
-  }, [quickAddedId]);
+  // quickAddedId 자동 클리어 제거 — 새 InlineInput 의 마운트 effect 가 autoFocus
+  // 처리 후 자체적으로 편집 모드 진입. 500ms race 로 fetch 가 늦으면 autoFocus 미작동
+  // 가능했음. 다음 quickAdd 시 새 ID 가 덮어쓰므로 stale 영향 없음.
 
   // Select mode: reset on date change
   useEffect(() => {
@@ -1725,6 +1722,19 @@ const RoomAssignment = () => {
   };
 
   // ===== Select mode handlers =====
+  // "이미 선택된 자기 자신을 단일 클릭" → deselect 를 250ms 지연 (옵션 B+).
+  // 그 사이 더블클릭이 들어오면 InlineInput.onActivate 가 cancelDeselect 호출 →
+  // deselect 취소 + 편집 진입. flicker 없이 dblclick 으로 자연스러운 편집 전환.
+  const deselectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelDeselect = useCallback(() => {
+    if (deselectTimerRef.current) {
+      clearTimeout(deselectTimerRef.current);
+      deselectTimerRef.current = null;
+    }
+  }, []);
+  // 날짜 전환/언마운트 시 보류 중인 deselect 타이머 정리 (stale callback 방지)
+  useEffect(() => () => cancelDeselect(), [selectedDate, cancelDeselect]);
+
   const onGripClick = useCallback((e: React.MouseEvent | React.PointerEvent, resId: number) => {
     const pe = e as React.PointerEvent;
     if (pe.button !== 0 && pe.pointerType === 'mouse') return;
@@ -1732,10 +1742,28 @@ const RoomAssignment = () => {
     e.stopPropagation();
 
     const res = findReservation(resId)?.res;
+    const isShift = e.shiftKey || e.ctrlKey || e.metaKey;
+    const isAlreadySelectedAlone = !isShift && selectedGuestIds.has(resId) && selectedGuestIds.size === 1;
 
+    if (isAlreadySelectedAlone) {
+      // 이미 단일 선택된 자기 자신을 다시 클릭 → 더블클릭 가능성 위해 250ms 지연 후 해제.
+      // 동일 행 재클릭(타이머 활성 중)이면 타이머만 취소하고 종료 (선택 유지).
+      if (deselectTimerRef.current) {
+        clearTimeout(deselectTimerRef.current);
+        deselectTimerRef.current = null;
+        return;
+      }
+      deselectTimerRef.current = setTimeout(() => {
+        setSelectedGuestIds(new Set());
+        deselectTimerRef.current = null;
+      }, 250);
+      return;
+    }
+
+    // 그 외 (Shift 멀티선택, 다른 행 클릭, 첫 선택) — 즉시 처리
     setSelectedGuestIds(prev => {
       const next = new Set(prev);
-      if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      if (isShift) {
         if (res?.is_long_stay) {
           toast.warning('연박자는 개별 선택만 가능합니다');
           return prev;
@@ -1747,17 +1775,13 @@ const RoomAssignment = () => {
         if (next.has(resId)) next.delete(resId);
         else next.add(resId);
       } else {
-        if (next.has(resId) && next.size === 1) {
-          next.clear();
-        } else {
-          next.clear();
-          next.add(resId);
-        }
+        next.clear();
+        next.add(resId);
       }
       return next;
     });
 
-  }, [findReservation]);
+  }, [findReservation, selectedGuestIds]);
 
   const onDropZoneClick = useCallback((e: React.MouseEvent) => {
     if (selectedGuestIds.size === 0) return;
@@ -1897,7 +1921,7 @@ const RoomAssignment = () => {
         >
           <div className="overflow-hidden px-1.5 flex items-center gap-0.5">
             <span className="flex items-center gap-1 min-w-0">
-              <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className={`font-medium ${cellText}`} placeholder="이름" autoFocus={res.id === quickAddedId} disabled={selectionActive || isCancelled} compact />
+              <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className={`font-medium ${cellText}`} placeholder="이름" autoFocus={res.id === quickAddedId} disabled={isCancelled} compact onActivate={cancelDeselect} />
               {formatGuestSuffix(res) && (
                 <span className={`flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]`}>{formatGuestSuffix(res)}</span>
               )}
@@ -1905,13 +1929,13 @@ const RoomAssignment = () => {
             </span>
           </div>
           <div className="overflow-hidden px-1.5">
-            <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className={`${cellText} tabular-nums`} placeholder="연락처" disabled={selectionActive} />
+            <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className={`${cellText} tabular-nums`} placeholder="연락처" onActivate={cancelDeselect} />
           </div>
           <div className="overflow-hidden text-center px-1.5">
-            <InlineInput value={res.party_type || ''} field="party_type" resId={res.id} onSave={handleFieldSave} className={`${cellText} font-medium text-center`} placeholder="-" disabled={selectionActive} />
+            <InlineInput value={res.party_type || ''} field="party_type" resId={res.id} onSave={handleFieldSave} className={`${cellText} font-medium text-center`} placeholder="-" onActivate={cancelDeselect} />
           </div>
           <div className="overflow-hidden text-center px-1.5">
-            <InlineInput value={genderPeople} field="genderPeople" resId={res.id} onSave={handleFieldSave} className={`${cellText} font-medium text-center`} placeholder="-" disabled={selectionActive} />
+            <InlineInput value={genderPeople} field="genderPeople" resId={res.id} onSave={handleFieldSave} className={`${cellText} font-medium text-center`} placeholder="-" onActivate={cancelDeselect} />
           </div>
           <div className="overflow-hidden truncate text-body text-[#8B95A1] dark:text-[#8B95A1] text-center px-1.5">{res.naver_room_type || <span className="text-[#B0B8C1] dark:text-[#4E5968]">-</span>}</div>
           <div className="overflow-hidden px-1.5">
@@ -1920,7 +1944,7 @@ const RoomAssignment = () => {
                 {new Date(normalizeUtcString(res.cancelled_at)).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })} 취소
               </span>
             ) : (
-              <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className={cellText} placeholder="" disabled={selectionActive} />
+              <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className={cellText} placeholder="" onActivate={cancelDeselect} />
             )}
           </div>
           <div className="overflow-visible px-1.5">
@@ -2118,7 +2142,7 @@ const RoomAssignment = () => {
                           <div className="overflow-hidden px-1 flex items-center gap-1 min-w-0">
                             <InlineInput value={nextGuest.customer_name} field="customer_name" resId={nextGuest.id}
                               onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                              className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" disabled={selectionActive} compact />
+                              className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" compact onActivate={cancelDeselect} />
                             {formatGuestSuffix(nextGuest) && (
                               <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{formatGuestSuffix(nextGuest)}</span>
                             )}
@@ -2126,17 +2150,17 @@ const RoomAssignment = () => {
                           <div className="overflow-hidden px-1">
                             <InlineInput value={nextGuest.phone || ''} field="phone" resId={nextGuest.id}
                               onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                              className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" disabled={selectionActive} />
+                              className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" onActivate={cancelDeselect} />
                           </div>
                           <div className="overflow-hidden text-center px-1">
                             <InlineInput value={nextGuest.party_type || ''} field="party_type" resId={nextGuest.id}
                               onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                              className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" disabled={selectionActive} />
+                              className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" onActivate={cancelDeselect} />
                           </div>
                           <div className="overflow-hidden text-center px-1">
                             <InlineInput value={gp} field="genderPeople" resId={nextGuest.id}
                               onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                              className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" disabled={selectionActive} />
+                              className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" onActivate={cancelDeselect} />
                           </div>
                         </div>
                       </div>
@@ -2671,7 +2695,7 @@ const RoomAssignment = () => {
                                   <div className="overflow-hidden px-1 flex items-center gap-1 min-w-0">
                                     <InlineInput value={res.customer_name} field="customer_name" resId={res.id}
                                       onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                                      className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" disabled={selectionActive} compact />
+                                      className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" compact onActivate={cancelDeselect} />
                                     {formatGuestSuffix(res) && (
                                       <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{formatGuestSuffix(res)}</span>
                                     )}
@@ -2679,17 +2703,17 @@ const RoomAssignment = () => {
                                   <div className="overflow-hidden px-1">
                                     <InlineInput value={res.phone || ''} field="phone" resId={res.id}
                                       onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                                      className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" disabled={selectionActive} />
+                                      className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" onActivate={cancelDeselect} />
                                   </div>
                                   <div className="overflow-hidden text-center px-1">
                                     <InlineInput value={res.party_type || ''} field="party_type" resId={res.id}
                                       onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                                      className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" disabled={selectionActive} />
+                                      className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" onActivate={cancelDeselect} />
                                   </div>
                                   <div className="overflow-hidden text-center px-1">
                                     <InlineInput value={gp} field="genderPeople" resId={res.id}
                                       onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                                      className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" disabled={selectionActive} />
+                                      className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" onActivate={cancelDeselect} />
                                   </div>
                                 </div>
                               </div>
@@ -2786,7 +2810,7 @@ const RoomAssignment = () => {
                                   <div className="overflow-hidden px-1 flex items-center gap-1 min-w-0">
                                     <InlineInput value={res.customer_name} field="customer_name" resId={res.id}
                                       onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                                      className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" disabled={selectionActive} compact />
+                                      className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" compact onActivate={cancelDeselect} />
                                     {formatGuestSuffix(res) && (
                                       <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{formatGuestSuffix(res)}</span>
                                     )}
@@ -2794,17 +2818,17 @@ const RoomAssignment = () => {
                                   <div className="overflow-hidden px-1">
                                     <InlineInput value={res.phone || ''} field="phone" resId={res.id}
                                       onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                                      className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" disabled={selectionActive} />
+                                      className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" onActivate={cancelDeselect} />
                                   </div>
                                   <div className="overflow-hidden text-center px-1">
                                     <InlineInput value={res.party_type || ''} field="party_type" resId={res.id}
                                       onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                                      className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" disabled={selectionActive} />
+                                      className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" onActivate={cancelDeselect} />
                                   </div>
                                   <div className="overflow-hidden text-center px-1">
                                     <InlineInput value={gp} field="genderPeople" resId={res.id}
                                       onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                                      className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" disabled={selectionActive} />
+                                      className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" onActivate={cancelDeselect} />
                                   </div>
                                 </div>
                               </div>
