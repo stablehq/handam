@@ -111,7 +111,12 @@ export const InlineInput = ({
       // 충분히 막힘 (RoomMemoEditor 도 동일 방식).
       className={`${compact ? '' : 'w-full'} text-body truncate select-none ${disabled ? '' : 'cursor-text'} ${className || ''}`}
     >
-      {value || <span className="text-[#B0B8C1] dark:text-[#4E5968]">{placeholder}</span>}
+      {value || (
+        <span className="text-[#B0B8C1] dark:text-[#4E5968]">
+          {/* placeholder 가 빈 문자열인 경우에도 nbsp 로 클릭 영역 보장 (값 비어있을 때 더블클릭 안 먹는 회귀 방지) */}
+          {placeholder || ' '}
+        </span>
+      )}
     </span>
   );
 };
