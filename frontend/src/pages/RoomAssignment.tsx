@@ -1916,6 +1916,8 @@ const RoomAssignment = () => {
               res.id,
               zone,
             );
+            // 안전망: 1초 후 자동 리셋 (touchend 가 어떤 이유로 발화 못 했을 때)
+            setTimeout(() => { longPressFiredRef.current = false; }, 1000);
           }, 500);
         }}
         onTouchMove={() => {
@@ -1924,10 +1926,15 @@ const RoomAssignment = () => {
             longPressTimerRef.current = null;
           }
         }}
-        onTouchEnd={() => {
+        onTouchEnd={(e) => {
           if (longPressTimerRef.current) {
             clearTimeout(longPressTimerRef.current);
             longPressTimerRef.current = null;
+          }
+          // long-press 가 fire 됐다면 touchend 의 default action (합성 mouse/click)
+          // 자체를 차단해 backdrop·document 의 close 트리거를 막는다.
+          if (longPressFiredRef.current) {
+            e.preventDefault();
           }
         }}
         onTouchCancel={() => {
