@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { TextInput } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
@@ -10,7 +9,6 @@ import { authAPI } from '@/services/api'
 const SAVED_CREDENTIALS_KEY = 'sms-saved-credentials'
 
 export default function Login() {
-  const navigate = useNavigate()
   const login = useAuthStore((s) => s.login)
 
   const [username, setUsername] = useState('')
@@ -58,7 +56,9 @@ export default function Login() {
       }
 
       login(access_token, refresh_token, user)
-      navigate('/')
+      // SPA navigate 대신 full reload — 신규 배포가 있을 때 캐시된 옛 번들 대신 fresh index.html
+      // 받아 새 hash 번들 자동 적용. 토큰은 zustand persist 로 localStorage 저장돼 reload 후에도 유지.
+      window.location.assign('/')
     } catch (err: any) {
       const msg = err?.response?.data?.detail
       setError(msg || '아이디 또는 비밀번호가 올바르지 않습니다.')
