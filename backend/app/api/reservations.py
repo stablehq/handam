@@ -223,14 +223,11 @@ async def create_reservation(reservation: ReservationCreate, db: Session = Depen
         check_out_date=reservation.check_out_date,
         naver_room_type=reservation.naver_room_type,  # Original reservation room type
         section=reservation.section or 'unassigned',
+        # 수동 생성 경로(POST /api/reservations)는 visit_count/age_group 메타데이터를 채우지
+        # 않아 게스트 이름 옆 (N회/20남) suffix가 노출되지 않게 한다. 네이버 sync / 연박추가
+        # 경로는 별도 흐름이라 영향 없음.
+        visit_count=None,
     )
-    # Calculate visit_count based on phone number
-    if reservation.phone:
-        phone = reservation.phone.strip()
-        past_count = db.query(Reservation).filter(
-            Reservation.phone == phone,
-        ).count()
-        db_reservation.visit_count = past_count + 1
 
     db.add(db_reservation)
     db.flush()

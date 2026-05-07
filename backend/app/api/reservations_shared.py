@@ -96,6 +96,8 @@ class ReservationResponse(BaseModel):
     room_assigned_by: Optional[str] = None
     naver_room_type: Optional[str] = None
     gender: Optional[str] = None
+    age_group: Optional[str] = None
+    visit_count: Optional[int] = None
     male_count: Optional[int] = None
     female_count: Optional[int] = None
     party_size: Optional[int] = None
@@ -172,6 +174,8 @@ def _to_response(res: Reservation, override_room: Optional[str] = None, override
         room_assigned_by=override_assigned_by,
         naver_room_type=res.naver_room_type,
         gender=res.gender,
+        age_group=res.age_group,
+        visit_count=res.visit_count,
         male_count=res.male_count,
         female_count=res.female_count,
         party_size=res.party_size,

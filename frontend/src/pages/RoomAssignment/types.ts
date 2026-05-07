@@ -36,6 +36,8 @@ export interface Reservation {
   section: string;  // 'room', 'unassigned', 'party', 'unstable'
   unstable_party?: boolean;
   gender: string | null;
+  age_group?: string | null;
+  visit_count?: number | null;
   male_count: number | null;
   female_count: number | null;
   party_size: number | null;

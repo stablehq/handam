@@ -188,6 +188,8 @@ async def extend_stay(
         female_count=original.female_count,
         party_size=original.party_size,
         gender=original.gender,
+        age_group=original.age_group,
+        visit_count=original.visit_count,
         booking_source="extend",
         naver_room_type="수동연박",
         section="room" if request.room_id else "unassigned",

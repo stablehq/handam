@@ -92,6 +92,20 @@ function formatGenderPeople(res: Reservation): string {
   return '';
 }
 
+function formatGuestSuffix(res: Reservation): string {
+  // 외부에서 들어온 신뢰 가능한 메타데이터만 노출 (네이버/연박추가/멀티룸 분할).
+  // 수동 입력 경로(manual)는 직원이 임시로 채운 값일 수 있어 표시하지 않는다.
+  const src = res.booking_source;
+  if (src !== 'naver' && src !== 'naver_split' && src !== 'extend') return '';
+  const parts: string[] = [];
+  if (res.visit_count && res.visit_count > 0) parts.push(`${res.visit_count}회`);
+  const age = res.age_group ? String(res.age_group).trim() : '';
+  const g = res.gender === '남' || res.gender === '여' ? res.gender : '';
+  const ageGender = `${age}${g}`;
+  if (ageGender) parts.push(ageGender);
+  return parts.length ? `(${parts.join('/')})` : '';
+}
+
 // SmsCell 은 RoomAssignment/components/SmsCell.tsx 로 분리 (Phase 2).
 
 // ConfirmState 는 RoomAssignment/types.ts 로 이동 (Phase 1).
@@ -319,9 +333,38 @@ const RoomAssignment = () => {
 
   const [colWidths, setColWidths] = useState(() => loadColWidthsFor(selectedDate.format('YYYY-MM-DD')));
 
+  // 이름 컬럼 자동 너비: 그 날짜의 가장 긴 (이름 + suffix) 컨텐츠를 측정해 모든 행에 동일하게 적용.
+  // 모든 게스트 행은 별도 grid 컨테이너이지만 같은 px 값을 쓰면 시각적으로 정렬됨.
+  // 오늘/내일 분리해 측정 — 오늘 드래그가 내일에 영향 안 가도록.
+  const _measureMaxNameWidth = (rows: Reservation[]): number => {
+    if (rows.length === 0) return 60;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return 60;
+    // text-body = 14px, font-medium = 500. 시스템 sans-serif 폴백.
+    ctx.font = '500 14px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    let max = 60;
+    for (const r of rows) {
+      const text = `${r.customer_name || ''}${formatGuestSuffix(r)}`;
+      if (!text) continue;
+      const w = ctx.measureText(text).width;
+      if (w > max) max = w;
+    }
+    return Math.ceil(max) + 16; // padding/여백 버퍼
+  };
+
+  const autoFitName = useMemo(() => _measureMaxNameWidth(reservations), [reservations]);
+  const autoFitNameNext = useMemo(() => _measureMaxNameWidth(nextDayReservations), [nextDayReservations]);
+
+  // 오늘은 사용자 드래그 값 (colWidths.name) 이 자동값보다 크면 드래그 우선.
+  const effectiveNameWidth = Math.max(colWidths.name, autoFitName);
+  // 내일은 자체 컨텐츠로만 결정 (오늘 드래그와 분리).
+  const effectiveNameWidthNext = autoFitNameNext;
+
   const NEXT_DAY_EXPANDED_WIDTH = useMemo(() => {
-    return 32 + colWidths.name + colWidths.phone + colWidths.party + colWidths.gender + 16;
-  }, [colWidths]);
+    // 내일 컬럼은 phone/party/gender 도 기본값 고정 — 오늘 드래그와 완전 분리.
+    return 32 + effectiveNameWidthNext + defaultColWidths.phone + defaultColWidths.party + defaultColWidths.gender + 16;
+  }, [effectiveNameWidthNext]);
   const [resizeCol, setResizeCol] = useState<string | null>(null);
   const [resizeGuideX, setResizeGuideX] = useState<number | null>(null);
   const resizeStartXRef = useRef(0);
@@ -367,12 +410,13 @@ const RoomAssignment = () => {
   }, []);
 
   const GUEST_COLS = useMemo(() => {
-    return `${colWidths.name}px ${colWidths.phone}px ${colWidths.party}px ${colWidths.gender}px ${colWidths.roomType}px ${colWidths.notes}px minmax(${colWidths.sms}px, 1fr)`;
-  }, [colWidths]);
+    return `${effectiveNameWidth}px ${colWidths.phone}px ${colWidths.party}px ${colWidths.gender}px ${colWidths.roomType}px ${colWidths.notes}px minmax(${colWidths.sms}px, 1fr)`;
+  }, [colWidths, effectiveNameWidth]);
 
   const NEXT_GUEST_COLS = useMemo(() => {
-    return `${colWidths.name}px ${colWidths.phone}px ${colWidths.party}px ${colWidths.gender}px`;
-  }, [colWidths]);
+    // 내일 컬럼: 자체 auto-fit + 기본값 고정 (오늘 드래그와 분리)
+    return `${effectiveNameWidthNext}px ${defaultColWidths.phone}px ${defaultColWidths.party}px ${defaultColWidths.gender}px`;
+  }, [effectiveNameWidthNext]);
 
   const roomInfoMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -578,7 +622,12 @@ const RoomAssignment = () => {
     const handleMouseMove = (e: MouseEvent) => {
       const delta = e.clientX - resizeStartXRef.current;
       const minWidths: Record<string, number> = { name: 60, phone: 120, party: 60, gender: 60, roomType: 100, notes: 100, sms: 140, nextDay: 96 };
-      const newWidth = Math.max(minWidths[resizeCol] || 30, resizeStartWidthRef.current + delta);
+      // 이름 컬럼: 시각적 최소값은 autoFitName (suffix 포함). 그 아래로는 드래그해도 행이 줄어들지 않으므로
+      // 드래그 가이드/저장값도 autoFit floor 에 맞춰 시각/저장 일관성 유지.
+      const effectiveMin = resizeCol === 'name'
+        ? Math.max(minWidths.name, autoFitName)
+        : (minWidths[resizeCol] || 30);
+      const newWidth = Math.max(effectiveMin, resizeStartWidthRef.current + delta);
       setColWidths((prev: typeof defaultColWidths) => ({ ...prev, [resizeCol!]: newWidth }));
       if (tableContainerRef.current) {
         const clampedDelta = newWidth - resizeStartWidthRef.current;
@@ -609,7 +658,7 @@ const RoomAssignment = () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [resizeCol, selectedDate]);
+  }, [resizeCol, selectedDate, autoFitName]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -1847,8 +1896,11 @@ const RoomAssignment = () => {
           style={{ gridTemplateColumns: GUEST_COLS }}
         >
           <div className="overflow-hidden px-1.5 flex items-center gap-0.5">
-            <span className="flex items-center gap-1">
-              <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className={`font-medium ${cellText}`} placeholder="이름" autoFocus={res.id === quickAddedId} disabled={selectionActive || isCancelled} />
+            <span className="flex items-center gap-1 min-w-0">
+              <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className={`font-medium ${cellText}`} placeholder="이름" autoFocus={res.id === quickAddedId} disabled={selectionActive || isCancelled} compact />
+              {formatGuestSuffix(res) && (
+                <span className={`flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]`}>{formatGuestSuffix(res)}</span>
+              )}
               {res.has_unstable_booking && <span className="inline-block h-[6px] w-[6px] rounded-full bg-[#7B61FF] flex-shrink-0" title="언스테이블 파티 예약 확인" />}
             </span>
           </div>
@@ -2063,10 +2115,13 @@ const RoomAssignment = () => {
                           className="flex-1 grid items-center py-1"
                           style={{ gridTemplateColumns: NEXT_GUEST_COLS }}
                         >
-                          <div className="overflow-hidden px-1">
+                          <div className="overflow-hidden px-1 flex items-center gap-1 min-w-0">
                             <InlineInput value={nextGuest.customer_name} field="customer_name" resId={nextGuest.id}
                               onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                              className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" disabled={selectionActive} />
+                              className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" disabled={selectionActive} compact />
+                            {formatGuestSuffix(nextGuest) && (
+                              <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{formatGuestSuffix(nextGuest)}</span>
+                            )}
                           </div>
                           <div className="overflow-hidden px-1">
                             <InlineInput value={nextGuest.phone || ''} field="phone" resId={nextGuest.id}
@@ -2087,7 +2142,7 @@ const RoomAssignment = () => {
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5 truncate">
-                        <span className="truncate text-caption text-[#4E5968] dark:text-[#8B95A1]">{nextGuest.customer_name}</span>
+                        <span className="truncate text-caption text-[#4E5968] dark:text-[#8B95A1]">{nextGuest.customer_name}{formatGuestSuffix(nextGuest) && <span className="ml-1 text-[#8B95A1] dark:text-[#4E5968]">{formatGuestSuffix(nextGuest)}</span>}</span>
                         {gp && <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{gp}</span>}
                       </div>
                     )
@@ -2463,7 +2518,7 @@ const RoomAssignment = () => {
                   className="flex-1 grid items-center"
                   style={{ gridTemplateColumns: GUEST_COLS }}
                 >
-                  <div className="relative pl-[9px] pr-1.5 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">이름<div onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); resizeStartXRef.current = e.clientX; resizeStartWidthRef.current = colWidths.name; setResizeCol('name'); }} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
+                  <div className="relative pl-[9px] pr-1.5 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">이름<div onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); resizeStartXRef.current = e.clientX; resizeStartWidthRef.current = effectiveNameWidth; setResizeCol('name'); }} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
                   <div className="relative pl-[9px] pr-1.5 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">전화번호<div onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); resizeStartXRef.current = e.clientX; resizeStartWidthRef.current = colWidths.phone; setResizeCol('phone'); }} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
                   <div className="relative px-1.5 text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">파티<div onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); resizeStartXRef.current = e.clientX; resizeStartWidthRef.current = colWidths.party; setResizeCol('party'); }} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
                   <div className="relative px-1.5 text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">성별<div onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); resizeStartXRef.current = e.clientX; resizeStartWidthRef.current = colWidths.gender; setResizeCol('gender'); }} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
@@ -2613,10 +2668,13 @@ const RoomAssignment = () => {
                                   </span>
                                 </div>
                                 <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS }}>
-                                  <div className="overflow-hidden px-1">
+                                  <div className="overflow-hidden px-1 flex items-center gap-1 min-w-0">
                                     <InlineInput value={res.customer_name} field="customer_name" resId={res.id}
                                       onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                                      className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" disabled={selectionActive} />
+                                      className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" disabled={selectionActive} compact />
+                                    {formatGuestSuffix(res) && (
+                                      <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{formatGuestSuffix(res)}</span>
+                                    )}
                                   </div>
                                   <div className="overflow-hidden px-1">
                                     <InlineInput value={res.phone || ''} field="phone" resId={res.id}
@@ -2637,7 +2695,7 @@ const RoomAssignment = () => {
                               </div>
                             ) : (
                               <div className="flex items-center gap-1.5 truncate">
-                                <span className="truncate text-caption text-[#4E5968] dark:text-[#8B95A1]">{res.customer_name}</span>
+                                <span className="truncate text-caption text-[#4E5968] dark:text-[#8B95A1]">{res.customer_name}{formatGuestSuffix(res) && <span className="ml-1 text-[#8B95A1] dark:text-[#4E5968]">{formatGuestSuffix(res)}</span>}</span>
                                 {gp && <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{gp}</span>}
                               </div>
                             )}
@@ -2725,10 +2783,13 @@ const RoomAssignment = () => {
                                 </div>
                                 <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS }}
                                 >
-                                  <div className="overflow-hidden px-1">
+                                  <div className="overflow-hidden px-1 flex items-center gap-1 min-w-0">
                                     <InlineInput value={res.customer_name} field="customer_name" resId={res.id}
                                       onSave={(id, f, v) => handleFieldSave(id, f, v, selectedDate.add(1, 'day'))}
-                                      className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" disabled={selectionActive} />
+                                      className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" disabled={selectionActive} compact />
+                                    {formatGuestSuffix(res) && (
+                                      <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{formatGuestSuffix(res)}</span>
+                                    )}
                                   </div>
                                   <div className="overflow-hidden px-1">
                                     <InlineInput value={res.phone || ''} field="phone" resId={res.id}
@@ -2749,7 +2810,7 @@ const RoomAssignment = () => {
                               </div>
                             ) : (
                               <div className="flex items-center gap-1.5 truncate">
-                                <span className="truncate text-caption text-[#4E5968] dark:text-[#8B95A1]">{res.customer_name}</span>
+                                <span className="truncate text-caption text-[#4E5968] dark:text-[#8B95A1]">{res.customer_name}{formatGuestSuffix(res) && <span className="ml-1 text-[#8B95A1] dark:text-[#4E5968]">{formatGuestSuffix(res)}</span>}</span>
                                 {gp && <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{gp}</span>}
                               </div>
                             )}
