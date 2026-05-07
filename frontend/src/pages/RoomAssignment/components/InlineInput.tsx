@@ -106,7 +106,9 @@ export const InlineInput = ({
       onDoubleClick={activate}
       onTouchEnd={handleTouchEnd}
       title={disabled ? undefined : '더블클릭하여 수정'}
-      style={{ touchAction: 'manipulation' }}
+      // touchAction: 'manipulation' 제거 — iOS에서 long-press → contextmenu 도 같이
+      // 차단해 컨텍스트 메뉴가 안 뜸. 더블탭 줌은 handleTouchEnd 의 preventDefault 로
+      // 충분히 막힘 (RoomMemoEditor 도 동일 방식).
       className={`${compact ? '' : 'w-full'} text-body truncate select-none ${disabled ? '' : 'cursor-text'} ${className || ''}`}
     >
       {value || <span className="text-[#B0B8C1] dark:text-[#4E5968]">{placeholder}</span>}
