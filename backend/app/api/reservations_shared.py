@@ -131,6 +131,23 @@ def _to_response(res: Reservation, override_room: Optional[str] = None, override
     assignments = []
     if db is not None and hasattr(res, 'sms_assignments'):
         source = [a for a in res.sms_assignments if a.assigned_by != 'excluded']
+        # 같은 stay_group sibling reservation의 sent chip 포함 (UI dedup 위함)
+        # 별도 booking 2건이 stay_group으로 묶인 경우(김광원 케이스) 어제 보낸 chip이
+        # 오늘 record의 응답에도 포함되어 SmsCell가 ✓발송완료로 표시할 수 있게 함.
+        if res.stay_group_id:
+            from app.db.models import ReservationSmsAssignment
+            sibling_chips = (
+                db.query(ReservationSmsAssignment)
+                .join(Reservation, Reservation.id == ReservationSmsAssignment.reservation_id)
+                .filter(
+                    Reservation.stay_group_id == res.stay_group_id,
+                    Reservation.id != res.id,
+                    ReservationSmsAssignment.sent_at.isnot(None),
+                    ReservationSmsAssignment.assigned_by != 'excluded',
+                )
+                .all()
+            )
+            source = source + sibling_chips
         if filter_date is not None:
             # [Phase 6: 칩 날짜 필터링] — 조회 날짜 기준으로 어떤 칩을 UI에 보여줄지 결정
             # (1) date == 조회일: 정확히 그 날 칩
