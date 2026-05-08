@@ -114,6 +114,7 @@ class ReservationResponse(BaseModel):
     stay_group_id: Optional[str] = None
     stay_group_order: Optional[int] = None
     is_long_stay: bool = False
+    manually_extended_until: Optional[str] = None
     bed_order: int = 0
     unstable_party: bool = False
     has_unstable_booking: bool = False
@@ -192,6 +193,7 @@ def _to_response(res: Reservation, override_room: Optional[str] = None, override
         stay_group_id=res.stay_group_id,
         stay_group_order=res.stay_group_order,
         is_long_stay=bool(res.is_long_stay),
+        manually_extended_until=res.manually_extended_until,
         bed_order=override_bed_order if override_bed_order is not None else 0,
         unstable_party=override_unstable_party if override_unstable_party is not None else False,
         has_unstable_booking=override_has_unstable_booking,
