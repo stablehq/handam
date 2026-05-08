@@ -221,6 +221,8 @@ export const reservationsAPI = {
   syncNaver: (fromDate?: string) => api.post('/api/reservations/sync/naver', null, { params: fromDate ? { from_date: fromDate } : undefined }),
   updateDailyInfo: (id: number, data: { date: string; party_type?: string | null; notes?: string | null; unstable_party?: boolean }) =>
     api.put(`/api/reservations/${id}/daily-info`, data),
+  smsSendByTag: (data: { template_key: string; date: string }) =>
+    api.post('/api/reservations/sms-send-by-tag', data),
 };
 
 // Rooms API
