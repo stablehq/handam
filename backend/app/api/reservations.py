@@ -338,6 +338,15 @@ async def update_reservation(
 
     # status 가 CANCELLED 로 바뀌면 stay_group 자동 해제 (naver_sync 와 동일 정책)
     # — 취소된 예약이 그룹에 stay_group_id 로 남아있으면 이후 extend_stay 등이 stale 데이터로 실패함
+    # S4 fix: 취소 시 manually_extended_until 클리어 — 재활성 시 stale flag로
+    # naver_sync 영구 차단되는 silent data drift 방지
+    if (
+        "status" in update_data
+        and update_data["status"] == ReservationStatus.CANCELLED
+        and db_reservation.manually_extended_until
+    ):
+        db_reservation.manually_extended_until = None
+
     if (
         "status" in update_data
         and update_data["status"] == ReservationStatus.CANCELLED

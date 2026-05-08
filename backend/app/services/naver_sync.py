@@ -714,6 +714,10 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
         existing.status = ReservationStatus.CONFIRMED
     elif naver_status == "cancelled":
         existing.status = ReservationStatus.CANCELLED
+        # S4 fix: 취소 시 manually_extended_until 클리어 — 재활성 시 stale flag로
+        # naver_sync 영구 차단되는 silent data drift 방지
+        if existing.manually_extended_until:
+            existing.manually_extended_until = None
     # status 트랜지션 진단 — 강태호 케이스(2026-04-29) 같은 cancel 누락 재발 시
     # 응답에 들어왔는데 매칭됐는지 추적. idempotent (변경 없으면 noise X).
     if _prev_status != existing.status:
