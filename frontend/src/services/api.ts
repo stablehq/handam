@@ -360,8 +360,6 @@ export const tenantsAPI = {
 };
 
 // Stay Group API
-// DEPRECATED 2026-05-09 (extend-stay refactor): backend endpoints removed.
-// These methods will 404 if called. Phase 4 frontend cleanup will remove usage.
 export const stayGroupAPI = {
   link: (id: number, reservationIds: number[]) =>
     api.post(`/api/reservations/${id}/stay-group/link`, { reservation_ids: reservationIds }),

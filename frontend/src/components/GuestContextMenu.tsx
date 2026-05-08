@@ -13,8 +13,8 @@ interface GuestContextMenuProps {
   onMoveToPool: () => void;
   onMoveToParty: () => void;
   onDelete: () => void;
-  /** Pass handler only to show "연박 해제" (unlink). "연박 묶기" (link) is removed — Phase 4. */
   onLinkStayGroup?: () => void;
+  onUnlinkStayGroup?: () => void;
   onSetColor: (color: string | null) => void;
   onCopyToUnstable?: () => void;
   onRemoveFromUnstable?: () => void;
@@ -37,6 +37,7 @@ export default function GuestContextMenu({
   onMoveToParty,
   onDelete,
   onLinkStayGroup = undefined,
+  onUnlinkStayGroup = undefined,
   onSetColor,
   onCopyToUnstable,
   onRemoveFromUnstable,
@@ -159,12 +160,18 @@ export default function GuestContextMenu({
     });
   }
 
-  // "연박 묶기" (link) removed in Phase 4 — backend endpoint no longer exists.
-  // Only show "연박 해제" when the guest belongs to a naver-detected stay group.
-  if (hasStayGroup && onLinkStayGroup) {
+  if (hasStayGroup && onUnlinkStayGroup) {
     items.push({
       icon: <Link2 className="h-4 w-4" />,
       label: '연박 해제',
+      onClick: onUnlinkStayGroup,
+      disabled: false,
+    });
+  }
+  if (!hasStayGroup && onLinkStayGroup) {
+    items.push({
+      icon: <Link2 className="h-4 w-4" />,
+      label: '연박 묶기',
       onClick: onLinkStayGroup,
       disabled: false,
     });

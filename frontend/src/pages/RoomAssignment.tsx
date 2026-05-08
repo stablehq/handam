@@ -460,9 +460,14 @@ const RoomAssignment = () => {
         }
         setContextMenu(null);
       },
-      // Phase 4: "연박 묶기" (link) removed — only show unlink for naver-detected groups.
-      // Pass handler only when the guest has a stay_group_id so GuestContextMenu renders "연박 해제".
-      onLinkStayGroup: firstRes.stay_group_id ? () => {
+      onLinkStayGroup: targetIds.length === 1 && !firstRes.stay_group_id ? () => {
+        // DIAG_BLOCK_START
+        window.__diagAction = 'ctx_menu:stay_group_link';
+        // DIAG_BLOCK_END
+        stayGroup.open(firstRes.id);
+        setContextMenu(null);
+      } : undefined,
+      onUnlinkStayGroup: firstRes.stay_group_id ? () => {
         // DIAG_BLOCK_START
         window.__diagAction = 'ctx_menu:stay_group_unlink';
         // DIAG_BLOCK_END
@@ -572,7 +577,7 @@ const RoomAssignment = () => {
         window.location.href = `tel:${phone}`;
       } : undefined,
     };
-  }, [contextMenu, reservations, nextDayReservations, findReservation, sectionOverrides, handleDropOnPool, handleDropOnParty, handleDeleteGuest, selectedDate, qc, stayGroup.unlink, showConfirm, activeRoomEntries, setColorMutation, copyToUnstableMutation, removeFromUnstableMutation, extendStayMutation, cancelExtendStayMutation, _invalidateReservations]);
+  }, [contextMenu, reservations, nextDayReservations, findReservation, sectionOverrides, handleDropOnPool, handleDropOnParty, handleDeleteGuest, selectedDate, qc, stayGroup.open, stayGroup.unlink, showConfirm, activeRoomEntries, setColorMutation, copyToUnstableMutation, removeFromUnstableMutation, extendStayMutation, cancelExtendStayMutation, _invalidateReservations]);
 
 
 
@@ -1214,6 +1219,7 @@ const RoomAssignment = () => {
           onMoveToParty={contextMenuActions.onMoveToParty}
           onDelete={contextMenuActions.onDelete}
           onLinkStayGroup={contextMenuActions.onLinkStayGroup}
+          onUnlinkStayGroup={contextMenuActions.onUnlinkStayGroup}
           onSetColor={contextMenuActions.onSetColor}
           onCopyToUnstable={hasUnstable && !contextMenuActions.isAlreadyCopiedToUnstable && !contextMenuActions.hasRealUnstableBooking ? contextMenuActions.onCopyToUnstable : undefined}
           onRemoveFromUnstable={hasUnstable && contextMenuActions.isAlreadyCopiedToUnstable && !contextMenuActions.hasRealUnstableBooking ? contextMenuActions.onRemoveFromUnstable : undefined}

@@ -38,8 +38,9 @@ EXPECTED_SMS = {
 }
 
 EXPECTED_STAY = {
-    # stay-group/link and stay-group/unlink removed in extend-stay refactor 2026-05-09
     ("POST", "/api/reservations/detect-consecutive"),
+    ("POST", "/api/reservations/{reservation_id}/stay-group/link"),
+    ("DELETE", "/api/reservations/{reservation_id}/stay-group/unlink"),
     ("POST", "/api/reservations/{reservation_id}/extend-stay"),
     ("POST", "/api/reservations/{reservation_id}/extend-stay/assign-room"),
     ("DELETE", "/api/reservations/{reservation_id}/extend-stay"),
@@ -48,7 +49,7 @@ EXPECTED_STAY = {
 
 TOTAL_EXPECTED = (
     len(EXPECTED_CRUD) + len(EXPECTED_ROOM) + len(EXPECTED_SMS) + len(EXPECTED_STAY)
-)  # 5 + 2 + 4 + 5 = 16
+)  # 5 + 2 + 4 + 7 = 18
 
 
 def _routes_of(router):

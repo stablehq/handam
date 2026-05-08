@@ -1,8 +1,7 @@
-"""consecutive_stay 연속 감지 및 unlink 동작 검증.
+"""consecutive_stay 연속 감지 및 link/unlink 동작 검증.
 
-2026-05-09 extend-stay 리팩터: link_reservations, _validate_link_inputs 삭제.
-TestValidateLinkInputs, TestLinkReservations 는 skip 처리.
-unlink_from_group 은 유지 — reservations.py, naver_sync.py 에서 사용.
+unlink_from_group 은 reservations.py, naver_sync.py 에서 사용.
+link_reservations, _validate_link_inputs 는 수동 연박 묶기 API 에서 사용.
 
 stay_group_excluded 옵션:
   - 사용자 수동 unlink → excluded=True 박힘
@@ -15,6 +14,8 @@ import pytest
 from app.db.models import Reservation, ReservationStatus
 from app.services.consecutive_stay import (
     unlink_from_group,
+    _validate_link_inputs,
+    link_reservations,
 )
 
 
@@ -48,10 +49,9 @@ def _make_reservation(
 
 
 # ---------------------------------------------------------------------------
-# _validate_link_inputs — removed in extend-stay refactor 2026-05-09
+# _validate_link_inputs
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skip(reason="link_reservations/_validate_link_inputs removed in extend-stay refactor 2026-05-09")
 class TestValidateLinkInputs:
     def test_fewer_than_2_raises(self):
         with pytest.raises(ValueError, match="2개 이상"):
@@ -97,7 +97,6 @@ class TestValidateLinkInputs:
 # link_reservations — removed in extend-stay refactor 2026-05-09
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skip(reason="link_reservations removed in extend-stay refactor 2026-05-09")
 class TestLinkReservations:
     def test_two_standalone_reservations(self, db):
         """기존 그룹 없는 예약 2건 → 새 manual-UUID 로 묶임."""
@@ -355,7 +354,6 @@ class TestStayGroupExcluded:
         assert r1.stay_group_id is None
         assert r2.stay_group_id is None
 
-    @pytest.mark.skip(reason="link_reservations removed in extend-stay refactor 2026-05-09")
     def test_link_reservations_clears_excluded_flag(self, db):
         """수동 link 시 chain 멤버의 stay_group_excluded=False 로 reset."""
         r1 = _make_reservation(db, check_in="2026-04-01", check_out="2026-04-02")

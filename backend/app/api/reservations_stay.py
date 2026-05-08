@@ -26,6 +26,10 @@ router = APIRouter(prefix="/api/reservations", tags=["reservations"])
 # ---------------------------------------------------------------------------
 
 
+class StayGroupLinkRequest(BaseModel):
+    reservation_ids: List[int]
+
+
 class ExtendStayRequest(BaseModel):
     """연박추가: original reservation end_date += 1 day, assign room for new day"""
     room_id: Optional[int] = None  # Room to assign on next day (None = no assignment)
@@ -69,11 +73,85 @@ async def detect_consecutive_stays(
     }
 
 
-# removed in extend-stay refactor 2026-05-09:
-#   link_stay_group  (POST /{reservation_id}/stay-group/link)
-#   unlink_stay_group (DELETE /{reservation_id}/stay-group/unlink)
-# Users no longer manually link reservation groups. Naver auto-detection still
-# works internally via detect_and_link_consecutive_stays().
+@router.post("/{reservation_id}/stay-group/link", response_model=ActionResponse)
+async def link_stay_group(
+    reservation_id: int,
+    request: StayGroupLinkRequest,
+    db: Session = Depends(get_tenant_scoped_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Manually link reservations into a consecutive stay group."""
+    from app.services.consecutive_stay import link_reservations
+
+    all_ids = list(set([reservation_id] + request.reservation_ids))
+    try:
+        group_id, linked_ids = link_reservations(db, all_ids)
+    except ValueError as e:
+        diag(
+            "stay_group.link_api.validation_failed",
+            level="critical",
+            reservation_id=reservation_id,
+            requested_ids=all_ids,
+            error=str(e),
+        )
+        raise HTTPException(status_code=400, detail=str(e))
+
+    from app.services.room_assignment import sync_sms_tags
+    schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
+    for res_id in linked_ids:
+        sync_sms_tags(db, res_id, schedules=schedules)
+
+    db.commit()
+
+    diag(
+        "stay_group.link_api.done",
+        level="critical",
+        group_id=group_id,
+        member_count=len(linked_ids),
+        actor=current_user.username if current_user else None,
+    )
+
+    return {"success": True, "message": f"연박 그룹 생성: {group_id}"}
+
+
+@router.delete("/{reservation_id}/stay-group/unlink", response_model=ActionResponse)
+async def unlink_stay_group(
+    reservation_id: int,
+    db: Session = Depends(get_tenant_scoped_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove a reservation from its consecutive stay group."""
+    from app.services.consecutive_stay import unlink_from_group
+    from app.services.room_assignment import sync_sms_tags
+
+    res = db.query(Reservation).filter(Reservation.id == reservation_id).first()
+    affected_ids = []
+    if res and res.stay_group_id:
+        affected_ids = [r.id for r in db.query(Reservation).filter(
+            Reservation.stay_group_id == res.stay_group_id
+        ).all()]
+
+    unlinked = unlink_from_group(db, reservation_id, exclude_from_auto_link=True)
+    if not unlinked:
+        diag("stay_group.unlink_api.not_in_group", level="critical",
+             reservation_id=reservation_id)
+        raise HTTPException(status_code=404, detail="연박 그룹에 속하지 않은 예약입니다")
+
+    schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
+    for res_id in affected_ids:
+        sync_sms_tags(db, res_id, schedules=schedules)
+
+    db.commit()
+
+    diag(
+        "stay_group.unlink_api.done",
+        level="critical",
+        reservation_id=reservation_id,
+        affected_count=len(affected_ids),
+        actor=current_user.username if current_user else None,
+    )
+
+    return {"success": True, "message": "연박 그룹에서 해제되었습니다"}
 
 
 @router.post("/{reservation_id}/extend-stay", response_model=ExtendStayResponse)
