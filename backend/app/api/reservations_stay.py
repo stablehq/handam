@@ -442,9 +442,25 @@ def _do_reduce_extension(
         pass  # PartyCheckin may not exist in all environments
 
     # 5. Update reservation dates
+    from datetime import date as date_type
     from app.services.consecutive_stay import compute_is_long_stay
+    new_end_dt = date_type.fromisoformat(new_end_str)
+    check_in_dt = date_type.fromisoformat(original.check_in_date)
+    days_remaining = (new_end_dt - check_in_dt).days
+
     original.check_out_date = new_end_str
-    original.manually_extended_until = new_end_str
+    # Clear flag when fully retracted to a 1-night (or shorter) stay — naver_sync resumes normal sync
+    if days_remaining <= 1:
+        original.manually_extended_until = None
+        diag(
+            "reduce_extension.flag_cleared",
+            level="critical",
+            reservation_id=reservation_id,
+            new_end=new_end_str,
+            days_remaining=days_remaining,
+        )
+    else:
+        original.manually_extended_until = new_end_str
     original.is_long_stay = compute_is_long_stay(original)
     db.flush()
 

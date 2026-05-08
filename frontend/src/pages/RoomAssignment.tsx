@@ -542,7 +542,7 @@ const RoomAssignment = () => {
           },
         );
       } : undefined,
-      onCancelExtendStay: (targetIds.length === 1 && !!firstRes?.manually_extended_until && !contextIsNextDay) ? () => {
+      onCancelExtendStay: (targetIds.length === 1 && !!firstRes?.manually_extended_until) ? () => {
         const resId = targetIds[0];
         setContextMenu(null);
         // DIAG_BLOCK_START

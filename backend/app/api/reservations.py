@@ -366,6 +366,20 @@ async def update_reservation(
     if old_dates != new_dates:
         from app.services.consecutive_stay import compute_is_long_stay
         db_reservation.is_long_stay = compute_is_long_stay(db_reservation)
+        # manually_extended_until consistency: clear if it now exceeds new check_out_date
+        # (e.g., user manually changed checkout date, breaking the original extension semantics)
+        if (db_reservation.manually_extended_until
+                and db_reservation.check_out_date
+                and db_reservation.manually_extended_until > db_reservation.check_out_date):
+            from app.diag_logger import diag
+            diag(
+                "update_reservation.cleared_stale_extension_flag",
+                level="critical",
+                reservation_id=reservation_id,
+                old_extended_until=db_reservation.manually_extended_until,
+                new_check_out=db_reservation.check_out_date,
+            )
+            db_reservation.manually_extended_until = None
         db.flush()
         room_assignment.shift_daily_records(
             db, db_reservation, old_dates[0], old_dates[1]
