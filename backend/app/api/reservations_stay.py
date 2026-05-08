@@ -141,8 +141,10 @@ async def extend_stay(
             ]
 
     # 3. Extend end_date
+    from app.services.consecutive_stay import compute_is_long_stay
     original.check_out_date = new_end_str
     original.manually_extended_until = new_end_str
+    original.is_long_stay = compute_is_long_stay(original)
     db.flush()
 
     # 4. Assign room for the new night (only if no conflict)
@@ -362,8 +364,10 @@ def _do_reduce_extension(
         pass  # PartyCheckin may not exist in all environments
 
     # 5. Update reservation dates
+    from app.services.consecutive_stay import compute_is_long_stay
     original.check_out_date = new_end_str
     original.manually_extended_until = new_end_str
+    original.is_long_stay = compute_is_long_stay(original)
     db.flush()
 
     # 6. Reconcile chips for new (shorter) date range
