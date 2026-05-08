@@ -18,6 +18,7 @@ import logging
 from datetime import timedelta
 from typing import List, Optional, Set, Tuple
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -305,15 +306,28 @@ def _sync_chips(
     # Create missing chips (skip excluded)
     for (key, d) in expected_pairs:
         if (key, d) not in existing_pairs and (key, d) not in excluded_pairs:
-            db.add(ReservationSmsAssignment(
-                reservation_id=reservation_id,
-                template_key=key,
-                date=d,
-                assigned_by='auto',
-                sent_at=None,
-                schedule_id=schedule_map.get((key, d)) if schedule_map else None,
-            ))
-            created += 1
+            try:
+                with db.begin_nested():
+                    new_chip = ReservationSmsAssignment(
+                        reservation_id=reservation_id,
+                        template_key=key,
+                        date=d,
+                        assigned_by='auto',
+                        sent_at=None,
+                        schedule_id=schedule_map.get((key, d)) if schedule_map else None,
+                    )
+                    db.add(new_chip)
+            except IntegrityError:
+                # Concurrent insertion — another transaction beat us; benign
+                diag(
+                    "chip.race_save_point_triggered",
+                    level="critical",
+                    reservation_id=reservation_id,
+                    template_key=key,
+                    date=d,
+                )
+            else:
+                created += 1
 
     # Delete stale chips (only unprotected, skip failed)
     for a in existing:

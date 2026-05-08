@@ -441,6 +441,20 @@ def init_db():
                 conn.execute(text("ALTER TABLE tenants ADD COLUMN surcharge_double_room_fee INTEGER DEFAULT 5000 NOT NULL"))
                 print("AUTO-MIGRATE: Added surcharge_double_room_fee column to tenants table")
 
+        # onsite_sales.payment_method (카드/이체/현금)
+        if "onsite_sales" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("onsite_sales")]
+            if "payment_method" not in cols:
+                conn.execute(text("ALTER TABLE onsite_sales ADD COLUMN payment_method VARCHAR(20)"))
+                print("AUTO-MIGRATE: Added payment_method column to onsite_sales table")
+
+        # onsite_auctions.payment_method (카드/이체/현금)
+        if "onsite_auctions" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("onsite_auctions")]
+            if "payment_method" not in cols:
+                conn.execute(text("ALTER TABLE onsite_auctions ADD COLUMN payment_method VARCHAR(20)"))
+                print("AUTO-MIGRATE: Added payment_method column to onsite_auctions table")
+
     # Task 1.5: admin 기본 비밀번호 환경변수화
     # 옵션 C (Phase 6): session_bypass — seed 작업 (cross-tenant)
     db = session_bypass()

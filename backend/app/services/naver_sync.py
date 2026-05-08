@@ -648,7 +648,36 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
     old_end_date = existing.check_out_date
     existing.check_in_date = res_data.get("date", existing.check_in_date)
     existing.check_in_time = res_data.get("time", existing.check_in_time)
-    existing.check_out_date = res_data.get("end_date", existing.check_out_date)
+    incoming_end = res_data.get("end_date")
+    if incoming_end is not None:
+        if (
+            existing.manually_extended_until
+            and incoming_end < existing.check_out_date
+            and incoming_end < existing.manually_extended_until
+        ):
+            # User manually extended — preserve; naver hasn't caught up yet
+            diag(
+                "naver_sync.user_extension_preserved",
+                level="critical",
+                reservation_id=existing.id,
+                incoming_end=incoming_end,
+                existing_end=existing.check_out_date,
+                manually_extended_until=existing.manually_extended_until,
+                naver_booking_id=existing.naver_booking_id,
+            )
+            # skip overwrite
+        else:
+            if existing.manually_extended_until and incoming_end >= existing.manually_extended_until:
+                # Naver caught up — clear flag
+                diag(
+                    "naver_sync.user_extension_overridden",
+                    level="critical",
+                    reservation_id=existing.id,
+                    incoming_end=incoming_end,
+                    manually_extended_until=existing.manually_extended_until,
+                )
+                existing.manually_extended_until = None
+            existing.check_out_date = incoming_end
     existing.biz_item_name = res_data.get("biz_item_name", existing.biz_item_name)
     if not is_split_managed:
         existing.booking_count = res_data.get("booking_count", existing.booking_count)

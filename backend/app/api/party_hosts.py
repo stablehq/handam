@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List
 from app.api.deps import get_tenant_scoped_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import require_admin_or_above
 from app.db.models import PartyHost, User
 
 router = APIRouter(prefix="/api/party-hosts", tags=["party-hosts"])
@@ -25,7 +25,7 @@ class PartyHostResponse(BaseModel):
 @router.get("", response_model=List[PartyHostResponse])
 async def list_party_hosts(
     db: Session = Depends(get_tenant_scoped_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_above),
 ):
     """진행자 목록 조회 (활성만)"""
     return db.query(PartyHost).filter(PartyHost.is_active == True).order_by(PartyHost.name).all()
@@ -35,7 +35,7 @@ async def list_party_hosts(
 async def create_party_host(
     req: PartyHostCreate,
     db: Session = Depends(get_tenant_scoped_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_above),
 ):
     """진행자 추가"""
     name = req.name.strip()
@@ -62,7 +62,7 @@ async def create_party_host(
 async def delete_party_host(
     host_id: int,
     db: Session = Depends(get_tenant_scoped_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_above),
 ):
     """진행자 비활성화 (soft delete)"""
     host = db.query(PartyHost).filter(PartyHost.id == host_id).first()

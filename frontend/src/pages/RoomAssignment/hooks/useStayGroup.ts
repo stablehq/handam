@@ -1,7 +1,9 @@
 import { useCallback, useState } from 'react';
 import dayjs from 'dayjs';
 import { toast } from 'sonner';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { reservationsAPI, stayGroupAPI } from '../../../services/api';
+import { queryKeys } from '@/lib/queryKeys';
 import type { Reservation } from '../types';
 
 interface ChainEntry {
@@ -14,7 +16,6 @@ interface ChainEntry {
 }
 
 // 단일날짜(ci===co) 예약은 ci+1, 연박은 co 사용 — chain next 슬롯 계산.
-// 모듈 최상위에 두어 추후 utils/ 로 이동하기 쉽게 함.
 const nextDateOf = (r: { check_in_date: string; check_out_date?: string | null }) =>
   (r.check_out_date && r.check_out_date !== r.check_in_date)
     ? r.check_out_date
@@ -28,15 +29,22 @@ interface UseStayGroupProps {
  * 연박 그룹 만들기 마법사 (모달 + 체인 + 후보 로드 + 백엔드 link/unlink).
  *
  * Phase B-4: RoomAssignment.tsx 의 7개 useState + 2 helper + 5 handler 통합.
+ * Phase 3b: link/unlink → useMutation. window.location.reload() 제거.
+ *           broad invalidation: queryKeys.reservations.all() + rooms.groups().
  */
 export function useStayGroup({ reservations }: UseStayGroupProps) {
+  const qc = useQueryClient();
   const [show, setShow] = useState(false);
   const [chain, setChain] = useState<ChainEntry[]>([]);
   const [candidates, setCandidates] = useState<any[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-  const [linking, setLinking] = useState(false);
   const [direction, setDirection] = useState<'left' | 'right'>('right');
+
+  const invalidateBroad = useCallback(() => {
+    qc.invalidateQueries({ queryKey: queryKeys.reservations.all() });
+    qc.invalidateQueries({ queryKey: queryKeys.rooms.groups() });
+  }, [qc]);
 
   const loadReservationsForDate = useCallback(async (date: string) => {
     setLoading(true);
@@ -122,39 +130,50 @@ export function useStayGroup({ reservations }: UseStayGroupProps) {
     }
   }, [chain, loadReservationsForDate]);
 
-  const complete = useCallback(async () => {
+  // ===== link mutation =====
+  const linkMutation = useMutation({
+    mutationFn: ({ anchorId, ids }: { anchorId: number; ids: number[] }) =>
+      stayGroupAPI.link(anchorId, ids),
+    onSuccess: (_, { ids }) => {
+      toast.success(`연박 그룹 생성 완료 (${ids.length}건)`);
+      setShow(false);
+      invalidateBroad();
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || '연박 묶기에 실패했습니다');
+    },
+  });
+
+  // ===== unlink mutation =====
+  const unlinkMutation = useMutation({
+    mutationFn: (reservationId: number) => stayGroupAPI.unlink(reservationId),
+    onSuccess: () => {
+      toast.success('연박 그룹에서 해제되었습니다');
+      invalidateBroad();
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || '연박 해제에 실패했습니다');
+    },
+  });
+
+  const complete = useCallback(() => {
     if (chain.length < 2) {
       toast.error('최소 2개의 예약을 선택해야 합니다');
       return;
     }
-    setLinking(true);
-    try {
-      const ids = chain.map(c => c.id);
-      await stayGroupAPI.link(ids[0], ids);
-      toast.success(`연박 그룹 생성 완료 (${ids.length}건)`);
-      setShow(false);
-      // Refresh data — DELETE.md 에 [개선] 으로 메모됨.
-      window.location.reload();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || '연박 묶기에 실패했습니다');
-    } finally {
-      setLinking(false);
-    }
-  }, [chain]);
+    const ids = chain.map(c => c.id);
+    linkMutation.mutate({ anchorId: ids[0], ids });
+  }, [chain, linkMutation]);
 
-  const unlink = useCallback(async (reservationId: number) => {
+  const unlink = useCallback((reservationId: number) => {
     if (!confirm('이 예약을 연박 그룹에서 해제하시겠습니까?\nSMS 스케줄이 변경될 수 있습니다.')) return;
-    try {
-      await stayGroupAPI.unlink(reservationId);
-      toast.success('연박 그룹에서 해제되었습니다');
-      window.location.reload();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || '연박 해제에 실패했습니다');
-    }
-  }, []);
+    unlinkMutation.mutate(reservationId);
+  }, [unlinkMutation]);
 
   return {
-    show, chain, candidates, selectedId, loading, linking, direction,
+    show, chain, candidates, selectedId, loading,
+    linking: linkMutation.isPending,
+    direction,
     setSelectedId,
     open, close,
     addMore, changeDirection, complete, unlink,

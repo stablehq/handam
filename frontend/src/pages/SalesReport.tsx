@@ -7,6 +7,7 @@ import dayjs from 'dayjs';
 
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import { Badge } from '@/components/ui/badge';
 import { Table, TableHead, TableBody, TableRow, TableHeadCell, TableCell } from '@/components/ui/table';
 
 import { salesReportAPI, partyHostsAPI } from '@/services/api';
@@ -19,9 +20,18 @@ const DETAIL_ROW_BG = 'bg-[#F8F9FB] dark:bg-[#2C2C34]';
 // Types
 // ---------------------------------------------------------------------------
 
+type PaymentMethod = '카드' | '이체' | '현금';
+
+const PAYMENT_BADGE_COLOR: Record<string, 'info' | 'purple' | 'success' | 'gray'> = {
+  '카드': 'info',
+  '이체': 'purple',
+  '현금': 'success',
+};
+
 interface SalesItemDetail {
   item_name: string;
   amount: number;
+  payment_method: PaymentMethod | string | null;
   created_at: string | null;
 }
 
@@ -30,6 +40,10 @@ interface DateDetail {
   participants: number;
   sales_total: number;
   auction_amount: number | null;
+  auction_payment_method: string | null;
+  reviews_count: number;
+  invited_females: number;
+  sales_by_payment: Record<string, number>;
   items: SalesItemDetail[];
 }
 
@@ -40,6 +54,10 @@ interface HostSummary {
   total_auction: number;
   total_revenue: number;
   total_participants: number;
+  total_reviews: number;
+  total_invited_females: number;
+  sales_by_payment: Record<string, number>;
+  auction_by_payment: Record<string, number>;
   avg_per_person: number;
   daily_avg: number;
   dates: DateDetail[];
@@ -59,6 +77,36 @@ function fmt(n: number): string {
   return n.toLocaleString('ko-KR');
 }
 
+type ViewMode = 'total' | 'daily' | 'per_person';
+
+const VIEW_MODE_OPTIONS: { value: ViewMode; label: string }[] = [
+  { value: 'total', label: '총합' },
+  { value: 'daily', label: '일평균' },
+  { value: 'per_person', label: '인당평균' },
+];
+
+// 진행자 요약 행 변환: total = 원본, daily = ÷ days_count(or 명시된 dailyDivisor), per_person = ÷ participants (perPersonApplies=true일 때만)
+function transformHost(value: number, host: HostSummary, mode: ViewMode, perPersonApplies: boolean = true, dailyDivisor?: number, decimals: number = 0): string {
+  if (mode === 'total') return fmt(value);
+  if (mode === 'daily') {
+    const div = dailyDivisor ?? host.days_count;
+    if (div <= 0) return '-';
+    const result = value / div;
+    return decimals > 0
+      ? result.toLocaleString('ko-KR', { maximumFractionDigits: decimals })
+      : fmt(Math.round(result));
+  }
+  if (!perPersonApplies) return fmt(value);
+  return host.total_participants > 0 ? fmt(Math.round(value / host.total_participants)) : '-';
+}
+
+// 일자별 상세 행 변환: total/daily = 원본 (1일이라 동일), per_person = ÷ 그날 participants
+function transformDate(value: number, dd: DateDetail, mode: ViewMode, perPersonApplies: boolean = true): string {
+  if (mode === 'total' || mode === 'daily') return fmt(value);
+  if (!perPersonApplies) return fmt(value);
+  return dd.participants > 0 ? fmt(Math.round(value / dd.participants)) : '-';
+}
+
 
 // ---------------------------------------------------------------------------
 // Component
@@ -70,6 +118,10 @@ export default function SalesReport() {
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<ReportData>({ hosts: [], grand_total_revenue: 0, grand_total_participants: 0 });
+  const [viewMode, setViewMode] = useState<ViewMode>('total');
+
+  // 조회 기간 일수 (inclusive) — 여자초대수 일평균 계산에 사용
+  const rangeDays = Math.max(1, dayjs(dateTo).diff(dayjs(dateFrom), 'day') + 1);
   const [expandedHosts, setExpandedHosts] = useState<Set<string>>(new Set());
   const [detailModal, setDetailModal] = useState<{ open: boolean; host: string; dd: DateDetail | null }>({ open: false, host: '', dd: null });
 
@@ -180,6 +232,23 @@ export default function SalesReport() {
         </div>
       </div>
 
+      {/* 모드 토글 */}
+      <div className="flex items-center justify-end gap-1">
+        {VIEW_MODE_OPTIONS.map((m) => (
+          <button
+            key={m.value}
+            onClick={() => setViewMode(m.value)}
+            className={`px-4 py-1.5 rounded-lg text-body font-medium transition-colors cursor-pointer ${
+              viewMode === m.value
+                ? 'bg-[#3182F6] text-white'
+                : 'bg-[#F2F4F6] text-[#8B95A1] hover:bg-[#E5E8EB] dark:bg-[#2C2C34] dark:text-gray-400 dark:hover:bg-[#35353E]'
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
       {/* 진행자별 — 모바일 카드 뷰 */}
       <div className="md:hidden space-y-3">
         {loading ? (
@@ -212,53 +281,39 @@ export default function SalesReport() {
                 {/* 통계 그리드 */}
                 <div className="grid grid-cols-2 gap-2 px-4 pb-4">
                   <div className="rounded-xl bg-[#F8F9FA] p-3 dark:bg-[#17171C]">
-                    <div className="text-caption text-[#8B95A1]">총 게스트</div>
+                    <div className="text-caption text-[#8B95A1]">게스트</div>
                     <div className="mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white">
-                      {fmt(host.total_participants)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">명</span>
+                      {transformHost(host.total_participants, host, viewMode, false, undefined, 1)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">명</span>
                     </div>
                   </div>
                   <div className="rounded-xl bg-[#F8F9FA] p-3 dark:bg-[#17171C]">
-                    <div className="text-caption text-[#8B95A1]">일 평균</div>
+                    <div className="text-caption text-[#8B95A1]">총매출</div>
+                    <div className="mt-0.5 text-label font-bold tabular-nums text-[#191F28] dark:text-white">
+                      {transformHost(host.total_revenue, host, viewMode)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">원</span>
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-[#F8F9FA] p-3 dark:bg-[#17171C]">
+                    <div className="text-caption text-[#8B95A1]">리뷰수</div>
                     <div className="mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white">
-                      {fmt(host.daily_avg)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">원</span>
+                      {transformHost(host.total_reviews, host, viewMode, false, undefined, 1)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">건</span>
                     </div>
                   </div>
-
-                  <div className="col-span-2 rounded-xl bg-[#F8F9FA] p-3 dark:bg-[#17171C]">
-                    <div className="text-caption text-[#8B95A1]">총 매출</div>
-                    <div className="mt-1 flex flex-wrap items-baseline gap-x-6 gap-y-1">
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-tiny text-[#3182F6]">현장판매</span>
-                        <span className="text-label font-semibold tabular-nums text-[#3182F6]">
-                          {fmt(host.total_sales)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">원</span>
-                        </span>
-                      </div>
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-tiny text-[#FF9500]">경매</span>
-                        <span className="text-label font-semibold tabular-nums text-[#FF9500]">
-                          {fmt(host.total_auction)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">원</span>
-                        </span>
-                      </div>
+                  <div className="rounded-xl bg-[#F8F9FA] p-3 dark:bg-[#17171C]">
+                    <div className="text-caption text-[#8B95A1]">초대수</div>
+                    <div className="mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white">
+                      {transformHost(host.total_invited_females, host, viewMode, false, rangeDays, 1)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">명</span>
                     </div>
                   </div>
-
-                  <div className="col-span-2 rounded-xl bg-[#F8F9FA] p-3 dark:bg-[#17171C]">
-                    <div className="text-caption text-[#8B95A1]">인당 평균</div>
-                    <div className="mt-1 flex flex-wrap items-baseline gap-x-6 gap-y-1">
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-tiny text-[#3182F6]">현장판매</span>
-                        <span className="text-label font-semibold tabular-nums text-[#3182F6]">
-                          {host.total_participants > 0 ? fmt(Math.round(host.total_sales / host.total_participants)) : '-'}
-                          <span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">원</span>
-                        </span>
-                      </div>
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-tiny text-[#FF9500]">경매</span>
-                        <span className="text-label font-semibold tabular-nums text-[#FF9500]">
-                          {host.total_participants > 0 ? fmt(Math.round(host.total_auction / host.total_participants)) : '-'}
-                          <span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">원</span>
-                        </span>
-                      </div>
+                  <div className="rounded-xl bg-[#F8F9FA] p-3 dark:bg-[#17171C]">
+                    <div className="text-caption text-[#8B95A1]">현장판매</div>
+                    <div className="mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white">
+                      {transformHost(host.total_sales, host, viewMode)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">원</span>
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-[#F8F9FA] p-3 dark:bg-[#17171C]">
+                    <div className="text-caption text-[#8B95A1]">경매</div>
+                    <div className="mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white">
+                      {transformHost(host.total_auction, host, viewMode)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">원</span>
                     </div>
                   </div>
                 </div>
@@ -275,18 +330,38 @@ export default function SalesReport() {
                           </div>
                           <div className="mt-2 grid grid-cols-2 gap-2">
                             <div>
-                              <div className="text-tiny text-[#3182F6]">현장판매</div>
+                              <div className="text-tiny text-[#8B95A1]">현장판매</div>
                               <div className="text-caption font-semibold tabular-nums text-[#191F28] dark:text-white">
                                 {fmt(dd.sales_total)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">원</span>
                               </div>
+                              {Object.keys(dd.sales_by_payment ?? {}).length > 0 && (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {Object.entries(dd.sales_by_payment).map(([pm, amt]) => (
+                                    <Badge key={pm} color={PAYMENT_BADGE_COLOR[pm] ?? 'gray'} size="xs">
+                                      {pm} {fmt(amt as number)}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                             <div>
-                              <div className="text-tiny text-[#FF9500]">경매</div>
+                              <div className="text-tiny text-[#8B95A1]">경매</div>
                               <div className="text-caption font-semibold tabular-nums text-[#191F28] dark:text-white">
                                 {fmt(dd.auction_amount ?? 0)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">원</span>
                               </div>
+                              {dd.auction_payment_method && (
+                                <div className="mt-1">
+                                  <Badge color={PAYMENT_BADGE_COLOR[dd.auction_payment_method] ?? 'gray'} size="xs">{dd.auction_payment_method}</Badge>
+                                </div>
+                              )}
                             </div>
                           </div>
+                          {(dd.reviews_count > 0 || dd.invited_females > 0) && (
+                            <div className="mt-2 flex items-center gap-3 text-tiny text-[#8B95A1]">
+                              {dd.reviews_count > 0 && <span>리뷰 <span className="font-semibold text-[#191F28] dark:text-white tabular-nums">{dd.reviews_count}</span>건</span>}
+                              {dd.invited_females > 0 && <span>초대 <span className="font-semibold text-[#191F28] dark:text-white tabular-nums">{dd.invited_females}</span>명</span>}
+                            </div>
+                          )}
                           {dd.items.length > 0 && (
                             <Button
                               color="light"
@@ -314,30 +389,30 @@ export default function SalesReport() {
           <Table className="table-fixed">
             <colgroup>
               <col className="w-[3%]" />
-              <col className="w-[15%]" />
-              <col className="w-[9%]" />
-              <col className="w-[9%]" />
-              <col className="w-[13%]" />
-              <col className="w-[13%]" />
-              <col className="w-[13%]" />
-              <col className="w-[13%]" />
               <col className="w-[12%]" />
+              <col className="w-[10%]" />
+              <col className="w-[7%]" />
+              <col className="w-[9%]" />
+              <col className="w-[9%]" />
+              <col className="w-[16%]" />
+              <col className="w-[16%]" />
+              <col className="w-[18%]" />
             </colgroup>
             <TableHead>
               <TableRow>
                 <TableHeadCell rowSpan={2} className="text-center align-middle border-r border-[#E5E8EB] dark:border-gray-700" style={{ padding: '0 4px' }}></TableHeadCell>
                 <TableHeadCell rowSpan={2} className="text-center align-middle border-r border-[#E5E8EB] dark:border-gray-700">진행자</TableHeadCell>
-                <TableHeadCell rowSpan={2} className="text-center align-middle border-r border-[#E5E8EB] dark:border-gray-700">진행일</TableHeadCell>
-                <TableHeadCell rowSpan={2} className="text-center align-middle border-r border-[#E5E8EB] dark:border-gray-700">총 게스트</TableHeadCell>
-                <TableHeadCell colSpan={2} className="text-center border-b-0 align-middle border-r border-[#E5E8EB] dark:border-gray-700">총 매출</TableHeadCell>
-                <TableHeadCell colSpan={2} className="text-center border-b-0 align-middle border-r border-[#E5E8EB] dark:border-gray-700">인당 평균</TableHeadCell>
-                <TableHeadCell rowSpan={2} className="text-center align-middle">일 평균</TableHeadCell>
+                <TableHeadCell rowSpan={2} className="text-center align-middle border-r border-[#E5E8EB] dark:border-gray-700">여자초대수</TableHeadCell>
+                <TableHeadCell colSpan={3} className="text-center border-b-0 align-middle border-r border-[#E5E8EB] dark:border-gray-700">파티지표</TableHeadCell>
+                <TableHeadCell colSpan={3} className="text-center border-b-0 align-middle">매출지표</TableHeadCell>
               </TableRow>
               <TableRow>
-                <TableHeadCell className="text-center text-caption font-normal text-[#3182F6] bg-[#F2F4F6] dark:bg-[#2C2C34]">현장판매(원)</TableHeadCell>
-                <TableHeadCell className="text-center text-caption font-normal text-[#FF9500] bg-[#F2F4F6] dark:bg-[#2C2C34] border-r border-[#E5E8EB] dark:border-gray-700">경매(원)</TableHeadCell>
-                <TableHeadCell className="text-center text-caption font-normal text-[#3182F6] bg-[#F2F4F6] dark:bg-[#2C2C34]">현장판매(원)</TableHeadCell>
-                <TableHeadCell className="text-center text-caption font-normal text-[#FF9500] bg-[#F2F4F6] dark:bg-[#2C2C34] border-r border-[#E5E8EB] dark:border-gray-700">경매(원)</TableHeadCell>
+                <TableHeadCell className="text-center text-caption font-normal bg-[#F2F4F6] dark:bg-[#2C2C34]">진행일</TableHeadCell>
+                <TableHeadCell className="text-center text-caption font-normal bg-[#F2F4F6] dark:bg-[#2C2C34]">게스트</TableHeadCell>
+                <TableHeadCell className="text-center text-caption font-normal bg-[#F2F4F6] dark:bg-[#2C2C34] border-r border-[#E5E8EB] dark:border-gray-700">리뷰수</TableHeadCell>
+                <TableHeadCell className="text-center text-caption font-normal bg-[#F2F4F6] dark:bg-[#2C2C34]">현장판매(원)</TableHeadCell>
+                <TableHeadCell className="text-center text-caption font-normal bg-[#F2F4F6] dark:bg-[#2C2C34]">경매(원)</TableHeadCell>
+                <TableHeadCell className="text-center text-caption font-normal bg-[#F2F4F6] dark:bg-[#2C2C34]">총매출(원)</TableHeadCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -371,19 +446,13 @@ export default function SalesReport() {
                             <div className="flex items-center justify-center">{isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</div>
                           </TableCell>
                           <TableCell className="text-center font-semibold text-[#191F28] dark:text-white">{host.host_username}</TableCell>
+                          <TableCell className="text-center tabular-nums">{transformHost(host.total_invited_females, host, viewMode, false, rangeDays, 1)}<span className="text-[#B0B8C1] ml-0.5">명</span></TableCell>
                           <TableCell className="text-center tabular-nums">{host.days_count}<span className="text-[#B0B8C1] ml-0.5">일</span></TableCell>
-                          <TableCell className="text-center tabular-nums">{fmt(host.total_participants)}<span className="text-[#B0B8C1] ml-0.5">명</span></TableCell>
-                          <TableCell className="text-center tabular-nums font-medium text-[#3182F6]">{fmt(host.total_sales)}</TableCell>
-                          <TableCell className="text-center tabular-nums font-medium text-[#FF9500]">{fmt(host.total_auction)}</TableCell>
-                          <TableCell className="text-center tabular-nums font-medium text-[#3182F6]">
-                            {host.total_participants > 0 ? fmt(Math.round(host.total_sales / host.total_participants)) : '-'}
-                          </TableCell>
-                          <TableCell className="text-center tabular-nums font-medium text-[#FF9500]">
-                            {host.total_participants > 0 ? fmt(Math.round(host.total_auction / host.total_participants)) : '-'}
-                          </TableCell>
-                          <TableCell className="text-center tabular-nums font-medium">
-                            {fmt(host.daily_avg)}
-                          </TableCell>
+                          <TableCell className="text-center tabular-nums">{transformHost(host.total_participants, host, viewMode, false, undefined, 1)}<span className="text-[#B0B8C1] ml-0.5">명</span></TableCell>
+                          <TableCell className="text-center tabular-nums">{transformHost(host.total_reviews, host, viewMode, false, undefined, 1)}<span className="text-[#B0B8C1] ml-0.5">건</span></TableCell>
+                          <TableCell className="text-center tabular-nums font-medium">{transformHost(host.total_sales, host, viewMode)}</TableCell>
+                          <TableCell className="text-center tabular-nums font-medium">{transformHost(host.total_auction, host, viewMode)}</TableCell>
+                          <TableCell className="text-center tabular-nums font-bold">{transformHost(host.total_revenue, host, viewMode)}</TableCell>
                         </TableRow>
 
                         {/* 날짜별 상세 (펼침) */}
@@ -391,24 +460,22 @@ export default function SalesReport() {
                           {host.dates.map((dd) => (
                             <TableRow key={`${host.host_username}|${dd.date}`} className="hover:bg-[#F2F4F6] dark:hover:bg-[#2C2C34]" style={{ height: '36px' }}>
                               <TableCell className={DETAIL_ROW_BG} style={{ padding: '4px' }}></TableCell>
-                              <TableCell className={DETAIL_ROW_BG} style={{ padding: '4px' }}></TableCell>
-                              <TableCell className={`text-center text-caption tabular-nums text-[#4E5968] dark:text-gray-300 ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{dd.date}</TableCell>
-                              <TableCell className={`text-center text-caption tabular-nums text-[#4E5968] dark:text-gray-300 ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{dd.participants}명</TableCell>
-                              <TableCell className={`text-center text-caption tabular-nums text-[#191F28] dark:text-white ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{fmt(dd.sales_total)}</TableCell>
-                              <TableCell className={`text-center text-caption tabular-nums text-[#191F28] dark:text-white ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{fmt(dd.auction_amount ?? 0)}</TableCell>
-                              <TableCell className={`text-center text-caption tabular-nums text-[#191F28] dark:text-white ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>
-                                {dd.participants > 0 ? fmt(Math.round(dd.sales_total / dd.participants)) : '-'}
-                              </TableCell>
-                              <TableCell className={`text-center text-caption tabular-nums text-[#191F28] dark:text-white ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>
-                                {dd.participants > 0 ? fmt(Math.round((dd.auction_amount ?? 0) / dd.participants)) : '-'}
-                              </TableCell>
-                              <TableCell className={`text-center ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>
-                                {dd.items.length > 0 && (
-                                  <Button color="light" size="xs" onClick={() => setDetailModal({ open: true, host: host.host_username, dd })}>
-                                    <Eye className="h-3.5 w-3.5 mr-1" />상세
-                                  </Button>
+                              <TableCell className={`text-center text-caption tabular-nums text-[#4E5968] dark:text-gray-300 ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>
+                                {dd.items.length > 0 ? (
+                                  <button onClick={() => setDetailModal({ open: true, host: host.host_username, dd })} className="text-[#3182F6] hover:underline">
+                                    {dd.date}
+                                  </button>
+                                ) : (
+                                  <span>{dd.date}</span>
                                 )}
                               </TableCell>
+                              <TableCell className={`text-center text-caption tabular-nums text-[#4E5968] dark:text-gray-300 ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{dd.invited_females > 0 ? `${transformDate(dd.invited_females, dd, viewMode, false)}명` : '-'}</TableCell>
+                              <TableCell className={`text-center text-caption tabular-nums text-[#4E5968] dark:text-gray-300 ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>1일</TableCell>
+                              <TableCell className={`text-center text-caption tabular-nums text-[#4E5968] dark:text-gray-300 ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{transformDate(dd.participants, dd, viewMode, false)}명</TableCell>
+                              <TableCell className={`text-center text-caption tabular-nums text-[#4E5968] dark:text-gray-300 ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{dd.reviews_count > 0 ? `${transformDate(dd.reviews_count, dd, viewMode, false)}건` : '-'}</TableCell>
+                              <TableCell className={`text-center text-caption tabular-nums text-[#191F28] dark:text-white ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{transformDate(dd.sales_total, dd, viewMode)}</TableCell>
+                              <TableCell className={`text-center text-caption tabular-nums text-[#191F28] dark:text-white ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{transformDate(dd.auction_amount ?? 0, dd, viewMode)}</TableCell>
+                              <TableCell className={`text-center text-caption tabular-nums text-[#191F28] dark:text-white font-bold ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{transformDate(dd.sales_total + (dd.auction_amount ?? 0), dd, viewMode)}</TableCell>
                             </TableRow>
                           ))}
                         </>}
@@ -428,14 +495,22 @@ export default function SalesReport() {
           {detailModal.dd && (
             <div className="space-y-4">
               {/* 요약 */}
-              <div className="flex items-center justify-between rounded-xl bg-[#F8F9FA] px-4 py-3 dark:bg-[#1E1E24]">
-                <span className="text-body text-[#4E5968] dark:text-gray-300">인원 <span className="font-semibold text-[#191F28] dark:text-white">{detailModal.dd.participants}명</span></span>
-                <div className="flex items-center gap-3">
-                  <span className="text-body text-[#4E5968] dark:text-gray-300">판매 <span className="font-semibold text-[#191F28] dark:text-white tabular-nums">{fmt(detailModal.dd.sales_total)}원</span></span>
-                  {detailModal.dd.auction_amount != null && (
-                    <span className="text-body text-[#FF9500]">경매 <span className="font-semibold tabular-nums">{fmt(detailModal.dd.auction_amount)}원</span></span>
-                  )}
+              <div className="rounded-xl bg-[#F8F9FA] px-4 py-3 dark:bg-[#1E1E24] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-body text-[#4E5968] dark:text-gray-300">인원 <span className="font-semibold text-[#191F28] dark:text-white">{detailModal.dd.participants}명</span></span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-body text-[#4E5968] dark:text-gray-300">판매 <span className="font-semibold text-[#191F28] dark:text-white tabular-nums">{fmt(detailModal.dd.sales_total)}원</span></span>
+                    {detailModal.dd.auction_amount != null && (
+                      <span className="text-body text-[#4E5968] dark:text-gray-300">경매 <span className="font-semibold text-[#191F28] dark:text-white tabular-nums">{fmt(detailModal.dd.auction_amount)}원</span>{detailModal.dd.auction_payment_method && <Badge color={PAYMENT_BADGE_COLOR[detailModal.dd.auction_payment_method] ?? 'gray'} size="xs" className="ml-1.5">{detailModal.dd.auction_payment_method}</Badge>}</span>
+                    )}
+                  </div>
                 </div>
+                {(detailModal.dd.reviews_count > 0 || detailModal.dd.invited_females > 0) && (
+                  <div className="flex items-center gap-4 text-caption text-[#8B95A1]">
+                    {detailModal.dd.reviews_count > 0 && <span>리뷰 <span className="font-semibold text-[#191F28] dark:text-white tabular-nums">{detailModal.dd.reviews_count}</span>건</span>}
+                    {detailModal.dd.invited_females > 0 && <span>초대 <span className="font-semibold text-[#191F28] dark:text-white tabular-nums">{detailModal.dd.invited_females}</span>명</span>}
+                  </div>
+                )}
               </div>
 
               {/* 판매 기록 */}
@@ -445,6 +520,9 @@ export default function SalesReport() {
                     <div className="flex items-center gap-3 flex-1">
                       {item.created_at && <span className="shrink-0 whitespace-nowrap text-tiny text-[#8B95A1] dark:text-gray-500 tabular-nums">{(() => { const d = new Date(normalizeUtcString(item.created_at)); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; })()}</span>}
                       <span className="text-body font-medium text-[#191F28] dark:text-white">{item.item_name}</span>
+                      {item.payment_method && (
+                        <Badge color={PAYMENT_BADGE_COLOR[item.payment_method as string] ?? 'gray'} size="xs">{item.payment_method}</Badge>
+                      )}
                     </div>
                     <span className="tabular-nums text-body font-semibold text-[#191F28] dark:text-white">
                       {fmt(item.amount)}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">원</span>
@@ -456,7 +534,7 @@ export default function SalesReport() {
               {/* 총액 (판매 + 경매) */}
               <div className="flex items-center justify-between rounded-xl bg-[#F8F9FA] px-4 py-3 dark:bg-[#1E1E24]">
                 <span className="text-body font-semibold text-[#191F28] dark:text-white">총액</span>
-                <span className="tabular-nums text-heading font-bold text-[#3182F6]">
+                <span className="tabular-nums text-heading font-bold text-[#191F28] dark:text-white">
                   {fmt(detailModal.dd.items.reduce((sum, i) => sum + i.amount, 0) + (detailModal.dd.auction_amount ?? 0))}<span className="ml-0.5 text-body font-normal text-[#B0B8C1]">원</span>
                 </span>
               </div>

@@ -26,17 +26,22 @@ logger = logging.getLogger(__name__)
 
 
 def compute_is_long_stay(res) -> bool:
-    """연박자(2박+) OR 연장자(stay_group_id) 판단"""
+    """연박자(2박+) OR naver 연속 그룹(stay_group_id) 판단.
+
+    After extend-stay refactor (2026-05-09): merged single-record multi-day
+    stays have stay_group_id=NULL but check_out_date - check_in_date > 1 day,
+    so the date-diff branch correctly catches them.
+    """
     if res.stay_group_id:
         return True
-    if res.check_out_date and res.check_in_date:
+    if res.check_in_date and res.check_out_date:
+        from datetime import date as date_type
         try:
-            from datetime import datetime as _dt
-            d1 = _dt.strptime(str(res.check_in_date), "%Y-%m-%d")
-            d2 = _dt.strptime(str(res.check_out_date), "%Y-%m-%d")
-            return (d2 - d1).days > 1
-        except (ValueError, TypeError):
-            pass
+            ci = date_type.fromisoformat(str(res.check_in_date))
+            co = date_type.fromisoformat(str(res.check_out_date))
+            return (co - ci).days > 1
+        except ValueError:
+            return False
     return False
 
 
@@ -307,127 +312,8 @@ def unlink_from_group(
     return True
 
 
-def _validate_link_inputs(reservations: List[Reservation]) -> None:
-    """수동 연박 묶기 입력 검증. 실패 시 ValueError.
-
-    조건:
-      - 2건 이상
-      - 모두 CONFIRMED
-      - check_in_date 오름차순 정렬 시 아래 중 하나를 만족해야 "연속"으로 인정:
-          (a) prev.check_out_date == curr.check_in_date  (표준 체크아웃/체크인 연결)
-          (b) prev.check_out_date IS NULL 이고 prev.check_in_date + 1일 == curr.check_in_date
-              (수동 입력 1박 예약 호환 — checkout 이 비어 있어도 이어진다고 판단)
-    """
-    if len(reservations) < 2:
-        diag("stay_group.validate_failed", level="verbose",
-             reason="too_few", count=len(reservations))
-        raise ValueError("예약 2개 이상이 필요합니다")
-
-    for r in reservations:
-        if r.status != ReservationStatus.CONFIRMED:
-            name = r.customer_name or f"예약#{r.id}"
-            diag("stay_group.validate_failed", level="verbose",
-                 reason="not_confirmed", reservation_id=r.id,
-                 status=getattr(r.status, 'value', str(r.status)))
-            raise ValueError(f"{name} 님은 확정 상태가 아닙니다")
-
-    sorted_res = sorted(reservations, key=lambda r: r.check_in_date or "")
-    for i in range(len(sorted_res) - 1):
-        prev = sorted_res[i]
-        curr = sorted_res[i + 1]
-        # 표준 케이스: prev.check_out == curr.check_in (완전 연결)
-        if prev.check_out_date and prev.check_out_date == curr.check_in_date:
-            continue
-        # NULL check_out: "1박 예약"으로 해석 → check_in + 1일 = 다음 check_in 이면 연속으로 인정
-        # (수동 입력 예약 등에서 check_out 이 NULL 인 케이스 호환)
-        if prev.check_out_date is None and prev.check_in_date:
-            from datetime import datetime as _dt, timedelta as _td
-            try:
-                next_day = (_dt.strptime(prev.check_in_date, "%Y-%m-%d") + _td(days=1)).strftime("%Y-%m-%d")
-                if next_day == curr.check_in_date:
-                    continue
-            except (ValueError, TypeError):
-                pass
-        diag("stay_group.validate_failed", level="verbose",
-             reason="dates_not_consecutive",
-             prev_id=prev.id, curr_id=curr.id,
-             prev_checkout=prev.check_out_date, curr_checkin=curr.check_in_date)
-        raise ValueError("예약 날짜가 이어지지 않습니다")
-
-
-def link_reservations(db: Session, reservation_ids: List[int]) -> tuple[str, List[int]]:
-    """
-    Manually link multiple reservations into a stay group.
-
-    동작:
-      1. 입력 ID 로 예약 로드
-      2. 기존 그룹 멤버(CONFIRMED 만) 자동 확장 — 부분 선택 실수로 외톨이 발생 방지
-      3. 정렬 후 검증 (_validate_link_inputs)
-      4. 항상 새 manual-UUID 생성 (사용자 개입 = manual 격리)
-      5. 전체 멤버에 group_id/order/is_last/is_long_stay 할당
-
-    Returns:
-        (group_id, linked_reservation_ids) — group_id 는 manual- 접두사.
-        linked_reservation_ids 는 자동 확장 후 실제 그룹에 포함된 전체 ID 목록.
-        호출자는 이 ID 리스트를 기준으로 sync_sms_tags 등 후속 처리를 해야 함.
-
-    Raises:
-        ValueError: 2건 미만 / 비CONFIRMED 포함 / 날짜 불연속.
-    """
-    reservations = (
-        db.query(Reservation)
-        .filter(Reservation.id.in_(reservation_ids))
-        .all()
-    )
-
-    # 기존 그룹 멤버 자동 확장 (CONFIRMED 만 — stale CANCELLED 는 제외)
-    existing_group_ids = {r.stay_group_id for r in reservations if r.stay_group_id}
-    if existing_group_ids:
-        extra = (
-            db.query(Reservation)
-            .filter(
-                Reservation.stay_group_id.in_(existing_group_ids),
-                Reservation.status == ReservationStatus.CONFIRMED,
-            )
-            .all()
-        )
-        merged = {r.id: r for r in reservations}
-        for r in extra:
-            merged[r.id] = r
-        reservations = list(merged.values())
-
-    reservations.sort(key=lambda r: r.check_in_date or "")
-
-    # 검증 (실패 시 ValueError)
-    _validate_link_inputs(reservations)
-
-    # 수동 개입 표시 — 항상 새 manual- UUID 로 격리
-    group_id = f"manual-{uuid.uuid4()}"
-
-    relinked_ids = []
-    for order, res in enumerate(reservations):
-        if res.stay_group_excluded:
-            relinked_ids.append(res.id)
-        res.stay_group_id = group_id
-        res.stay_group_order = order
-        res.is_last_in_group = (order == len(reservations) - 1)
-        res.is_long_stay = True
-        res.stay_group_excluded = False  # 수동 link 시 excluded 플래그 해제
-
-    if relinked_ids:
-        diag(
-            "stay_group.relinked_after_exclude",
-            level="critical",
-            group_id=group_id,
-            res_ids=relinked_ids,
-        )
-
-    diag(
-        "stay_group.manually_linked",
-        level="critical",
-        group_id=group_id,
-        member_count=len(reservations),
-    )
-
-    db.flush()
-    return group_id, [r.id for r in reservations]
+# removed in extend-stay refactor 2026-05-09:
+#   _validate_link_inputs() — only used by link_reservations
+#   link_reservations()     — was for manual link API (POST /stay-group/link)
+# unlink_from_group() is kept: still called by reservations.py (cancel/delete)
+# and naver_sync.py (cascade unlink on status change).

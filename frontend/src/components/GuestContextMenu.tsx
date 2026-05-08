@@ -13,7 +13,8 @@ interface GuestContextMenuProps {
   onMoveToPool: () => void;
   onMoveToParty: () => void;
   onDelete: () => void;
-  onLinkStayGroup: () => void;
+  /** Pass handler only to show "연박 해제" (unlink). "연박 묶기" (link) is removed — Phase 4. */
+  onLinkStayGroup?: () => void;
   onSetColor: (color: string | null) => void;
   onCopyToUnstable?: () => void;
   onRemoveFromUnstable?: () => void;
@@ -35,7 +36,7 @@ export default function GuestContextMenu({
   onMoveToPool,
   onMoveToParty,
   onDelete,
-  onLinkStayGroup,
+  onLinkStayGroup = undefined,
   onSetColor,
   onCopyToUnstable,
   onRemoveFromUnstable,
@@ -47,9 +48,30 @@ export default function GuestContextMenu({
   onClose,
 }: GuestContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
   const [adjusted, setAdjusted] = useState<{ x: number; y: number }>(position);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [palettePos, setPalettePos] = useState<{ x: number; y: number; below: boolean }>({ x: 0, y: 0, below: false });
   const paletteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 팔레트가 열릴 때 trigger 위치 기반으로 좌표 계산 (portal로 body에 띄우기 때문에 부모 overflow 영향 X)
+  useEffect(() => {
+    if (!paletteOpen || !triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const PALETTE_WIDTH = 228;
+    const margin = 8;
+    const isNarrow = window.innerWidth < 500;
+    if (isNarrow) {
+      setPalettePos({ x: r.left, y: r.bottom + 4, below: true });
+    } else {
+      const spaceRight = window.innerWidth - r.right;
+      if (spaceRight >= PALETTE_WIDTH + margin) {
+        setPalettePos({ x: r.right + 4, y: r.top, below: false });
+      } else {
+        setPalettePos({ x: r.left - PALETTE_WIDTH - 4, y: r.top, below: false });
+      }
+    }
+  }, [paletteOpen]);
 
   // Escape 만 자체 처리. outside-click 은 부모(RoomAssignment) 의 backdrop 이 담당.
   //
@@ -137,12 +159,16 @@ export default function GuestContextMenu({
     });
   }
 
-  items.push({
-    icon: <Link2 className="h-4 w-4" />,
-    label: hasStayGroup ? '연박 해제' : '연박 묶기',
-    onClick: onLinkStayGroup,
-    disabled: false,
-  });
+  // "연박 묶기" (link) removed in Phase 4 — backend endpoint no longer exists.
+  // Only show "연박 해제" when the guest belongs to a naver-detected stay group.
+  if (hasStayGroup && onLinkStayGroup) {
+    items.push({
+      icon: <Link2 className="h-4 w-4" />,
+      label: '연박 해제',
+      onClick: onLinkStayGroup,
+      disabled: false,
+    });
+  }
 
   if (onChangeDates) {
     items.push({
@@ -182,6 +208,7 @@ export default function GuestContextMenu({
   }
 
   return createPortal(
+    <>
     <div
       ref={menuRef}
       style={{
@@ -225,7 +252,7 @@ export default function GuestContextMenu({
 
       {/* Color preset submenu trigger */}
       <div
-        className="relative"
+        ref={triggerRef}
         onMouseEnter={() => { if (paletteTimerRef.current) clearTimeout(paletteTimerRef.current); setPaletteOpen(true); }}
         onMouseLeave={() => { paletteTimerRef.current = setTimeout(() => setPaletteOpen(false), 200); }}
       >
@@ -237,41 +264,6 @@ export default function GuestContextMenu({
           <span className="flex-1 text-left">컬러 프리셋</span>
           <ChevronRight className="h-3.5 w-3.5 text-[#8B95A1]" />
         </button>
-
-        {/* Palette submenu */}
-        {paletteOpen && (
-          <div
-            className={`${window.innerWidth < 500 ? 'absolute left-0 top-full mt-1' : 'absolute left-full top-0 ml-1'} p-2 rounded-xl border border-[#E5E8EB] dark:border-gray-800 bg-white dark:bg-[#1E1E24] shadow-lg z-[10001] animate-in fade-in zoom-in-95 duration-100`}
-            style={{ minWidth: window.innerWidth < 500 ? undefined : '228px', maxWidth: window.innerWidth < 500 ? 'calc(100vw - 16px)' : undefined }}
-            onMouseEnter={() => { if (paletteTimerRef.current) clearTimeout(paletteTimerRef.current); }}
-            onMouseLeave={() => { paletteTimerRef.current = setTimeout(() => setPaletteOpen(false), 200); }}
-          >
-            <div className="flex flex-col gap-0.5">
-              {GOOGLE_SHEETS_PALETTE.map((row, ri) => (
-                <div key={ri} className="flex gap-0.5">
-                  {row.map((hex) => (
-                    <button
-                      key={hex}
-                      title={hex}
-                      onClick={(e) => { e.stopPropagation(); onSetColor(hex); }}
-                      className="w-5 h-5 rounded-sm border border-gray-200 dark:border-gray-700 cursor-pointer hover:scale-125 hover:z-10 transition-transform flex-shrink-0"
-                      style={{ backgroundColor: hex }}
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-            <div className="border-t border-[#E5E8EB] dark:border-gray-800 mt-2 pt-1.5 flex justify-center">
-              <button
-                title="색상 해제"
-                onClick={(e) => { e.stopPropagation(); onSetColor(null); }}
-                className="text-caption text-[#8B95A1] hover:text-[#191F28] dark:hover:text-white cursor-pointer transition-colors"
-              >
-                색상 해제
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Quick colors */}
@@ -321,7 +313,41 @@ export default function GuestContextMenu({
           </button>
         </>
       )}
-    </div>,
+    </div>
+    {paletteOpen && (
+      <div
+        style={{ position: 'fixed', left: palettePos.x, top: palettePos.y, zIndex: 10001, minWidth: '228px', maxWidth: 'calc(100vw - 16px)' }}
+        className="p-2 rounded-xl border border-[#E5E8EB] dark:border-gray-800 bg-white dark:bg-[#1E1E24] shadow-lg animate-in fade-in zoom-in-95 duration-100"
+        onMouseEnter={() => { if (paletteTimerRef.current) clearTimeout(paletteTimerRef.current); }}
+        onMouseLeave={() => { paletteTimerRef.current = setTimeout(() => setPaletteOpen(false), 200); }}
+      >
+        <div className="flex flex-col gap-0.5">
+          {GOOGLE_SHEETS_PALETTE.map((row, ri) => (
+            <div key={ri} className="flex gap-0.5">
+              {row.map((hex) => (
+                <button
+                  key={hex}
+                  title={hex}
+                  onClick={(e) => { e.stopPropagation(); onSetColor(hex); }}
+                  className="w-5 h-5 rounded-sm border border-gray-200 dark:border-gray-700 cursor-pointer hover:scale-125 hover:z-10 transition-transform flex-shrink-0"
+                  style={{ backgroundColor: hex }}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="border-t border-[#E5E8EB] dark:border-gray-800 mt-2 pt-1.5 flex justify-center">
+          <button
+            title="색상 해제"
+            onClick={(e) => { e.stopPropagation(); onSetColor(null); }}
+            className="text-caption text-[#8B95A1] hover:text-[#191F28] dark:hover:text-white cursor-pointer transition-colors"
+          >
+            색상 해제
+          </button>
+        </div>
+      </div>
+    )}
+    </>,
     document.body,
   );
 }

@@ -702,7 +702,9 @@ class TemplateScheduleExecutor:
                     continue
                 last_day = dt.strptime(max_co, "%Y-%m-%d").date() - timedelta(days=1)
             else:
-                # Standalone: use own checkout
+                # Standalone: use own checkout.
+                # Also covers manually-extended stays (stay_group_id=NULL, multi-day
+                # check_out_date set by extend_stay handler) — correct as-is.
                 last_day = dt.strptime(res.check_out_date, "%Y-%m-%d").date() - timedelta(days=1)
 
             if last_day == target_dt:

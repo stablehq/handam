@@ -40,9 +40,9 @@ export function getCustomBgStyle(hex: string, isDark: boolean): { backgroundColo
   return { backgroundColor: isDark ? `${hex}26` : hex }; // 26 hex ≈ 15% opacity
 }
 
-/** Get text class for custom hex color based on luminance */
-export function getCustomTextClass(hex: string): string {
-  return isLightColor(hex) ? 'text-[#191F28] dark:text-white' : 'text-white dark:text-white';
+/** Get text class for custom hex color — 휘도 분기 없이 항상 기본 텍스트 색상 (가독성보다 일관성 우선) */
+export function getCustomTextClass(_hex: string): string {
+  return 'text-[#191F28] dark:text-white';
 }
 
 /** Google Sheets default color palette (10 columns × 8 rows) */

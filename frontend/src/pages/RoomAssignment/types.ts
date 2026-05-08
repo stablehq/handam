@@ -49,6 +49,7 @@ export interface Reservation {
   stay_group_id?: string | null;
   stay_group_order?: number | null;
   is_long_stay?: boolean;
+  manually_extended_until?: string | null;
   bed_order?: number;
   highlight_color?: string | null;
   has_unstable_booking?: boolean;

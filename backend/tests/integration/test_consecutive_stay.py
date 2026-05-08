@@ -1,30 +1,19 @@
-"""consecutive_stay.link_reservations 및 _validate_link_inputs 동작 검증.
+"""consecutive_stay 연속 감지 및 unlink 동작 검증.
 
-검증 (_validate_link_inputs, 순수 함수):
-  - 2건 미만 → ValueError
-  - 비-CONFIRMED 멤버 포함 → ValueError
-  - check_out 이 다음 check_in 과 이어지지 않음 → ValueError
+2026-05-09 extend-stay 리팩터: link_reservations, _validate_link_inputs 삭제.
+TestValidateLinkInputs, TestLinkReservations 는 skip 처리.
+unlink_from_group 은 유지 — reservations.py, naver_sync.py 에서 사용.
 
-링크 (link_reservations, 통합):
-  - 기존 그룹 없는 2건 정상 묶기 → 새 manual-UUID
-  - 부분 선택 시 기존 그룹 멤버 자동 확장
-  - 기존 단일 그룹 + 새 예약 → 새 manual-UUID (항상 manual 접두사)
-  - 서로 다른 두 그룹 통째 합치기 → 새 manual-UUID
-  - 기존 그룹에 stale CANCELLED 멤버가 있어도 자동 확장이 제외
-
-stay_group_excluded 옵션 D 픽스 (11회차 diag):
+stay_group_excluded 옵션:
   - 사용자 수동 unlink → excluded=True 박힘
   - 시스템 자동 unlink (기본값 False) → excluded 변경 없음
   - excluded=True 예약은 detect 스캔에서 제외
-  - 수동 link 시 chain 멤버의 excluded=False 로 reset
   - 시스템 자동 unlink 후 detect 가 다시 묶을 수 있음
 """
 import pytest
 
 from app.db.models import Reservation, ReservationStatus
 from app.services.consecutive_stay import (
-    _validate_link_inputs,
-    link_reservations,
     unlink_from_group,
 )
 
@@ -59,9 +48,10 @@ def _make_reservation(
 
 
 # ---------------------------------------------------------------------------
-# _validate_link_inputs — 순수 함수 (DB 불필요, ORM 인스턴스만 넣어도 동작)
+# _validate_link_inputs — removed in extend-stay refactor 2026-05-09
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skip(reason="link_reservations/_validate_link_inputs removed in extend-stay refactor 2026-05-09")
 class TestValidateLinkInputs:
     def test_fewer_than_2_raises(self):
         with pytest.raises(ValueError, match="2개 이상"):
@@ -104,9 +94,10 @@ class TestValidateLinkInputs:
 
 
 # ---------------------------------------------------------------------------
-# link_reservations — 통합 (DB 사용)
+# link_reservations — removed in extend-stay refactor 2026-05-09
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skip(reason="link_reservations removed in extend-stay refactor 2026-05-09")
 class TestLinkReservations:
     def test_two_standalone_reservations(self, db):
         """기존 그룹 없는 예약 2건 → 새 manual-UUID 로 묶임."""
@@ -364,6 +355,7 @@ class TestStayGroupExcluded:
         assert r1.stay_group_id is None
         assert r2.stay_group_id is None
 
+    @pytest.mark.skip(reason="link_reservations removed in extend-stay refactor 2026-05-09")
     def test_link_reservations_clears_excluded_flag(self, db):
         """수동 link 시 chain 멤버의 stay_group_excluded=False 로 reset."""
         r1 = _make_reservation(db, check_in="2026-04-01", check_out="2026-04-02")

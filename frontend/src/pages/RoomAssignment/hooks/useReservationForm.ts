@@ -2,13 +2,14 @@ import { useCallback, useState } from 'react';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import { toast } from 'sonner';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { reservationsAPI } from '../../../services/api';
+import { queryKeys } from '@/lib/queryKeys';
 import type { Reservation } from '../types';
 
 interface UseReservationFormProps {
   reservations: Reservation[];
   selectedDate: Dayjs;
-  fetchReservations: (date: Dayjs) => void;
   findReservation: (resId: number) => { res: Reservation; isNextDay: boolean } | null;
   showConfirm: (title: string, content: string, onOk: () => void) => void;
   /** 빠른 추가 시 새 ID 마킹 — 셀이 자동 포커스되어 인라인 편집 진입. */
@@ -33,22 +34,76 @@ const DEFAULT_FORM_VALUES = {
  * 예약 폼 모달 (추가/수정/삭제/빠른추가) 흐름 통합.
  *
  * Phase H: RoomAssignment.tsx 의 modalVisible / formValues / 5개 핸들러 묶음.
- * 폼-백엔드 스키마 변환 로직은 그대로 보존 (DELETE.md `[리팩토링]` 메모).
+ * Phase 3b: create/update/delete → useMutation.
  */
 export function useReservationForm({
   reservations,
   selectedDate,
-  fetchReservations,
   findReservation,
   showConfirm,
   setQuickAddedId,
 }: UseReservationFormProps) {
+  const qc = useQueryClient();
   const [modalVisible, setModalVisible] = useState(false);
-  const [savingReservation, setSavingReservation] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formValues, setFormValues] = useState<any>({ ...DEFAULT_FORM_VALUES });
 
+  const dateStr = selectedDate.format('YYYY-MM-DD');
+  const nextDateStr = selectedDate.add(1, 'day').format('YYYY-MM-DD');
+
+  const invalidateReservations = useCallback(() => {
+    qc.invalidateQueries({ queryKey: queryKeys.reservations.list(dateStr) });
+    qc.invalidateQueries({ queryKey: queryKeys.reservations.list(nextDateStr) });
+  }, [qc, dateStr, nextDateStr]);
+
   const closeModal = useCallback(() => setModalVisible(false), []);
+
+  // ===== Create mutation =====
+  const createMutation = useMutation({
+    mutationFn: (values: any) => reservationsAPI.create(values),
+    onSuccess: () => {
+      toast.success('추가 완료');
+      setModalVisible(false);
+      invalidateReservations();
+    },
+    onError: () => toast.error('저장 실패'),
+  });
+
+  // ===== Update mutation =====
+  const updateMutation = useMutation({
+    mutationFn: ({ id, values }: { id: number; values: any }) =>
+      reservationsAPI.update(id, values),
+    onSuccess: () => {
+      toast.success('수정 완료');
+      setModalVisible(false);
+      invalidateReservations();
+    },
+    onError: () => toast.error('저장 실패'),
+  });
+
+  // ===== Delete mutation =====
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => reservationsAPI.delete(id),
+    onSuccess: () => {
+      toast.success('삭제 완료');
+      invalidateReservations();
+    },
+    onError: () => toast.error('삭제 실패'),
+  });
+
+  // Quick-add mutation (no modal)
+  const quickAddMutation = useMutation({
+    mutationFn: (values: any) => reservationsAPI.create(values),
+    onSuccess: (res) => {
+      const newId = res.data?.id;
+      if (newId) setQuickAddedId(newId);
+      toast.success('파티 게스트 추가됨');
+      invalidateReservations();
+    },
+    onError: () => toast.error('추가 실패'),
+  });
+
+  const savingReservation = createMutation.isPending || updateMutation.isPending;
 
   // 새 파티 게스트 모달 열기 — 빈 폼 + 기본값
   const handleAddPartyGuest = useCallback(() => {
@@ -61,26 +116,18 @@ export function useReservationForm({
   }, [selectedDate]);
 
   // QuickMenuBar 의 즉시 추가 — 모달 없이 빈 게스트 생성 + 마킹
-  const handleQuickAddParty = useCallback(async () => {
-    try {
-      const res = await reservationsAPI.create({
-        customer_name: '',
-        phone: '',
-        check_in_date: selectedDate.format('YYYY-MM-DD'),
-        check_in_time: '18:00',
-        naver_room_type: '파티만',
-        section: 'party',
-        status: 'confirmed',
-        booking_source: 'manual',
-      });
-      const newId = res.data?.id;
-      if (newId) setQuickAddedId(newId);
-      await fetchReservations(selectedDate);
-      toast.success('파티 게스트 추가됨');
-    } catch {
-      toast.error('추가 실패');
-    }
-  }, [selectedDate, fetchReservations, setQuickAddedId]);
+  const handleQuickAddParty = useCallback(() => {
+    quickAddMutation.mutate({
+      customer_name: '',
+      phone: '',
+      check_in_date: selectedDate.format('YYYY-MM-DD'),
+      check_in_time: '18:00',
+      naver_room_type: '파티만',
+      section: 'party',
+      status: 'confirmed',
+      booking_source: 'manual',
+    });
+  }, [selectedDate, quickAddMutation]);
 
   // 기존 게스트 수정 모달 열기 (다음날 게스트는 차단)
   const handleEditGuest = useCallback((id: number) => {
@@ -100,21 +147,15 @@ export function useReservationForm({
     }
   }, [findReservation, reservations]);
 
-  // 게스트 삭제 (확인 다이얼로그 → API → 새로고침)
+  // 게스트 삭제 (확인 다이얼로그 → mutation)
   const handleDeleteGuest = useCallback((id: number) => {
-    showConfirm('게스트 삭제', '정말 삭제하시겠습니까?', async () => {
-      try {
-        await reservationsAPI.delete(id);
-        toast.success('삭제 완료');
-        fetchReservations(selectedDate);
-      } catch {
-        toast.error('삭제 실패');
-      }
+    showConfirm('게스트 삭제', '정말 삭제하시겠습니까?', () => {
+      deleteMutation.mutate(id);
     });
-  }, [showConfirm, fetchReservations, selectedDate]);
+  }, [showConfirm, deleteMutation]);
 
-  // 폼 저장 — 입력 검증 + 변환 + API 호출
-  const handleSubmit = useCallback(async () => {
+  // 폼 저장 — 입력 검증 + 변환 + mutation 호출
+  const handleSubmit = useCallback(() => {
     if (savingReservation) return;
     const values = { ...formValues };
 
@@ -138,9 +179,6 @@ export function useReservationForm({
       const checkIn = dayjs(values.date);
       values.check_out_date = checkIn.add(values.nights, 'day').format('YYYY-MM-DD');
     } else if (values.date) {
-      // 1박: co=null 로 보내야 _filter_last_day 가 당일 케이스로 인식해
-      // last_night 스케줄(연박유도/후기 등)에 정상 포함됨.
-      // 연박→단일 전환 시 백엔드 exclude_unset 회피 위해 명시 null 전송.
       values.check_out_date = null;
     }
     delete values.multi_night;
@@ -157,7 +195,6 @@ export function useReservationForm({
         values.naver_room_type = '파티만';
         values.section = 'party';
       } else {
-        // 수동 추가 - 미배정: naver_room_type을 '수동추가'로 설정
         if (!values.naver_room_type) {
           values.naver_room_type = '수동추가';
         }
@@ -165,23 +202,12 @@ export function useReservationForm({
       delete values.guest_type;
     }
 
-    setSavingReservation(true);
-    try {
-      if (editingId) {
-        await reservationsAPI.update(editingId, values);
-        toast.success('수정 완료');
-      } else {
-        await reservationsAPI.create(values);
-        toast.success('추가 완료');
-      }
-      setModalVisible(false);
-      fetchReservations(selectedDate);
-    } catch {
-      toast.error('저장 실패');
-    } finally {
-      setSavingReservation(false);
+    if (editingId) {
+      updateMutation.mutate({ id: editingId, values });
+    } else {
+      createMutation.mutate(values);
     }
-  }, [savingReservation, formValues, editingId, fetchReservations, selectedDate]);
+  }, [savingReservation, formValues, editingId, createMutation, updateMutation]);
 
   return {
     modalVisible,

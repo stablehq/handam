@@ -11,6 +11,7 @@ from app.auth.dependencies import get_current_user
 from app.db.models import (
     Reservation, ReservationStatus, ReservationDailyInfo,
     OnsiteSale, DailyHost, OnsiteAuction, User,
+    DailyReviewCount, OnsiteFemaleInvite,
 )
 
 router = APIRouter(prefix="/api/sales-report", tags=["sales-report"])
@@ -23,6 +24,7 @@ router = APIRouter(prefix="/api/sales-report", tags=["sales-report"])
 class SalesItemDetail(BaseModel):
     item_name: str
     amount: int
+    payment_method: Optional[str] = None
     created_at: Optional[str] = None
 
 class DateDetail(BaseModel):
@@ -30,6 +32,10 @@ class DateDetail(BaseModel):
     participants: int
     sales_total: int
     auction_amount: Optional[int] = None
+    auction_payment_method: Optional[str] = None
+    reviews_count: int = 0
+    invited_females: int = 0  # 그날 진행자에게 귀속된 여자초대수
+    sales_by_payment: dict = {}  # {"카드": 25000, "이체": 12000, ...}
     items: List[SalesItemDetail]
 
 class HostSummary(BaseModel):
@@ -39,6 +45,10 @@ class HostSummary(BaseModel):
     total_auction: int        # 경매 합계
     total_revenue: int        # 판매 + 경매
     total_participants: int
+    total_reviews: int = 0
+    total_invited_females: int = 0
+    sales_by_payment: dict = {}    # 진행자 운영일들의 결제방식별 현장판매 합
+    auction_by_payment: dict = {}  # 진행자 운영일들의 결제방식별 경매 합
     avg_per_person: float     # total_revenue / total_participants
     daily_avg: float          # total_revenue / days_count
     dates: List[DateDetail]
@@ -76,23 +86,36 @@ async def get_sales_report(
     for s in sales:
         sales_by_date.setdefault(s.date, []).append(s)
 
-    # 3. 경매 (기간 내)
+    # 3. 경매 (기간 내) — 날짜당 1건
     auctions = db.query(OnsiteAuction).filter(
         OnsiteAuction.date >= date_from, OnsiteAuction.date <= date_to,
     ).all()
-    auction_map = {a.date: a.final_amount for a in auctions}
+    auction_map = {a.date: a for a in auctions}  # date -> OnsiteAuction obj
+
+    # 3-1. 리뷰수 (기간 내)
+    reviews = db.query(DailyReviewCount).filter(
+        DailyReviewCount.date >= date_from, DailyReviewCount.date <= date_to,
+    ).all()
+    reviews_by_date: dict[str, int] = {r.date: r.count for r in reviews}
+
+    # 3-2. 여자초대수 (기간 내) — host_username 기준 직접 귀속
+    invites = db.query(OnsiteFemaleInvite).filter(
+        OnsiteFemaleInvite.date >= date_from, OnsiteFemaleInvite.date <= date_to,
+    ).all()
+    invites_by_host: dict[str, int] = {}  # host -> total count
+    invites_by_date_host: dict[tuple[str, str], int] = {}  # (date, host) -> count
+    for inv in invites:
+        invites_by_host[inv.host_username] = invites_by_host.get(inv.host_username, 0) + inv.count
+        invites_by_date_host[(inv.date, inv.host_username)] = invites_by_date_host.get((inv.date, inv.host_username), 0) + inv.count
 
     # 4. 파티 참여 인원 (전체 파티 예약자의 male+female 합계 — 체크인 여부 무관)
-    # party_checkin.py와 동일한 로직: 해당 날짜에 숙박 중인 confirmed 예약 중 party_type 매칭
     PARTY_TYPE_VALUES = {'1', '2', '2차만'}
 
-    # 기간 내 모든 날짜를 순회해서 인원 계산
     from datetime import datetime, timedelta
     dt_from = datetime.strptime(date_from, "%Y-%m-%d")
     dt_to = datetime.strptime(date_to, "%Y-%m-%d")
     participants_by_date: dict[str, int] = {}
 
-    # 기간 내 confirmed 예약 한번에 조회
     all_reservations = db.query(Reservation).filter(
         Reservation.status == ReservationStatus.CONFIRMED,
         Reservation.check_in_date <= date_to,
@@ -102,34 +125,28 @@ async def get_sales_report(
         ),
     ).all()
 
-    # daily_info 한번에 조회
     all_daily_info = db.query(ReservationDailyInfo).filter(
         ReservationDailyInfo.reservation_id.in_([r.id for r in all_reservations]),
         ReservationDailyInfo.date >= date_from,
         ReservationDailyInfo.date <= date_to,
     ).all() if all_reservations else []
 
-    # date -> {res_id: party_type}
     daily_info_map: dict[str, dict[int, str]] = {}
     for di in all_daily_info:
         daily_info_map.setdefault(di.date, {})[di.reservation_id] = di.party_type or ""
 
-    # 날짜별 인원 계산
     current = dt_from
     while current <= dt_to:
         d = current.strftime("%Y-%m-%d")
         total = 0
         di_for_date = daily_info_map.get(d, {})
         for r in all_reservations:
-            # 해당 날짜에 숙박 중인지 체크.
-            # check_out_date 가 None 이거나 check_in_date 와 같으면 "당일 1박" 으로 동일 취급.
             if r.check_out_date and r.check_out_date != r.check_in_date:
                 if not (r.check_in_date <= d < r.check_out_date):
                     continue
             else:
                 if r.check_in_date != d:
                     continue
-            # 스테이블 파티 타입 체크 (unstable 제외)
             if r.section == 'unstable':
                 continue
             party_type = di_for_date.get(r.id) or r.party_type
@@ -141,48 +158,74 @@ async def get_sales_report(
     def get_participants(date: str) -> int:
         return participants_by_date.get(date, 0)
 
+    # ── helper: 한 날짜에 대한 DateDetail 빌드 ──
+    def build_date_detail(d: str, host_for_invite: Optional[str]) -> DateDetail:
+        day_sales = sales_by_date.get(d, [])
+        day_sales_total = sum(s.amount for s in day_sales)
+        sales_pm: dict[str, int] = {}
+        for s in day_sales:
+            pm = s.payment_method or '기타'
+            sales_pm[pm] = sales_pm.get(pm, 0) + s.amount
+
+        day_auction = auction_map.get(d)
+        day_invites = invites_by_date_host.get((d, host_for_invite), 0) if host_for_invite else 0
+
+        return DateDetail(
+            date=d,
+            participants=get_participants(d),
+            sales_total=day_sales_total,
+            auction_amount=day_auction.final_amount if day_auction else None,
+            auction_payment_method=day_auction.payment_method if day_auction else None,
+            reviews_count=reviews_by_date.get(d, 0),
+            invited_females=day_invites,
+            sales_by_payment=sales_pm,
+            items=[
+                SalesItemDetail(
+                    item_name=s.item_name,
+                    amount=s.amount,
+                    payment_method=s.payment_method,
+                    created_at=s.created_at.isoformat() if s.created_at else None,
+                )
+                for s in day_sales
+            ],
+        )
+
     # 5. 진행자별 집계
     result_hosts: list[HostSummary] = []
 
-    # 진행자가 없는 날짜도 포함하기 위해 모든 날짜 수집
+    # 진행자 풀 = DailyHost ∪ OnsiteFemaleInvite (운영일 없어도 초대만으로 등장 가능)
+    all_hosts = set(host_map.keys()) | set(invites_by_host.keys())
+
+    # 미지정 날짜: 매출/경매는 있는데 DailyHost 없는 날짜
     all_dates_with_data = set(sales_by_date.keys()) | set(auction_map.keys())
     assigned_dates = set()
     for dates in host_map.values():
         assigned_dates.update(dates)
     unassigned_dates = sorted(all_dates_with_data - assigned_dates)
 
-    for username, dates in sorted(host_map.items()):
-        dates_sorted = sorted(dates)
+    for username in sorted(all_hosts):
+        dates_sorted = sorted(host_map.get(username, []))
         date_details: list[DateDetail] = []
         total_sales = 0
         total_auction = 0
         total_participants = 0
+        total_reviews = 0
+        sales_pm_total: dict[str, int] = {}
+        auction_pm_total: dict[str, int] = {}
 
         for d in dates_sorted:
-            day_sales = sales_by_date.get(d, [])
-            day_sales_total = sum(s.amount for s in day_sales)
-            day_auction = auction_map.get(d)
-            day_participants = get_participants(d)
+            dd = build_date_detail(d, username)
+            total_sales += dd.sales_total
+            total_auction += (dd.auction_amount or 0)
+            total_participants += dd.participants
+            total_reviews += dd.reviews_count
+            for pm, amt in dd.sales_by_payment.items():
+                sales_pm_total[pm] = sales_pm_total.get(pm, 0) + amt
+            if dd.auction_amount and dd.auction_payment_method:
+                auction_pm_total[dd.auction_payment_method] = auction_pm_total.get(dd.auction_payment_method, 0) + dd.auction_amount
+            date_details.append(dd)
 
-            total_sales += day_sales_total
-            total_auction += (day_auction or 0)
-            total_participants += day_participants
-
-            date_details.append(DateDetail(
-                date=d,
-                participants=day_participants,
-                sales_total=day_sales_total,
-                auction_amount=day_auction,
-                items=[
-                    SalesItemDetail(
-                        item_name=s.item_name,
-                        amount=s.amount,
-                        created_at=s.created_at.isoformat() if s.created_at else None,
-                    )
-                    for s in day_sales
-                ],
-            ))
-
+        total_invites = invites_by_host.get(username, 0)
         total_revenue = total_sales + total_auction
         days_count = len(dates_sorted)
 
@@ -193,42 +236,36 @@ async def get_sales_report(
             total_auction=total_auction,
             total_revenue=total_revenue,
             total_participants=total_participants,
+            total_reviews=total_reviews,
+            total_invited_females=total_invites,
+            sales_by_payment=sales_pm_total,
+            auction_by_payment=auction_pm_total,
             avg_per_person=round(total_revenue / total_participants, 0) if total_participants > 0 else 0,
             daily_avg=round(total_revenue / days_count, 0) if days_count > 0 else 0,
             dates=date_details,
         ))
 
-    # 진행자 미지정 날짜
+    # 진행자 미지정 날짜 (운영 진행자 없이 매출/경매만 있는 경우)
     if unassigned_dates:
         date_details = []
         total_sales = 0
         total_auction = 0
         total_participants = 0
+        total_reviews = 0
+        sales_pm_total: dict[str, int] = {}
+        auction_pm_total: dict[str, int] = {}
 
         for d in unassigned_dates:
-            day_sales = sales_by_date.get(d, [])
-            day_sales_total = sum(s.amount for s in day_sales)
-            day_auction = auction_map.get(d)
-            day_participants = get_participants(d)
-
-            total_sales += day_sales_total
-            total_auction += (day_auction or 0)
-            total_participants += day_participants
-
-            date_details.append(DateDetail(
-                date=d,
-                participants=day_participants,
-                sales_total=day_sales_total,
-                auction_amount=day_auction,
-                items=[
-                    SalesItemDetail(
-                        item_name=s.item_name,
-                        amount=s.amount,
-                        created_at=s.created_at.isoformat() if s.created_at else None,
-                    )
-                    for s in day_sales
-                ],
-            ))
+            dd = build_date_detail(d, None)
+            total_sales += dd.sales_total
+            total_auction += (dd.auction_amount or 0)
+            total_participants += dd.participants
+            total_reviews += dd.reviews_count
+            for pm, amt in dd.sales_by_payment.items():
+                sales_pm_total[pm] = sales_pm_total.get(pm, 0) + amt
+            if dd.auction_amount and dd.auction_payment_method:
+                auction_pm_total[dd.auction_payment_method] = auction_pm_total.get(dd.auction_payment_method, 0) + dd.auction_amount
+            date_details.append(dd)
 
         total_revenue = total_sales + total_auction
         result_hosts.append(HostSummary(
@@ -238,6 +275,10 @@ async def get_sales_report(
             total_auction=total_auction,
             total_revenue=total_revenue,
             total_participants=total_participants,
+            total_reviews=total_reviews,
+            total_invited_females=0,
+            sales_by_payment=sales_pm_total,
+            auction_by_payment=auction_pm_total,
             avg_per_person=round(total_revenue / total_participants, 0) if total_participants > 0 else 0,
             daily_avg=round(total_revenue / len(unassigned_dates), 0) if unassigned_dates else 0,
             dates=date_details,

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { Dayjs } from 'dayjs';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { reservationsAPI, roomsAPI, templatesAPI } from '../../../services/api';
+import { queryKeys } from '@/lib/queryKeys';
 import type { Reservation } from '../types';
 
 interface TemplateLabel {
@@ -35,84 +37,70 @@ export const filterActive = (data: any[], dateStr: string): Reservation[] => {
 /**
  * 객실 배정 페이지의 모든 데이터 페칭과 상태를 통합.
  *
- * Phase C-1: rooms / reservations / nextDayReservations / templateLabels / roomGroups + fetch + effects.
- * 파생 상태(assignedRooms, buildingGroups 등)는 Phase C-2 에서 흡수 예정.
- *
- * setter 일부 노출(setReservations 등): Phase D/I 진행 후 정리 예정.
+ * Phase 2–5: rooms / reservations / nextDayReservations / templateLabels / roomGroups
+ *            → useQuery. setter/fetch shims 제거 완료.
  */
 export function useReservationsData(selectedDate: Dayjs) {
-  const [reservations, setReservations] = useState<Reservation[]>([]);
+  const qc = useQueryClient();
+
+  const dateStr = selectedDate.format('YYYY-MM-DD');
+  const nextDateStr = selectedDate.add(1, 'day').format('YYYY-MM-DD');
+
+  // ===== useQuery: 당일 예약 =====
+  const reservationsQuery = useQuery<Reservation[]>({
+    queryKey: queryKeys.reservations.list(dateStr),
+    queryFn: () =>
+      reservationsAPI
+        .getAll({ date: dateStr, limit: 200 })
+        .then((res) => filterActive(res.data.items ?? res.data, dateStr)),
+    staleTime: 30_000,
+  });
+
+  // ===== useQuery: 익일 예약 =====
+  const nextDayQuery = useQuery<Reservation[]>({
+    queryKey: queryKeys.reservations.list(nextDateStr),
+    queryFn: () =>
+      reservationsAPI
+        .getAll({ date: nextDateStr, limit: 200 })
+        .then((res) => filterActive(res.data.items ?? res.data, nextDateStr)),
+    staleTime: 30_000,
+  });
+
+  // ===== useQuery: 객실 목록 =====
+  const roomsQuery = useQuery<any[]>({
+    queryKey: queryKeys.rooms.list(),
+    queryFn: () => roomsAPI.getAll().then((res) => res.data),
+    staleTime: 300_000,
+  });
+
+  // ===== useQuery: 객실 그룹 =====
+  const roomGroupsQuery = useQuery<RoomGroup[]>({
+    queryKey: queryKeys.rooms.groups(),
+    queryFn: () => roomsAPI.getGroups().then((res) => res.data),
+    staleTime: 300_000,
+  });
+
+  // ===== useQuery: 템플릿 라벨 =====
+  const templateLabelsQuery = useQuery<TemplateLabel[]>({
+    queryKey: queryKeys.templates.labels(),
+    queryFn: () => templatesAPI.getLabels().then((res) => res.data),
+    staleTime: 300_000,
+  });
+
+  // Unwrap query data with safe defaults
+  const reservations: Reservation[] = reservationsQuery.data ?? [];
+  const nextDayReservations: Reservation[] = nextDayQuery.data ?? [];
+  const rooms: any[] = roomsQuery.data ?? [];
+  const roomGroups: RoomGroup[] = roomGroupsQuery.data ?? [];
+  const templateLabels: TemplateLabel[] = templateLabelsQuery.data ?? [];
+
+  // loading: mirrors original behavior (true while reservation fetch in-flight)
+  const loading = reservationsQuery.isFetching;
+
+  // ===== sectionOverrides: purely client-side, stays useState =====
   const [sectionOverrides, setSectionOverrides] = useState<Record<number, 'party' | 'unassigned'>>({});
-  const [nextDayReservations, setNextDayReservations] = useState<Reservation[]>([]);
-  const [rooms, setRooms] = useState<any[]>([]);
-  const [templateLabels, setTemplateLabels] = useState<TemplateLabel[]>([]);
-  const [roomGroups, setRoomGroups] = useState<RoomGroup[]>([]);
-  const [loading, setLoading] = useState(false);
 
-  // 날짜 이동 방향 추적 (프리페치/애니메이션용)
-  const prevDateRef = useRef<Dayjs>(selectedDate);
-  const reservationsRef = useRef<Reservation[]>([]);
-  const nextDayRef = useRef<Reservation[]>([]);
-
-  const fetchRoomGroups = useCallback(async () => {
-    try {
-      const res = await roomsAPI.getGroups();
-      setRoomGroups(res.data);
-    } catch {
-      // silently ignore group fetch failures
-    }
-  }, []);
-
-  const fetchRooms = useCallback(async () => {
-    try {
-      const res = await roomsAPI.getAll();
-      setRooms(res.data);
-    } catch {
-      toast.error('객실 목록을 불러오지 못했습니다.');
-    }
-  }, []);
-
-  const fetchReservations = useCallback(async (date: Dayjs) => {
-    setLoading(true);
-    try {
-      const dateStr = date.format('YYYY-MM-DD');
-
-      // 당일 먼저 로딩
-      const current = await reservationsAPI.getAll({ date: dateStr, limit: 200 });
-      const curr = filterActive(current.data.items ?? current.data, dateStr);
-      setReservations(curr);
-      reservationsRef.current = curr;
-      prevDateRef.current = date;
-      setLoading(false);
-
-      // 다음날 백그라운드 fetch
-      const nextDateStr = date.add(1, 'day').format('YYYY-MM-DD');
-      reservationsAPI.getAll({ date: nextDateStr, limit: 200 })
-        .then(res => { const d = filterActive(res.data.items ?? res.data, nextDateStr); setNextDayReservations(d); nextDayRef.current = d; })
-        .catch(() => { setNextDayReservations([]); nextDayRef.current = []; });
-    } catch {
-      toast.error('예약 목록을 불러오지 못했습니다.');
-      setLoading(false);
-    }
-  }, []);
-
-  // 마운트: 객실/그룹 로드
-  useEffect(() => {
-    fetchRooms();
-    fetchRoomGroups();
-  }, [fetchRooms, fetchRoomGroups]);
-
-  // 마운트: 템플릿 라벨 로드 (한 번만)
-  useEffect(() => {
-    templatesAPI.getLabels().then(res => setTemplateLabels(res.data)).catch(() => {});
-  }, []);
-
-  // 날짜 변경 시 예약 새로고침
-  useEffect(() => {
-    fetchReservations(selectedDate);
-  }, [selectedDate, fetchReservations]);
-
-  // ===== 파생 상태 =====
+  // ===== 파생 상태 (inputs come from useQuery) =====
 
   const roomInfoMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -130,15 +118,33 @@ export function useReservationsData(selectedDate: Dayjs) {
     return map;
   }, [rooms]);
 
-  const saveRoomMemo = useCallback(async (roomId: number, memo: string) => {
-    try {
-      await roomsAPI.update(roomId, { room_memo: memo });
-      setRooms((prev) => prev.map((r) => (r.id === roomId ? { ...r, room_memo: memo } : r)));
-    } catch {
+  const saveRoomMemoMutation = useMutation({
+    mutationFn: ({ roomId, memo }: { roomId: number; memo: string }) =>
+      roomsAPI.update(roomId, { room_memo: memo }),
+    onMutate: async ({ roomId, memo }) => {
+      await qc.cancelQueries({ queryKey: queryKeys.rooms.list() });
+      const previous = qc.getQueryData<any[]>(queryKeys.rooms.list());
+      qc.setQueryData<any[]>(queryKeys.rooms.list(), (prev) =>
+        (prev ?? []).map((r) => (r.id === roomId ? { ...r, room_memo: memo } : r))
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous !== undefined) {
+        qc.setQueryData(queryKeys.rooms.list(), ctx.previous);
+      }
       toast.error('메모 저장 실패');
-      throw new Error('save failed');
-    }
-  }, []);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.rooms.list() });
+    },
+  });
+
+  const saveRoomMemo = useCallback(
+    (roomId: number, memo: string): Promise<void> =>
+      saveRoomMemoMutation.mutateAsync({ roomId, memo }).then(() => undefined),
+    [saveRoomMemoMutation],
+  );
 
   const activeRoomEntries = useMemo(() => {
     return rooms.filter((room) => room.active).map((room) => ({
@@ -278,20 +284,13 @@ export function useReservationsData(selectedDate: Dayjs) {
   }, [activeRoomEntries, assignedRooms]);
 
   return {
-    reservations, setReservations,
+    reservations,
     sectionOverrides, setSectionOverrides,
-    nextDayReservations, setNextDayReservations,
-    rooms, setRooms,
+    nextDayReservations,
+    rooms,
     templateLabels,
-    roomGroups, setRoomGroups,
+    roomGroups,
     loading,
-    fetchReservations,
-    fetchRooms,
-    fetchRoomGroups,
-    // 본체의 navigateDate 최적화 로직에서 직접 조작하는 ref. Phase D/I 이후 정리 가능.
-    prevDateRef,
-    reservationsRef,
-    nextDayRef,
     // C-2: 파생 상태
     roomInfoMap,
     roomMemoMap,

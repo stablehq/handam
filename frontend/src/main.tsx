@@ -1,8 +1,11 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import * as Sentry from '@sentry/react'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import App from './App.tsx'
 import './index.css'
+import { queryClient } from './lib/queryClient'
 
 // Sentry 초기화 (VITE_SENTRY_DSN 환경변수 설정 시).
 // 동적 import 가 아닌 동기 import — 부트 시점부터 ErrorBoundary 가 가용해야 첫 렌더 크래시도 화이트아웃 없이 잡음.
@@ -47,7 +50,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     {/* Sentry.ErrorBoundary 는 DSN 없어도 일반 ErrorBoundary 처럼 동작 (보고만 미발생). 부트 시점부터 보호. */}
     <Sentry.ErrorBoundary fallback={(props) => <ErrorFallback error={props.error} resetError={props.resetError} />}>
-      <App />
+      <QueryClientProvider client={queryClient}>
+        <App />
+        <ReactQueryDevtools initialIsOpen={false} />
+      </QueryClientProvider>
     </Sentry.ErrorBoundary>
   </React.StrictMode>,
 )

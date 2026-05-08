@@ -223,6 +223,15 @@ export const reservationsAPI = {
     api.put(`/api/reservations/${id}/daily-info`, data),
   smsSendByTag: (data: { template_key: string; date: string }) =>
     api.post('/api/reservations/sms-send-by-tag', data),
+  extendStay: (reservationId: number, payload: { room_id: number | null }) =>
+    api.post(`/api/reservations/${reservationId}/extend-stay`, payload),
+  cancelExtendStay: (reservationId: number) =>
+    api.delete(`/api/reservations/${reservationId}/extend-stay`),
+  /** New model: reduce manually_extended_until by N days (default 1). */
+  reduceExtension: (reservationId: number, days: number = 1) =>
+    api.post(`/api/reservations/${reservationId}/reduce-extension`, { days }),
+  assignExtendStayRoom: (reservationId: number, payload: { new_reservation_id: number; room_id: number; date: string; move_existing_to_unassigned: boolean }) =>
+    api.post(`/api/reservations/${reservationId}/extend-stay/assign-room`, payload),
 };
 
 // Rooms API
@@ -351,6 +360,8 @@ export const tenantsAPI = {
 };
 
 // Stay Group API
+// DEPRECATED 2026-05-09 (extend-stay refactor): backend endpoints removed.
+// These methods will 404 if called. Phase 4 frontend cleanup will remove usage.
 export const stayGroupAPI = {
   link: (id: number, reservationIds: number[]) =>
     api.post(`/api/reservations/${id}/stay-group/link`, { reservation_ids: reservationIds }),
@@ -394,7 +405,7 @@ export const salesReportAPI = {
 // Onsite Sales API
 export const onsiteSalesAPI = {
   getList: (date: string) => api.get('/api/onsite-sales', { params: { date } }),
-  create: (data: { date: string; item_name: string; amount: number }) =>
+  create: (data: { date: string; item_name: string; amount: number; payment_method: '카드' | '이체' | '현금' }) =>
     api.post('/api/onsite-sales', data),
   delete: (id: number) => api.delete(`/api/onsite-sales/${id}`),
 };
@@ -416,9 +427,24 @@ export const partyHostsAPI = {
 // Onsite Auction API
 export const onsiteAuctionAPI = {
   get: (date: string) => api.get('/api/onsite-auctions', { params: { date } }),
-  upsert: (data: { date: string; item_name: string; final_amount: number; winner_name: string }) =>
+  upsert: (data: { date: string; item_name: string; final_amount: number; winner_name: string; payment_method: '카드' | '이체' | '현금' }) =>
     api.post('/api/onsite-auctions', data),
   delete: (id: number) => api.delete(`/api/onsite-auctions/${id}`),
+};
+
+// Daily Review API
+export const dailyReviewAPI = {
+  get: (date: string) => api.get('/api/daily-review', { params: { date } }),
+  upsert: (data: { date: string; count: number }) =>
+    api.put('/api/daily-review', data),
+};
+
+// Onsite Female Invite API
+export const onsiteFemaleInviteAPI = {
+  list: (date: string) => api.get('/api/onsite-female-invites', { params: { date } }),
+  add: (data: { date: string; host_username: string; count: number }) =>
+    api.post('/api/onsite-female-invites', data),
+  delete: (id: number) => api.delete(`/api/onsite-female-invites/${id}`),
 };
 
 export default api;

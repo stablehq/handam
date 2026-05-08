@@ -156,7 +156,7 @@ export const SmsCell: React.FC<SmsCellProps> = ({
             }
             setDropdownOpen(!dropdownOpen);
           }}
-          className="inline-flex items-center justify-center w-[18px] h-[18px] rounded border border-dashed border-[#E5E8EB] dark:border-[#2C2C34] text-[#B0B8C1] dark:text-[#8B95A1] hover:border-[#3182F6] hover:text-[#3182F6] dark:hover:border-[#3182F6] dark:hover:text-[#3182F6] transition-colors cursor-pointer"
+          className="inline-flex items-center justify-center w-[18px] h-[18px] rounded bg-[#F2F4F6] dark:bg-[#2C2C34] text-[#4E5968] dark:text-gray-300 hover:bg-[#E5E8EB] hover:text-[#191F28] dark:hover:bg-[#35353E] dark:hover:text-white transition-colors cursor-pointer"
           title="문자 템플릿 관리"
         >
           <Plus size={10} />

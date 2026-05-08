@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dayjs } from 'dayjs';
 import { toast } from 'sonner';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { reservationsAPI } from '../../../services/api';
+import { queryKeys } from '@/lib/queryKeys';
 import type { Reservation } from '../types';
 
 interface TemplateLabel {
@@ -14,7 +16,6 @@ interface UseCampaignSendProps {
   reservations: Reservation[];
   selectedDate: Dayjs;
   templateLabels: TemplateLabel[];
-  refetch: () => void;
   onConfirmRequest: () => void;
   onConfirmClose: () => void;
 }
@@ -23,21 +24,20 @@ interface UseCampaignSendProps {
  * 캠페인 일괄 발송 흐름(템플릿 선택 → 대상조회 → 확인 모달 → API 호출).
  *
  * Phase B-2: RoomAssignment.tsx 의 selectedTemplateKey/campaignDropdownOpen/targets/sending 통합.
- * sendConfirm 모달 자체는 본체에 남기고, 열기/닫기만 콜백으로 신호 전달.
+ * Phase 3b: smsSendByTag → useMutation. Backend 200 + !success → throw.
  */
 export function useCampaignSend({
   reservations,
   selectedDate,
   templateLabels,
-  refetch,
   onConfirmRequest,
   onConfirmClose,
 }: UseCampaignSendProps) {
+  const qc = useQueryClient();
   const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null);
   const [campaignDropdownOpen, setCampaignDropdownOpen] = useState(false);
   const campaignDropdownRef = useRef<HTMLDivElement>(null);
   const [targets, setTargets] = useState<Reservation[]>([]);
-  const [sending, setSending] = useState(false);
 
   // 드롭다운 외부 클릭 시 닫기
   useEffect(() => {
@@ -74,30 +74,33 @@ export function useCampaignSend({
     onConfirmRequest();
   }, [selectedTemplateKey, targets.length, onConfirmRequest]);
 
-  const handleSendCampaign = useCallback(async () => {
-    if (!selectedTemplateKey || targets.length === 0) return;
-    const tpl = templateLabels.find(t => t.template_key === selectedTemplateKey);
-    onConfirmClose();
-    setSending(true);
-    try {
-      const response = await reservationsAPI.smsSendByTag({
-        template_key: selectedTemplateKey,
-        date: selectedDate.format('YYYY-MM-DD'),
-      });
-      const data = response.data;
-      if (data.success) {
-        toast.success(`${tpl?.name || selectedTemplateKey} 발송 완료: ${data.sent_count}건`);
-        setTargets([]);
-        refetch();
-      } else {
-        toast.error(`발송 실패: ${data.error || '알 수 없는 오류'}`);
+  const sendMutation = useMutation({
+    mutationFn: async (vars: { template_key: string; date: string }) => {
+      const res = await reservationsAPI.smsSendByTag(vars);
+      if (!res.data?.success) {
+        throw new Error(res.data?.detail || res.data?.message || res.data?.error || '발송 실패');
       }
-    } catch {
-      toast.error('발송 실패');
-    } finally {
-      setSending(false);
-    }
-  }, [selectedTemplateKey, targets.length, templateLabels, selectedDate, refetch, onConfirmClose]);
+      return res.data;
+    },
+    onSuccess: (data) => {
+      const tpl = templateLabels.find(t => t.template_key === selectedTemplateKey);
+      toast.success(`${tpl?.name || selectedTemplateKey} 발송 완료: ${data.sent_count}건`);
+      setTargets([]);
+      qc.invalidateQueries({ queryKey: queryKeys.reservations.all() });
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || '발송 실패');
+    },
+  });
+
+  const handleSendCampaign = useCallback(() => {
+    if (!selectedTemplateKey || targets.length === 0) return;
+    onConfirmClose();
+    sendMutation.mutate({
+      template_key: selectedTemplateKey,
+      date: selectedDate.format('YYYY-MM-DD'),
+    });
+  }, [selectedTemplateKey, targets.length, selectedDate, onConfirmClose, sendMutation]);
 
   return {
     selectedTemplateKey,
@@ -108,7 +111,7 @@ export function useCampaignSend({
     targets,
     setTargets,
     clearTargets,
-    sending,
+    sending: sendMutation.isPending,
     loadTargets,
     requestSendCampaign,
     handleSendCampaign,

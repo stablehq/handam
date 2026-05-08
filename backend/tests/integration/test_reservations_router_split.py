@@ -38,17 +38,17 @@ EXPECTED_SMS = {
 }
 
 EXPECTED_STAY = {
+    # stay-group/link and stay-group/unlink removed in extend-stay refactor 2026-05-09
     ("POST", "/api/reservations/detect-consecutive"),
-    ("POST", "/api/reservations/{reservation_id}/stay-group/link"),
-    ("DELETE", "/api/reservations/{reservation_id}/stay-group/unlink"),
     ("POST", "/api/reservations/{reservation_id}/extend-stay"),
     ("POST", "/api/reservations/{reservation_id}/extend-stay/assign-room"),
     ("DELETE", "/api/reservations/{reservation_id}/extend-stay"),
+    ("POST", "/api/reservations/{reservation_id}/reduce-extension"),
 }
 
 TOTAL_EXPECTED = (
     len(EXPECTED_CRUD) + len(EXPECTED_ROOM) + len(EXPECTED_SMS) + len(EXPECTED_STAY)
-)  # 5 + 2 + 4 + 6 = 17
+)  # 5 + 2 + 4 + 5 = 16
 
 
 def _routes_of(router):
@@ -109,7 +109,7 @@ def test_shared_helper_exposed():
 
 
 def test_total_endpoint_count_in_app():
-    """FastAPI app 에 등록된 /api/reservations 경로 합이 17 개여야 함.
+    """FastAPI app 에 등록된 /api/reservations 경로 합이 18 개여야 함.
     main.py 에서 include_router 누락하면 여기서 잡힘."""
     from app.main import app
     paths = set()

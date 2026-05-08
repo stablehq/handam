@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Literal, Optional
 from app.api.deps import get_tenant_scoped_db
 from app.auth.dependencies import get_current_user
 from app.db.models import OnsiteSale, User
@@ -13,6 +13,7 @@ class OnsiteSaleCreate(BaseModel):
     date: str  # YYYY-MM-DD
     item_name: str
     amount: int
+    payment_method: Literal["카드", "이체", "현금"] = "카드"
 
 
 class OnsiteSaleResponse(BaseModel):
@@ -20,6 +21,7 @@ class OnsiteSaleResponse(BaseModel):
     date: str
     item_name: str
     amount: int
+    payment_method: Optional[str]
     created_by: Optional[str]
     created_at: Optional[str]
 
@@ -46,6 +48,7 @@ async def get_sales(
             "date": s.date,
             "item_name": s.item_name,
             "amount": s.amount,
+            "payment_method": s.payment_method,
             "created_by": s.created_by,
             "created_at": s.created_at.isoformat() if s.created_at else None,
         }
@@ -64,6 +67,7 @@ async def create_sale(
         date=req.date,
         item_name=req.item_name,
         amount=req.amount,
+        payment_method=req.payment_method,
         created_by=current_user.username,
     )
     db.add(sale)
@@ -74,6 +78,7 @@ async def create_sale(
         "date": sale.date,
         "item_name": sale.item_name,
         "amount": sale.amount,
+        "payment_method": sale.payment_method,
         "created_by": sale.created_by,
         "created_at": sale.created_at.isoformat() if sale.created_at else None,
     }

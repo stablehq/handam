@@ -90,6 +90,8 @@ class Reservation(TenantMixin, Base):
     stay_group_excluded = Column(Boolean, nullable=False, server_default='false', default=False)  # True: 사용자가 수동 unlink → 자동 재묶기 방지
     highlight_color = Column(String(20), nullable=True)              # UI highlight color for reservation card
 
+    manually_extended_until = Column(String(20), nullable=True)  # protects against naver_sync overwrite when user manually extends
+
     # Extended Naver booking data
     check_out_date = Column("end_date", String(20), nullable=True)  # checkout date YYYY-MM-DD  # TODO: PostgreSQL 전환 시 Date 타입으로 변경
     biz_item_name = Column(String(200), nullable=True)  # product/room name from Naver
@@ -504,6 +506,7 @@ class OnsiteSale(TenantMixin, Base):
     date = Column(String(20), nullable=False, index=True)  # YYYY-MM-DD
     item_name = Column(String(200), nullable=False)
     amount = Column(Integer, nullable=False)  # 금액 (원)
+    payment_method = Column(String(20), nullable=True)  # 카드 / 이체 / 현금
     created_by = Column(String(100), nullable=True)  # 기록한 사람
     created_at = Column(DateTime, default=utc_now)
 
@@ -531,6 +534,7 @@ class OnsiteAuction(TenantMixin, Base):
     item_name = Column(String(200), nullable=False)
     final_amount = Column(Integer, nullable=False)  # 낙찰가 (원)
     winner_name = Column(String(100), nullable=False)  # 낙찰자명
+    payment_method = Column(String(20), nullable=True)  # 카드 / 이체 / 현금
     created_by = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=utc_now)
 
@@ -550,6 +554,38 @@ class PartyHost(TenantMixin, Base):
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "name", name="uq_party_host_tenant_name"),
+    )
+
+
+
+class DailyReviewCount(TenantMixin, Base):
+    """일자별 리뷰 수 (하루 1건)"""
+    __tablename__ = "daily_review_counts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(String(20), nullable=False, index=True)  # YYYY-MM-DD
+    count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "date", name="uq_daily_review_tenant_date"),
+    )
+
+
+class OnsiteFemaleInvite(TenantMixin, Base):
+    """일자별 진행자별 여자초대수 — 같은 진행자 재입력 시 count 누적"""
+    __tablename__ = "onsite_female_invites"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(String(20), nullable=False, index=True)  # YYYY-MM-DD
+    host_username = Column(String(100), nullable=False)
+    count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "date", "host_username", name="uq_onsite_female_invite_tenant_date_host"),
     )
 
 

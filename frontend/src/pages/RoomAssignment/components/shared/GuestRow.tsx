@@ -7,6 +7,7 @@ import {
   isCustomHexColor,
   getCustomBgStyle,
   getCustomTextClass,
+  isLightColor,
 } from '@/lib/highlight-colors';
 import { formatGenderPeople, formatGuestSuffix } from '../../utils/reservationFormat';
 import { InlineInput } from '../InlineInput';
@@ -81,6 +82,10 @@ export function GuestRow({
   const isCustomHex = isCustomHexColor(res.highlight_color);
   const highlightStyle = !isCustomHex && res.highlight_color ? PRESET_HIGHLIGHT_STYLES[res.highlight_color] : null;
   const hasCustomText = isCustomHex || !!highlightStyle?.text;
+  // 진한 hex 배경: 부수 텍스트(연한 회색)가 잘 안 보이므로 강한 색으로 전환
+  const isDarkHexBg = isCustomHex && !isLightColor(res.highlight_color!);
+  const subtleText = isDarkHexBg ? 'text-[#191F28] dark:text-white' : 'text-[#8B95A1] dark:text-[#4E5968]';
+  const naverRoomText = isDarkHexBg ? 'text-[#191F28] dark:text-white' : 'text-[#8B95A1] dark:text-[#8B95A1]';
   const cellText = isCancelled ? 'text-[#F04452] line-through opacity-60' : hasCustomText ? 'text-inherit' : 'text-[#191F28] dark:text-white';
 
   return (
@@ -178,7 +183,7 @@ export function GuestRow({
           <span className="flex items-center gap-1 min-w-0">
             <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className={`font-medium ${cellText}`} placeholder="이름" autoFocus={res.id === quickAddedId} disabled={isCancelled} compact onActivate={cancelDeselect} />
             {formatGuestSuffix(res) && (
-              <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{formatGuestSuffix(res)}</span>
+              <span className={`flex-shrink-0 text-caption ${subtleText}`}>{formatGuestSuffix(res)}</span>
             )}
             {res.has_unstable_booking && <span className="inline-block h-[6px] w-[6px] rounded-full bg-[#7B61FF] flex-shrink-0" title="언스테이블 파티 예약 확인" />}
           </span>
@@ -192,7 +197,7 @@ export function GuestRow({
         <div className="overflow-hidden text-center px-1.5">
           <InlineInput value={genderPeople} field="genderPeople" resId={res.id} onSave={handleFieldSave} className={`${cellText} font-medium text-center`} placeholder="-" onActivate={cancelDeselect} />
         </div>
-        <div className="overflow-hidden truncate text-body text-[#8B95A1] dark:text-[#8B95A1] text-center px-1.5">{res.naver_room_type || <span className="text-[#B0B8C1] dark:text-[#4E5968]">-</span>}</div>
+        <div className={`overflow-hidden truncate text-body text-center px-1.5 ${naverRoomText}`}>{res.naver_room_type || <span className="text-[#B0B8C1] dark:text-[#4E5968]">-</span>}</div>
         <div className="overflow-hidden px-1.5">
           {isCancelled && res.cancelled_at ? (
             <span className="text-caption text-[#F04452]">

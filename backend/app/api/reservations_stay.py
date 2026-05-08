@@ -1,13 +1,18 @@
 """
 Reservations API — consecutive stay (연박) endpoints
 """
+import time
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
 
 from app.api.deps import get_tenant_scoped_db
-from app.db.models import Reservation, ReservationStatus, User, ReservationSmsAssignment, RoomAssignment, ReservationDailyInfo
+from app.db.models import (
+    Reservation, User,
+    ReservationSmsAssignment, RoomAssignment,
+    ReservationDailyInfo, TemplateSchedule,
+)
 from app.auth.dependencies import get_current_user
 from app.api.shared_schemas import ActionResponse
 from app.diag_logger import diag
@@ -20,27 +25,31 @@ router = APIRouter(prefix="/api/reservations", tags=["reservations"])
 # Consecutive stay (연박) endpoints
 # ---------------------------------------------------------------------------
 
-class StayGroupLinkRequest(BaseModel):
-    reservation_ids: List[int]
-
 
 class ExtendStayRequest(BaseModel):
-    """연박추가: create next-day reservation, link stay group, assign room"""
+    """연박추가: original reservation end_date += 1 day, assign room for new day"""
     room_id: Optional[int] = None  # Room to assign on next day (None = no assignment)
 
 
 class ExtendStayResponse(BaseModel):
     success: bool
-    new_reservation_id: int
-    stay_group_id: str
-    conflict_guests: List[str] = []  # Names of guests already in the room on next day
+    reservation_id: int          # original reservation
+    new_end_date: str
+    conflict_guests: List[str] = []
+    # Kept for backward compat with frontend (will deprecate later)
+    new_reservation_id: int      # same as reservation_id
+    stay_group_id: Optional[str] = None  # always None for new flow
 
 
 class ExtendStayAssignRequest(BaseModel):
-    new_reservation_id: int
+    new_reservation_id: int      # treated as original reservation_id (backward compat)
     room_id: int
     date: str  # YYYY-MM-DD
-    move_existing_to_unassigned: bool = False  # True = move existing guests to unassigned
+    move_existing_to_unassigned: bool = False
+
+
+class ReduceExtensionRequest(BaseModel):
+    days: int = 1
 
 
 @router.post("/detect-consecutive", response_model=ActionResponse)
@@ -60,88 +69,11 @@ async def detect_consecutive_stays(
     }
 
 
-@router.post("/{reservation_id}/stay-group/link", response_model=ActionResponse)
-async def link_stay_group(
-    reservation_id: int,
-    request: StayGroupLinkRequest,
-    db: Session = Depends(get_tenant_scoped_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Manually link reservations into a consecutive stay group."""
-    from app.services.consecutive_stay import link_reservations
-
-    all_ids = list(set([reservation_id] + request.reservation_ids))
-    try:
-        group_id, linked_ids = link_reservations(db, all_ids)
-    except ValueError as e:
-        diag(
-            "stay_group.link_api.validation_failed",
-            level="critical",
-            reservation_id=reservation_id,
-            requested_ids=all_ids,
-            error=str(e),
-        )
-        raise HTTPException(status_code=400, detail=str(e))
-
-    from app.services.room_assignment import sync_sms_tags
-    from app.db.models import TemplateSchedule
-    schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
-    # 자동 확장된 멤버까지 포함해서 sync (linked_ids 는 확장 후 전체)
-    for res_id in linked_ids:
-        sync_sms_tags(db, res_id, schedules=schedules)
-
-    db.commit()
-
-    diag(
-        "stay_group.link_api.done",
-        level="critical",
-        group_id=group_id,
-        member_count=len(linked_ids),
-        actor=current_user.username if current_user else None,
-    )
-
-    return {"success": True, "message": f"연박 그룹 생성: {group_id}"}
-
-
-@router.delete("/{reservation_id}/stay-group/unlink", response_model=ActionResponse)
-async def unlink_stay_group(
-    reservation_id: int,
-    db: Session = Depends(get_tenant_scoped_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Remove a reservation from its consecutive stay group."""
-    from app.services.consecutive_stay import unlink_from_group
-    from app.services.room_assignment import sync_sms_tags
-    from app.db.models import TemplateSchedule, Reservation
-
-    res = db.query(Reservation).filter(Reservation.id == reservation_id).first()
-    affected_ids = []
-    if res and res.stay_group_id:
-        affected_ids = [r.id for r in db.query(Reservation).filter(
-            Reservation.stay_group_id == res.stay_group_id
-        ).all()]
-
-    unlinked = unlink_from_group(db, reservation_id, exclude_from_auto_link=True)
-    if not unlinked:
-        diag("stay_group.unlink_api.not_in_group", level="critical",
-             reservation_id=reservation_id)
-        raise HTTPException(status_code=404, detail="연박 그룹에 속하지 않은 예약입니다")
-
-    schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
-    for res_id in affected_ids:
-        sync_sms_tags(db, res_id, schedules=schedules)
-
-    db.commit()
-
-    diag(
-        "stay_group.unlink_api.done",
-        level="critical",
-        reservation_id=reservation_id,
-        affected_count=len(affected_ids),
-        actor=current_user.username if current_user else None,
-    )
-
-    return {"success": True, "message": "연박 그룹에서 해제되었습니다"}
+# removed in extend-stay refactor 2026-05-09:
+#   link_stay_group  (POST /{reservation_id}/stay-group/link)
+#   unlink_stay_group (DELETE /{reservation_id}/stay-group/unlink)
+# Users no longer manually link reservation groups. Naver auto-detection still
+# works internally via detect_and_link_consecutive_stays().
 
 
 @router.post("/{reservation_id}/extend-stay", response_model=ExtendStayResponse)
@@ -151,120 +83,111 @@ async def extend_stay(
     db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
-    """연박추가: 다음날 예약 생성 + 연박 그룹 연결 + 방 배정 (단일 트랜잭션)"""
-    from app.services.consecutive_stay import link_reservations
-    from app.services.room_assignment import sync_sms_tags, assign_room
-    from app.db.models import TemplateSchedule
+    """연박추가: original reservation end_date += 1 day + room assignment for new day"""
+    from app.services.room_assignment import assign_room
+    from app.services.chip_reconciler import reconcile_chips_for_reservation
+    from app.db.tenant_context import get_session_tenant_id
     from datetime import timedelta, date as date_type
 
-    # 1. 원본 예약 조회
+    _t0 = time.monotonic()
+
+    # 1. Load original reservation
     original = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not original:
         raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다")
 
-    # 1-1. 변환 전 그룹 상태 캡처 (link_reservations 이후 manual- 로 바뀌므로 미리 저장)
-    original_group_id_before = original.stay_group_id
-    if original_group_id_before is None:
-        original_group_kind = "none"
-    elif original_group_id_before.startswith("manual-"):
-        original_group_kind = "manual"
-    else:
-        original_group_kind = "naver_auto"
+    current_end = original.check_out_date
+    # New night = current checkout date (last night of new stay)
+    # e.g. checkout=2026-05-10 → new night stays 2026-05-10, new checkout=2026-05-11
+    if not current_end:
+        raise HTTPException(status_code=400, detail="check_out_date가 없는 예약입니다")
 
-    # 2. 다음날 날짜 계산
-    orig_date = date_type.fromisoformat(original.check_in_date)
-    next_date = orig_date + timedelta(days=1)
-    next_date_str = next_date.isoformat()
-    next_checkout = (next_date + timedelta(days=1)).isoformat()
+    new_end_dt = date_type.fromisoformat(current_end) + timedelta(days=1)
+    new_end_str = new_end_dt.isoformat()
+    # The new night to assign is current_end (the added night)
+    new_night_str = current_end
 
-    # 3. 다음날 예약 생성 (이름, 전화, 인원만 복사)
-    new_res = Reservation(
-        customer_name=original.customer_name,
-        phone=original.phone,
-        check_in_date=next_date_str,
-        check_in_time=original.check_in_time or "15:00",
-        check_out_date=next_checkout,
-        male_count=original.male_count,
-        female_count=original.female_count,
-        party_size=original.party_size,
-        gender=original.gender,
-        age_group=original.age_group,
-        visit_count=original.visit_count,
-        booking_source="extend",
-        naver_room_type="수동연박",
-        section="room" if request.room_id else "unassigned",
-        status=ReservationStatus.CONFIRMED,
+    diag(
+        "extend_stay.invoked",
+        level="verbose",
+        reservation_id=reservation_id,
+        current_end=current_end,
+        new_end=new_end_str,
+        days_added=1,
+        actor=current_user.username if current_user else None,
     )
-    db.add(new_res)
-    db.flush()  # Get new_res.id
 
-    # 4. 연박 그룹 연결
-    all_ids = [reservation_id, new_res.id]
-    if original.stay_group_id:
-        group_members = db.query(Reservation.id).filter(
-            Reservation.stay_group_id == original.stay_group_id
-        ).all()
-        all_ids = list(set([m[0] for m in group_members] + [new_res.id]))
-
-    try:
-        group_id, linked_ids = link_reservations(db, all_ids)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    # 5. SMS 태그 동기화 (자동 확장된 멤버까지 포함)
-    schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
-    for res_id in linked_ids:
-        sync_sms_tags(db, res_id, schedules=schedules)
-
-    from app.db.tenant_context import get_session_tenant_id
+    # 2. Conflict check for new night
     tid = get_session_tenant_id(db)
+    conflict_guests: List[str] = []
+    conflict_resolved = False
 
-    # 6. 방 배정 + 충돌 확인
-    conflict_guests = []
     if request.room_id:
-        existing = (
+        existing_assignments = (
             db.query(RoomAssignment)
             .filter(
-                RoomAssignment.date == next_date_str,
+                RoomAssignment.date == new_night_str,
                 RoomAssignment.room_id == request.room_id,
                 RoomAssignment.tenant_id == tid,
             )
             .all()
         )
-        if existing:
+        if existing_assignments:
             conflict_guests = [
                 db.query(Reservation.customer_name)
                 .filter(Reservation.id == ra.reservation_id, Reservation.tenant_id == tid)
                 .scalar() or "Unknown"
-                for ra in existing
+                for ra in existing_assignments
             ]
-        if not conflict_guests:
-            assign_room(
-                db, new_res.id, request.room_id, next_date_str,
-                assigned_by="manual",
-                created_by=current_user.username,
-            )
+
+    # 3. Extend end_date
+    original.check_out_date = new_end_str
+    original.manually_extended_until = new_end_str
+    db.flush()
+
+    # 4. Assign room for the new night (only if no conflict)
+    if request.room_id and not conflict_guests:
+        assign_room(
+            db, reservation_id, request.room_id, new_night_str,
+            end_date=new_end_str,
+            assigned_by="manual",
+            created_by=current_user.username,
+        )
+        conflict_resolved = True
+
+    # 5. Reconcile chips for the full new date range
+    schedules = (
+        db.query(TemplateSchedule)
+        .filter(
+            TemplateSchedule.tenant_id == tid,
+            TemplateSchedule.is_active == True,
+        )
+        .all()
+    )
+    reconcile_chips_for_reservation(db, reservation_id, schedules=schedules)
 
     db.commit()
 
+    duration_ms = int((time.monotonic() - _t0) * 1000)
     diag(
-        "reservation.extend_stay",
+        "extend_stay.completed",
         level="critical",
-        source_reservation_id=reservation_id,
-        new_reservation_id=new_res.id,
-        stay_group_id=group_id,
-        original_stay_group_id=original_group_id_before,
-        original_group_kind=original_group_kind,
-        conflict_count=len(conflict_guests),
+        reservation_id=reservation_id,
+        old_end=current_end,
+        new_end=new_end_str,
         room_id=request.room_id,
+        conflict_resolved=conflict_resolved,
+        duration_ms=duration_ms,
         actor=current_user.username if current_user else None,
     )
 
     return ExtendStayResponse(
         success=True,
-        new_reservation_id=new_res.id,
-        stay_group_id=group_id,
+        reservation_id=reservation_id,
+        new_end_date=new_end_str,
         conflict_guests=conflict_guests,
+        new_reservation_id=reservation_id,
+        stay_group_id=None,
     )
 
 
@@ -275,9 +198,12 @@ async def extend_stay_assign_room(
     db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
-    """연박추가 충돌 해결: 방 배정 확정"""
+    """연박추가 충돌 해결: 방 배정 확정 (operates on the original reservation)"""
     from app.services.room_assignment import assign_room
     from app.db.tenant_context import get_session_tenant_id
+
+    # new_reservation_id is kept for backward compat — it IS the original reservation_id now
+    target_reservation_id = request.new_reservation_id
     tid = get_session_tenant_id(db)
 
     if request.move_existing_to_unassigned:
@@ -286,20 +212,23 @@ async def extend_stay_assign_room(
             .filter(
                 RoomAssignment.date == request.date,
                 RoomAssignment.room_id == request.room_id,
-                RoomAssignment.reservation_id != request.new_reservation_id,
+                RoomAssignment.reservation_id != target_reservation_id,
                 RoomAssignment.tenant_id == tid,
             )
             .all()
         )
         for ra in existing:
-            res = db.query(Reservation).filter(Reservation.id == ra.reservation_id, Reservation.tenant_id == tid).first()
+            res = db.query(Reservation).filter(
+                Reservation.id == ra.reservation_id,
+                Reservation.tenant_id == tid,
+            ).first()
             if res:
                 res.section = "unassigned"
             db.delete(ra)
         db.flush()
 
     assign_room(
-        db, request.new_reservation_id, request.room_id, request.date,
+        db, target_reservation_id, request.room_id, request.date,
         assigned_by="manual",
         created_by=current_user.username,
     )
@@ -308,80 +237,206 @@ async def extend_stay_assign_room(
     return {"success": True, "message": "방 배정 완료"}
 
 
+# ---------------------------------------------------------------------------
+# reduce-extension: shrink a manually extended reservation
+# ---------------------------------------------------------------------------
+
+def _do_reduce_extension(
+    db: Session,
+    reservation_id: int,
+    days: int,
+    actor: Optional[str],
+) -> dict:
+    """Core logic shared by reduce_extension and cancel_extend_stay (compat wrapper).
+
+    Returns a dict with stats for diag logging.
+    """
+    from app.services.chip_reconciler import reconcile_chips_for_reservation
+    from app.db.tenant_context import get_session_tenant_id
+    from datetime import timedelta, date as date_type
+
+    _t0 = time.monotonic()
+
+    original = db.query(Reservation).filter(Reservation.id == reservation_id).first()
+    if not original:
+        raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다")
+
+    if not original.manually_extended_until:
+        raise HTTPException(status_code=400, detail="수동 연박 연장이 없습니다")
+
+    if not original.check_out_date:
+        raise HTTPException(status_code=400, detail="check_out_date가 없는 예약입니다")
+
+    current_end_dt = date_type.fromisoformat(original.check_out_date)
+    new_end_dt = current_end_dt - timedelta(days=days)
+
+    # Must stay at least 1 night
+    check_in_dt = date_type.fromisoformat(original.check_in_date)
+    if new_end_dt <= check_in_dt:
+        raise HTTPException(
+            status_code=400,
+            detail=f"연박 축소 후 체크아웃 날짜({new_end_dt})가 체크인({check_in_dt}) 이하가 됩니다",
+        )
+
+    new_end_str = new_end_dt.isoformat()
+    current_end_str = original.check_out_date
+
+    diag(
+        "reduce_extension.invoked",
+        level="verbose",
+        reservation_id=reservation_id,
+        current_end=current_end_str,
+        new_end=new_end_str,
+        days=days,
+        actor=actor,
+    )
+
+    tid = get_session_tenant_id(db)
+
+    # Dates to remove: [new_end_str, current_end_str)
+    # These are the date strings for nights being removed
+    dates_to_remove = []
+    d = new_end_dt
+    while d < current_end_dt:
+        dates_to_remove.append(d.isoformat())
+        d += timedelta(days=1)
+
+    # 1. Delete room assignments for removed dates
+    ra_deleted = (
+        db.query(RoomAssignment)
+        .filter(
+            RoomAssignment.reservation_id == reservation_id,
+            RoomAssignment.date.in_(dates_to_remove),
+            RoomAssignment.tenant_id == tid,
+        )
+        .all()
+    )
+    room_assignments_deleted = len(ra_deleted)
+    for ra in ra_deleted:
+        db.delete(ra)
+
+    # 2. Delete unsent SMS chips for removed dates (preserve sent chips)
+    chips_to_check = (
+        db.query(ReservationSmsAssignment)
+        .filter(
+            ReservationSmsAssignment.reservation_id == reservation_id,
+            ReservationSmsAssignment.date.in_(dates_to_remove),
+            ReservationSmsAssignment.tenant_id == tid,
+        )
+        .all()
+    )
+    chips_deleted_unsent = 0
+    sent_chips_preserved = 0
+    for chip in chips_to_check:
+        if chip.sent_at is None:
+            db.delete(chip)
+            chips_deleted_unsent += 1
+        else:
+            # Preserve sent chips for audit
+            sent_chips_preserved += 1
+            diag(
+                "reduce_extension.protected_chip_preserved",
+                level="verbose",
+                reservation_id=reservation_id,
+                template_key=chip.template_key,
+                date=chip.date,
+                sent_at=str(chip.sent_at),
+            )
+
+    # 3. Delete ReservationDailyInfo for removed dates
+    db.query(ReservationDailyInfo).filter(
+        ReservationDailyInfo.reservation_id == reservation_id,
+        ReservationDailyInfo.date.in_(dates_to_remove),
+        ReservationDailyInfo.tenant_id == tid,
+    ).delete(synchronize_session=False)
+
+    # 4. Delete PartyCheckin for removed dates (import here to avoid circular)
+    try:
+        from app.db.models import PartyCheckin
+        db.query(PartyCheckin).filter(
+            PartyCheckin.reservation_id == reservation_id,
+            PartyCheckin.date.in_(dates_to_remove),
+            PartyCheckin.tenant_id == tid,
+        ).delete(synchronize_session=False)
+    except Exception:
+        pass  # PartyCheckin may not exist in all environments
+
+    # 5. Update reservation dates
+    original.check_out_date = new_end_str
+    original.manually_extended_until = new_end_str
+    db.flush()
+
+    # 6. Reconcile chips for new (shorter) date range
+    schedules = (
+        db.query(TemplateSchedule)
+        .filter(
+            TemplateSchedule.tenant_id == tid,
+            TemplateSchedule.is_active == True,
+        )
+        .all()
+    )
+    reconcile_chips_for_reservation(db, reservation_id, schedules=schedules)
+
+    duration_ms = int((time.monotonic() - _t0) * 1000)
+    diag(
+        "reduce_extension.completed",
+        level="critical",
+        reservation_id=reservation_id,
+        old_end=current_end_str,
+        new_end=new_end_str,
+        chips_deleted_unsent=chips_deleted_unsent,
+        sent_chips_preserved=sent_chips_preserved,
+        room_assignments_deleted=room_assignments_deleted,
+        duration_ms=duration_ms,
+        actor=actor,
+    )
+
+    return {
+        "chips_deleted_unsent": chips_deleted_unsent,
+        "sent_chips_preserved": sent_chips_preserved,
+        "room_assignments_deleted": room_assignments_deleted,
+        "new_end_date": new_end_str,
+    }
+
+
+@router.post("/{reservation_id}/reduce-extension", response_model=ActionResponse)
+async def reduce_extension(
+    reservation_id: int,
+    request: ReduceExtensionRequest,
+    db: Session = Depends(get_tenant_scoped_db),
+    current_user: User = Depends(get_current_user),
+):
+    """연박 축소: manually_extended reservation 의 end_date를 N일 줄임"""
+    stats = _do_reduce_extension(
+        db, reservation_id, days=request.days,
+        actor=current_user.username if current_user else None,
+    )
+    db.commit()
+    return {
+        "success": True,
+        "message": (
+            f"연박 {request.days}일 축소 완료 → 체크아웃: {stats['new_end_date']}"
+            f" (삭제 칩 {stats['chips_deleted_unsent']}건, 보존 {stats['sent_chips_preserved']}건)"
+        ),
+    }
+
+
 @router.delete("/{reservation_id}/extend-stay", response_model=ActionResponse)
 async def cancel_extend_stay(
     reservation_id: int,
     db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
-    """연박취소: 수동연박 예약 삭제 + 연박 그룹 해제 + 원본 복원"""
-    from app.services.consecutive_stay import unlink_from_group
-    from app.services.room_assignment import sync_sms_tags
-    from app.db.models import TemplateSchedule
-
-    original = db.query(Reservation).filter(Reservation.id == reservation_id).first()
-    if not original:
-        raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다")
-
-    if not original.stay_group_id:
-        raise HTTPException(status_code=400, detail="연박 그룹이 없습니다")
-
-    # Find the extended reservation in the same stay group (booking_source='extend', next day)
-    extended = (
-        db.query(Reservation)
-        .filter(
-            Reservation.stay_group_id == original.stay_group_id,
-            Reservation.booking_source == "extend",
-            Reservation.id != reservation_id,
-        )
-        .order_by(Reservation.check_in_date.desc())
-        .first()
-    )
-
-    if not extended:
-        raise HTTPException(status_code=400, detail="수동연박 예약을 찾을 수 없습니다 (수동연박만 취소 가능)")
-
-    from app.db.tenant_context import get_session_tenant_id
-    tid = get_session_tenant_id(db)
-
-    # 1. Delete room assignments for the extended reservation
-    from app.services.room_assignment import clear_all_for_reservation
-    clear_all_for_reservation(db, extended.id)
-
-    # 2. Delete SMS assignments for the extended reservation
-    db.query(ReservationSmsAssignment).filter(ReservationSmsAssignment.reservation_id == extended.id, ReservationSmsAssignment.tenant_id == tid).delete()
-
-    # 3. Delete daily info for the extended reservation
-    db.query(ReservationDailyInfo).filter(ReservationDailyInfo.reservation_id == extended.id, ReservationDailyInfo.tenant_id == tid).delete()
-
-    # 4. Unlink the extended reservation from stay group (this also fixes remaining members)
-    unlink_from_group(db, extended.id)
-
-    # 5. Delete the extended reservation
-    db.delete(extended)
-    db.flush()
-
-    # 6. Sync SMS tags for remaining group members
-    schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
-    # Get remaining group members (if any)
-    if original.stay_group_id:
-        remaining = db.query(Reservation.id).filter(
-            Reservation.stay_group_id == original.stay_group_id
-        ).all()
-        for (rid,) in remaining:
-            sync_sms_tags(db, rid, schedules=schedules)
-    # Also sync the original (it may have been unlinked if group dissolved)
-    sync_sms_tags(db, original.id, schedules=schedules)
-
-    db.commit()
-
-    diag(
-        "reservation.extend_stay_cancelled",
-        level="critical",
-        original_reservation_id=reservation_id,
-        removed_reservation_id=extended.id,
-        stay_group_id=original.stay_group_id,
+    """연박취소 (backward compat): reduce-extension days=1 위임"""
+    stats = _do_reduce_extension(
+        db, reservation_id, days=1,
         actor=current_user.username if current_user else None,
     )
-
-    return {"success": True, "message": f"수동연박 취소 완료 ({extended.customer_name})"}
+    db.commit()
+    return {
+        "success": True,
+        "message": (
+            f"수동연박 취소 완료 → 체크아웃: {stats['new_end_date']}"
+            f" (삭제 칩 {stats['chips_deleted_unsent']}건)"
+        ),
+    }

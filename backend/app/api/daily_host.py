@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from app.api.deps import get_tenant_scoped_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import require_admin_or_above
 from app.db.models import DailyHost, User
 
 router = APIRouter(prefix="/api/daily-host", tags=["daily-host"])
@@ -28,7 +28,7 @@ class DailyHostResponse(BaseModel):
 async def get_daily_host(
     date: str,
     db: Session = Depends(get_tenant_scoped_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_above),
 ):
     """특정 날짜의 진행자 조회"""
     host = db.query(DailyHost).filter(DailyHost.date == date).first()
@@ -46,7 +46,7 @@ async def get_daily_host(
 async def upsert_daily_host(
     req: DailyHostUpsert,
     db: Session = Depends(get_tenant_scoped_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin_or_above),
 ):
     """진행자 저장 (upsert: 날짜당 1명)"""
     existing = (

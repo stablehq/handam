@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTenantStore } from '@/stores/tenant-store'
+import { useAuthStore } from '@/stores/auth-store'
 import { Modal, ModalHeader, ModalBody } from '@/components/ui/modal'
 import { Spinner } from '@/components/ui/spinner'
 import { Button } from '@/components/ui/button'
 import { TextInput } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
 import { Users, AlertTriangle, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
-import { partyCheckinAPI, onsiteSalesAPI, dailyHostAPI, onsiteAuctionAPI, partyHostsAPI } from '@/services/api'
+import { partyCheckinAPI, onsiteSalesAPI, dailyHostAPI, onsiteAuctionAPI, partyHostsAPI, dailyReviewAPI, onsiteFemaleInviteAPI, reservationsAPI } from '@/services/api'
 import { normalizeUtcString } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -28,12 +30,22 @@ interface PartyGuest {
   is_long_stay?: boolean
 }
 
+type PaymentMethod = '카드' | '이체' | '현금'
+
 interface Sale {
   id: number
   item_name: string
   amount: number
+  payment_method: PaymentMethod | null
   created_by: string | null
   created_at: string | null
+}
+
+const PAYMENT_METHODS: PaymentMethod[] = ['카드', '이체', '현금']
+const PAYMENT_BADGE_COLOR: Record<PaymentMethod, 'info' | 'purple' | 'success'> = {
+  '카드': 'info',
+  '이체': 'purple',
+  '현금': 'success',
 }
 
 interface Auction {
@@ -42,6 +54,7 @@ interface Auction {
   item_name: string
   final_amount: number
   winner_name: string
+  payment_method: PaymentMethod | null
   created_by: string | null
   created_at: string | null
 }
@@ -49,6 +62,13 @@ interface Auction {
 interface HostItem {
   id: number
   name: string
+}
+
+interface InviteRow {
+  id: number
+  date: string
+  host_username: string
+  count: number
 }
 
 function getTodayStr(): string {
@@ -73,6 +93,8 @@ function formatGender(male: number | null, female: number | null): string {
 export default function PartyCheckin() {
   const { tenants, currentTenantId } = useTenantStore()
   const hasUnstable = tenants.find(t => String(t.id) === currentTenantId)?.has_unstable ?? false
+  const userRole = useAuthStore((s) => s.user?.role)
+  const canManageHost = userRole === 'admin' || userRole === 'superadmin'
 
   const [selectedDate, setSelectedDate] = useState(getTodayStr())
   const [activeTab, setActiveTab] = useState<'checkin' | 'sales'>('checkin')
@@ -87,24 +109,101 @@ export default function PartyCheckin() {
     guest: null,
   })
 
+  // ── Add participant modal (현장추가) ──
+  const [addModal, setAddModal] = useState({
+    open: false,
+    name: '',
+    phone: '',
+    maleCount: '',
+    femaleCount: '',
+    partyType: '1' as '1' | '2' | '2차만',
+    saving: false,
+  })
+
+  // 추가 후 입장 처리 확인 모달
+  const [checkInConfirm, setCheckInConfirm] = useState(false)
+
+  function resetAddModal() {
+    setAddModal({ open: false, name: '', phone: '', maleCount: '', femaleCount: '', partyType: '1', saving: false })
+    setCheckInConfirm(false)
+  }
+
+  function openCheckInConfirm() {
+    const trimmedName = addModal.name.trim()
+    if (!trimmedName) { toast.error('이름을 입력해주세요'); return }
+    const m = Number(addModal.maleCount) || 0
+    const f = Number(addModal.femaleCount) || 0
+    if (m + f < 1) { toast.error('남/여 인원 합이 1명 이상이어야 합니다'); return }
+    setAddModal(prev => ({ ...prev, open: false }))
+    setCheckInConfirm(true)
+  }
+
+  async function handleAddParticipant(checkIn: boolean) {
+    const trimmedName = addModal.name.trim()
+    const m = Number(addModal.maleCount) || 0
+    const f = Number(addModal.femaleCount) || 0
+
+    setCheckInConfirm(false)
+    setAddModal(prev => ({ ...prev, saving: true }))
+    try {
+      const res = await reservationsAPI.create({
+        customer_name: trimmedName,
+        phone: addModal.phone.trim(),
+        check_in_date: selectedDate,
+        check_in_time: '00:00',
+        check_out_date: selectedDate,
+        status: 'confirmed',
+        male_count: m || null,
+        female_count: f || null,
+        party_type: addModal.partyType,
+        booking_source: 'manual',
+        naver_room_type: '현장추가',
+        section: 'party',
+      })
+
+      if (checkIn && res.data?.id) {
+        try { await partyCheckinAPI.toggle(res.data.id, selectedDate) } catch { /* 입장 처리 실패해도 추가는 성공 */ }
+      }
+
+      resetAddModal()
+      fetchGuests(selectedDate)
+      toast.success(`${trimmedName}님 추가됨`)
+    } catch {
+      toast.error('추가에 실패했습니다')
+      setAddModal(prev => ({ ...prev, open: true, saving: false }))
+    }
+  }
+
   // ── Sales state ──
   const [sales, setSales] = useState<Sale[]>([])
   const [salesLoading, setSalesLoading] = useState(false)
   const [newItemName, setNewItemName] = useState('')
   const [newAmount, setNewAmount] = useState('')
+  const [newPaymentMethod, setNewPaymentMethod] = useState<PaymentMethod>('카드')
 
   // ── Host state ──
   const [hosts, setHosts] = useState<HostItem[]>([])
   const [hostName, setHostName] = useState('')
-  const [hostSaving, setHostSaving] = useState(false)
 
   // ── Auction state ──
   const [auction, setAuction] = useState<Auction | null>(null)
   const [auctionItemName, setAuctionItemName] = useState('')
   const [auctionAmount, setAuctionAmount] = useState('')
   const [auctionWinner, setAuctionWinner] = useState('')
-  const [auctionSaving, setAuctionSaving] = useState(false)
-  const [auctionEditing, setAuctionEditing] = useState(false)
+  const [auctionPaymentMethod, setAuctionPaymentMethod] = useState<PaymentMethod>('카드')
+
+  // ── Review state ──
+  const [reviewCount, setReviewCount] = useState('')
+
+  // ── 진행자 카드 통합 저장/수정 모드 ──
+  const [cardEditing, setCardEditing] = useState(true)
+  const [cardSaving, setCardSaving] = useState(false)
+
+  // ── Female invite state ──
+  const [invites, setInvites] = useState<InviteRow[]>([])
+  const [pendingInvites, setPendingInvites] = useState<{ tempId: number; host: string; count: string }[]>([])
+  const [inviteSaving, setInviteSaving] = useState(false)
+  const [inviteEditing, setInviteEditing] = useState(true)
 
   // ── Fetch checkin guests ──
   const fetchGuests = useCallback(async (date: string) => {
@@ -127,19 +226,22 @@ export default function PartyCheckin() {
     fetchGuests(selectedDate)
   }, [selectedDate, fetchGuests])
 
-  // ── Fetch sales/host/auction when sales tab active ──
+  // ── Fetch sales/host/auction/review/invites when sales tab active ──
   const fetchSalesData = useCallback(async (date: string) => {
     setSalesLoading(true)
     try {
-      const [salesRes, hostRes, auctionRes] = await Promise.all([
+      const [salesRes, hostRes, auctionRes, reviewRes, invitesRes] = await Promise.all([
         onsiteSalesAPI.getList(date),
-        dailyHostAPI.get(date),
-        onsiteAuctionAPI.get(date),
+        canManageHost ? dailyHostAPI.get(date) : Promise.resolve({ data: null }),
+        canManageHost ? onsiteAuctionAPI.get(date) : Promise.resolve({ data: null }),
+        canManageHost ? dailyReviewAPI.get(date) : Promise.resolve({ data: null }),
+        canManageHost ? onsiteFemaleInviteAPI.list(date) : Promise.resolve({ data: [] }),
       ])
       setSales(salesRes.data ?? [])
 
       const host = hostRes.data
-      setHostName(host?.host_username ?? '')
+      const fetchedHost = host?.host_username ?? ''
+      setHostName(fetchedHost)
 
       const auc = auctionRes.data
       setAuction(auc)
@@ -147,17 +249,31 @@ export default function PartyCheckin() {
         setAuctionItemName(auc.item_name)
         setAuctionAmount(String(auc.final_amount))
         setAuctionWinner(auc.winner_name)
+        setAuctionPaymentMethod((auc.payment_method as PaymentMethod) ?? '카드')
       } else {
         setAuctionItemName('')
         setAuctionAmount('')
         setAuctionWinner('')
+        setAuctionPaymentMethod('카드')
       }
+
+      const rev = reviewRes.data
+      setReviewCount(rev ? String(rev.count) : '')
+
+      // 카드: 어떤 데이터든 있으면 잠금
+      setCardEditing(!fetchedHost && !auc && !rev)
+
+      const fetchedInvites = invitesRes.data ?? []
+      setInvites(fetchedInvites)
+      const editingMode = fetchedInvites.length === 0
+      setInviteEditing(editingMode)
+      setPendingInvites(editingMode ? [{ tempId: Date.now() + Math.random(), host: '', count: '' }] : [])
     } catch {
       toast.error('매출 데이터를 불러오지 못했습니다')
     } finally {
       setSalesLoading(false)
     }
-  }, [])
+  }, [canManageHost])
 
   useEffect(() => {
     if (activeTab === 'sales') {
@@ -165,12 +281,13 @@ export default function PartyCheckin() {
     }
   }, [activeTab, selectedDate, fetchSalesData])
 
-  // Fetch party hosts
+  // Fetch party hosts (admin/superadmin 전용)
   useEffect(() => {
+    if (!canManageHost) return
     partyHostsAPI.list()
       .then((res) => setHosts(res.data ?? []))
       .catch(() => {})
-  }, [])
+  }, [canManageHost])
 
   // ── Checkin handlers ──
   const handleRowClick = (guest: PartyGuest) => {
@@ -220,10 +337,11 @@ export default function PartyCheckin() {
     if (!newItemName.trim()) { toast.error('품명을 입력해주세요'); return }
     if (!newAmount || Number(newAmount) <= 0) { toast.error('금액을 입력해주세요'); return }
     try {
-      const res = await onsiteSalesAPI.create({ date: selectedDate, item_name: newItemName.trim(), amount: Number(newAmount) })
+      const res = await onsiteSalesAPI.create({ date: selectedDate, item_name: newItemName.trim(), amount: Number(newAmount), payment_method: newPaymentMethod })
       setSales(prev => [res.data, ...prev])
       setNewItemName('')
       setNewAmount('')
+      setNewPaymentMethod('카드')
       toast.success('판매 기록이 추가되었습니다')
     } catch { toast.error('판매 기록 추가에 실패했습니다') }
   }
@@ -242,44 +360,107 @@ export default function PartyCheckin() {
 
   const salesTotalAmount = sales.reduce((sum, s) => sum + s.amount, 0)
 
-  // ── Host handler ──
-  async function handleHostSave(name: string) {
-    setHostName(name)
-    if (!name) return
-    setHostSaving(true)
+  // ── 진행자 카드 통합 저장 (진행자 + 리뷰수 + 경매액) ──
+  async function handleCardSave() {
+    if (!hostName) { toast.error('진행자를 선택해주세요'); return }
+    setCardSaving(true)
     try {
-      await dailyHostAPI.upsert({ date: selectedDate, host_username: name })
-      toast.success('진행자가 저장되었습니다')
-    } catch { toast.error('진행자 저장에 실패했습니다') }
-    finally { setHostSaving(false) }
+      const promises: Promise<unknown>[] = []
+
+      promises.push(dailyHostAPI.upsert({ date: selectedDate, host_username: hostName }))
+
+      if (reviewCount !== '' && !isNaN(Number(reviewCount)) && Number(reviewCount) >= 0) {
+        promises.push(dailyReviewAPI.upsert({ date: selectedDate, count: Number(reviewCount) }))
+      }
+
+      if (auctionAmount !== '' && !isNaN(Number(auctionAmount)) && Number(auctionAmount) >= 0) {
+        promises.push(
+          onsiteAuctionAPI.upsert({
+            date: selectedDate,
+            item_name: auctionItemName.trim() || '경매',
+            final_amount: Number(auctionAmount),
+            winner_name: auctionWinner.trim() || '-',
+            payment_method: auctionPaymentMethod,
+          }).then((res) => { setAuction(res.data) })
+        )
+      }
+
+      await Promise.all(promises)
+      setCardEditing(false)
+      toast.success('저장되었습니다')
+    } catch {
+      toast.error('저장에 실패했습니다')
+    } finally {
+      setCardSaving(false)
+    }
   }
 
-  // ── Auction handlers ──
-  async function handleAuctionSave() {
-    if (auctionAmount === '' || isNaN(Number(auctionAmount)) || Number(auctionAmount) < 0) { toast.error('경매 판매액을 입력해주세요'); return }
-    setAuctionSaving(true)
+  // ── Female invite handlers ──
+  function handleAddBlankRow() {
+    setPendingInvites(prev => [...prev, { tempId: Date.now() + Math.random(), host: '', count: '' }])
+  }
+
+  // 편집 모드 진입 시 빈 행 1개 기본 보장
+  useEffect(() => {
+    if (inviteEditing) {
+      setPendingInvites(prev => prev.length === 0 ? [{ tempId: Date.now() + Math.random(), host: '', count: '' }] : prev)
+    }
+  }, [inviteEditing])
+
+  function handlePendingChange(tempId: number, field: 'host' | 'count', value: string) {
+    setPendingInvites(prev => prev.map(p => p.tempId === tempId ? { ...p, [field]: value } : p))
+  }
+
+  function handlePendingRemove(tempId: number) {
+    setPendingInvites(prev => prev.filter(p => p.tempId !== tempId))
+  }
+
+  async function handleInvitesSave() {
+    if (pendingInvites.length === 0) return
+    for (const p of pendingInvites) {
+      if (!p.host) { toast.error('진행자가 선택되지 않은 행이 있습니다'); return }
+      if (p.count === '' || isNaN(Number(p.count)) || Number(p.count) <= 0) {
+        toast.error(`${p.host} 행의 수치를 확인해주세요`); return
+      }
+    }
+    setInviteSaving(true)
     try {
-      const res = await onsiteAuctionAPI.upsert({
-        date: selectedDate,
-        item_name: auctionItemName.trim() || '경매',
-        final_amount: Number(auctionAmount),
-        winner_name: auctionWinner.trim() || '-',
-      })
-      setAuction(res.data)
-      setAuctionEditing(false)
-      toast.success(auction ? '경매 기록이 수정되었습니다' : '경매 기록이 저장되었습니다')
-    } catch { toast.error('경매 기록 저장에 실패했습니다') }
-    finally { setAuctionSaving(false) }
+      await Promise.all(
+        pendingInvites.map(p =>
+          onsiteFemaleInviteAPI.add({ date: selectedDate, host_username: p.host, count: Number(p.count) })
+        )
+      )
+      const res = await onsiteFemaleInviteAPI.list(selectedDate)
+      setInvites(res.data ?? [])
+      setPendingInvites([])
+      setInviteEditing(false)
+      toast.success('저장되었습니다')
+    } catch { toast.error('저장에 실패했습니다') }
+    finally { setInviteSaving(false) }
+  }
+
+  async function handleInviteDelete(id: number) {
+    try {
+      await onsiteFemaleInviteAPI.delete(id)
+      setInvites(prev => prev.filter(i => i.id !== id))
+      toast.success('삭제되었습니다')
+    } catch { toast.error('삭제에 실패했습니다') }
   }
 
 
-  const renderGuestTable = (guestList: PartyGuest[], label: string) => (
+
+  const renderGuestTable = (guestList: PartyGuest[], label: string, showAddButton: boolean = false) => (
     <div className="section-card overflow-hidden">
-      <div className={`section-header ${label ? '' : 'justify-end'}`}>
-        {label && (
-          <span className={`text-subheading font-semibold ${label === '언스테이블' ? 'text-[#FF6B2C]' : 'text-[#191F28] dark:text-white'}`}>{label}</span>
+      <div className="section-header flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {label && (
+            <span className={`text-subheading font-semibold ${label === '언스테이블' ? 'text-[#FF6B2C]' : 'text-[#191F28] dark:text-white'}`}>{label}</span>
+          )}
+          <span className="text-caption text-[#8B95A1] tabular-nums">{guestList.filter(g => g.checked_in).length}/{guestList.length}팀</span>
+        </div>
+        {showAddButton && (
+          <Button color="blue" size="sm" onClick={() => setAddModal(prev => ({ ...prev, open: true }))} className="h-8">+ 예약자 추가</Button>
         )}
-        <span className="text-caption text-[#8B95A1] tabular-nums">{guestList.filter(g => g.checked_in).length}/{guestList.length}명</span>
       </div>
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -435,7 +616,7 @@ export default function PartyCheckin() {
           </div>
 
           {/* 스테이블 체크인 테이블 (언스테이블 운영 테넌트만 라벨 노출) */}
-          {renderGuestTable(guests, hasUnstable ? '스테이블' : '')}
+          {renderGuestTable(guests, hasUnstable ? '스테이블' : '', true)}
 
           {/* 언스테이블 체크인 테이블 */}
           {hasUnstable && renderGuestTable(unstableGuests, '언스테이블')}
@@ -459,46 +640,171 @@ export default function PartyCheckin() {
               </div>
             </ModalBody>
           </Modal>
+
+          {/* 예약자 추가 모달 (현장추가) */}
+          <Modal show={addModal.open} size="sm" onClose={() => addModal.saving ? null : resetAddModal()}>
+            <ModalHeader>예약자 추가</ModalHeader>
+            <ModalBody>
+              <div className="space-y-3">
+                <div>
+                  <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">이름</Label>
+                  <TextInput value={addModal.name} onChange={(e) => setAddModal(prev => ({ ...prev, name: e.target.value }))} placeholder="이름 입력" />
+                </div>
+                <div>
+                  <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">전화번호 (선택)</Label>
+                  <TextInput value={addModal.phone} onChange={(e) => setAddModal(prev => ({ ...prev, phone: e.target.value }))} placeholder="010-0000-0000" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">남자</Label>
+                    <TextInput type="number" value={addModal.maleCount} onChange={(e) => setAddModal(prev => ({ ...prev, maleCount: e.target.value }))} placeholder="0" />
+                  </div>
+                  <div>
+                    <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">여자</Label>
+                    <TextInput type="number" value={addModal.femaleCount} onChange={(e) => setAddModal(prev => ({ ...prev, femaleCount: e.target.value }))} placeholder="0" />
+                  </div>
+                </div>
+                <div>
+                  <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">참여 파티</Label>
+                  <Select value={addModal.partyType} onChange={(e) => setAddModal(prev => ({ ...prev, partyType: e.target.value as '1' | '2' | '2차만' }))}>
+                    <option value="1">1차</option>
+                    <option value="2">1+2차</option>
+                    <option value="2차만">2차만</option>
+                  </Select>
+                </div>
+                <div className="flex w-full gap-3 pt-2">
+                  <Button color="light" className="flex-1" onClick={resetAddModal} disabled={addModal.saving}>취소</Button>
+                  <Button color="blue" className="flex-1" onClick={openCheckInConfirm} disabled={addModal.saving}>
+                    {addModal.saving && <Spinner size="sm" className="mr-1.5" />}
+                    추가
+                  </Button>
+                </div>
+              </div>
+            </ModalBody>
+          </Modal>
+
+          {/* 입장 처리 확인 모달 */}
+          <Modal show={checkInConfirm} size="md" popup onClose={() => setCheckInConfirm(false)}>
+            <ModalHeader />
+            <ModalBody>
+              <div className="flex flex-col items-center gap-4 text-center">
+                <h3 className="text-heading font-semibold text-[#191F28] dark:text-white">
+                  <span className="text-[#3182F6]">{addModal.name.trim()}</span>님을 입장 처리 하시겠습니까?
+                </h3>
+                <div className="flex w-full gap-3">
+                  <Button color="light" className="flex-1" onClick={() => handleAddParticipant(false)} disabled={addModal.saving}>아니오</Button>
+                  <Button color="blue" className="flex-1" onClick={() => handleAddParticipant(true)} disabled={addModal.saving}>예</Button>
+                </div>
+              </div>
+            </ModalBody>
+          </Modal>
         </>
       )}
 
       {/* ════════ 파티매출 탭 ════════ */}
       {activeTab === 'sales' && (
         <>
-          {/* 진행자 + 경매 */}
+          {/* 진행자 영역 + 여자초대수 (admin / superadmin 전용, 좌우 2컬럼) */}
+          {canManageHost && (
+          <div className="grid grid-cols-2 gap-3">
           <div className="section-card">
             <div className="p-5">
-              <div className="grid grid-cols-2 gap-4">
-                {/* 1컬럼: 진행자 */}
+            <div className="w-fit space-y-3">
+              {/* 진행자 + 리뷰수 한 줄 */}
+              <div className="flex items-end gap-3">
                 <div>
-                  <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">오늘의 진행자</Label>
-                  <Select value={hostName} onChange={(e) => handleHostSave(e.target.value)} disabled={hostSaving} sizing="sm">
-                    <option value="">진행자를 선택하세요</option>
+                  <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">진행자</Label>
+                  <Select value={hostName} onChange={(e) => setHostName(e.target.value)} disabled={!cardEditing} sizing="sm" className={`h-9 w-24 ${!cardEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : !hostName ? 'text-label text-[#8B95A1]' : ''}`}>
+                    <option value="">진행자 선택</option>
                     {hosts.map((h) => (
                       <option key={h.id} value={h.name}>{h.name}</option>
                     ))}
                   </Select>
                 </div>
-                {/* 2컬럼: 경매 판매액 */}
                 <div>
-                  <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">경매 판매액</Label>
-                  <div className="flex items-center gap-2">
-                    <TextInput type="number" value={auctionAmount} onChange={(e) => setAuctionAmount(e.target.value)} placeholder="0" className={`h-9 ${!!auction && !auctionEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : ''}`} disabled={!!auction && !auctionEditing} onKeyDown={(e) => e.key === 'Enter' && handleAuctionSave()} />
-                    {!auction || auctionEditing ? (
-                      <Button color="blue" size="sm" onClick={handleAuctionSave} disabled={auctionSaving} className="shrink-0 h-9">
-                        {auctionSaving && <Spinner size="sm" className="mr-1.5" />}
-                        <span className="inline-block w-[2em] text-center">저장</span>
-                      </Button>
-                    ) : (
-                      <Button color="light" size="sm" onClick={() => setAuctionEditing(true)} className="shrink-0 h-9">
-                        <span className="inline-block w-[2em] text-center">수정</span>
-                      </Button>
-                    )}
-                  </div>
+                  <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">리뷰수</Label>
+                  <TextInput type="number" value={reviewCount} onChange={(e) => setReviewCount(e.target.value)} placeholder="0" disabled={!cardEditing} className={`h-9 w-24 ${!cardEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : ''}`} />
                 </div>
+              </div>
+
+              {/* 경매액: 결제방식 + 판매액 */}
+              <div>
+                <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">경매액</Label>
+                <div className="flex items-center gap-3">
+                  <Select value={auctionPaymentMethod} onChange={(e) => setAuctionPaymentMethod(e.target.value as PaymentMethod)} disabled={!cardEditing} sizing="sm" className={`h-9 w-24 ${!cardEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : ''}`}>
+                    {PAYMENT_METHODS.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </Select>
+                  <TextInput type="number" value={auctionAmount} onChange={(e) => setAuctionAmount(e.target.value)} placeholder="판매액" disabled={!cardEditing} className={`h-9 w-24 ${!cardEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : ''}`} />
+                </div>
+              </div>
+
+              {/* 통합 저장/수정 */}
+              <div>
+                {cardEditing ? (
+                  <Button color="blue" size="sm" onClick={handleCardSave} disabled={cardSaving} className="h-9 w-full">
+                    {cardSaving && <Spinner size="sm" className="mr-1.5" />}
+                    저장
+                  </Button>
+                ) : (
+                  <Button color="light" size="sm" onClick={() => setCardEditing(true)} className="h-9 w-full">수정</Button>
+                )}
+              </div>
+            </div>
+            </div>
+          </div>
+
+          {/* 여자초대수 (진행자별 독립 실적) */}
+          <div className="section-card">
+            <div className="p-5">
+              <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">여자초대수</Label>
+              {(invites.length > 0 || pendingInvites.length > 0) && (
+                <div className="space-y-1.5">
+                  {invites.map((inv) => (
+                    <div key={`saved-${inv.id}`} className="flex items-center justify-between py-1">
+                      <span className="text-body font-medium text-[#191F28] dark:text-white">{inv.host_username}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="tabular-nums text-body font-semibold text-[#191F28] dark:text-white">
+                          {inv.count}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span>
+                        </span>
+                        <button onClick={() => handleInviteDelete(inv.id)} disabled={!inviteEditing} className="rounded-lg p-1 text-[#B0B8C1] transition-colors hover:bg-[#FFF0F0] hover:text-[#F04452] disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[#B0B8C1] dark:hover:bg-[#F04452]/10" title="삭제">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {inviteEditing && pendingInvites.map((p) => (
+                    <div key={`pending-${p.tempId}`} className="flex items-center gap-2">
+                      <Select value={p.host} onChange={(e) => handlePendingChange(p.tempId, 'host', e.target.value)} sizing="sm" className={`h-9 min-w-0 flex-1 ${!p.host ? 'text-label text-[#8B95A1]' : ''}`}>
+                        <option value="">초대자 선택</option>
+                        {hosts.map((h) => (
+                          <option key={h.id} value={h.name}>{h.name}</option>
+                        ))}
+                      </Select>
+                      <TextInput type="number" value={p.count} onChange={(e) => handlePendingChange(p.tempId, 'count', e.target.value)} placeholder="0" className="h-9 w-16" />
+                      <button onClick={() => handlePendingRemove(p.tempId)} className="shrink-0 rounded-lg p-1 text-[#B0B8C1] transition-colors hover:bg-[#FFF0F0] hover:text-[#F04452] dark:hover:bg-[#F04452]/10" title="제거">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Button color="light" size="sm" onClick={handleAddBlankRow} disabled={!inviteEditing} className="h-9">행추가</Button>
+                {inviteEditing ? (
+                  <Button color="blue" size="sm" onClick={handleInvitesSave} disabled={inviteSaving || pendingInvites.length === 0} className="h-9">
+                    {inviteSaving && <Spinner size="sm" className="mr-1.5" />}
+                    저장
+                  </Button>
+                ) : (
+                  <Button color="light" size="sm" onClick={() => setInviteEditing(true)} className="h-9">수정</Button>
+                )}
               </div>
             </div>
           </div>
+          </div>
+          )}
 
           {/* 판매 기록 */}
           <div className="section-card">
@@ -506,15 +812,23 @@ export default function PartyCheckin() {
               <span className="text-subheading font-semibold text-[#191F28] dark:text-white">판매 기록</span>
             </div>
             <div className="px-5 pb-5">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-[1fr_auto_auto] gap-3 max-w-xl">
                 <div>
                   <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">품명</Label>
                   <TextInput value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder="품명 입력" className="h-9" onKeyDown={(e) => e.key === 'Enter' && handleAddSale()} />
                 </div>
                 <div>
+                  <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">결제방식</Label>
+                  <Select value={newPaymentMethod} onChange={(e) => setNewPaymentMethod(e.target.value as PaymentMethod)} sizing="sm" className="h-9 w-24">
+                    {PAYMENT_METHODS.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
                   <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">금액</Label>
                   <div className="flex items-center gap-2">
-                    <TextInput type="number" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} placeholder="0" className="h-9" onKeyDown={(e) => e.key === 'Enter' && handleAddSale()} />
+                    <TextInput type="number" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} placeholder="0" className="h-9 w-24" onKeyDown={(e) => e.key === 'Enter' && handleAddSale()} />
                     <Button color="blue" size="sm" onClick={handleAddSale} className="shrink-0 h-9">추가</Button>
                   </div>
                 </div>
@@ -532,6 +846,9 @@ export default function PartyCheckin() {
                         <div className="flex items-center gap-3 flex-1">
                           {sale.created_at && <span className="shrink-0 whitespace-nowrap text-tiny text-[#8B95A1] dark:text-gray-500 tabular-nums">{(() => { const d = new Date(normalizeUtcString(sale.created_at)); return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; })()}</span>}
                           <span className="text-body font-medium text-[#191F28] dark:text-white">{sale.item_name}</span>
+                          {sale.payment_method && (
+                            <Badge color={PAYMENT_BADGE_COLOR[sale.payment_method as PaymentMethod] ?? 'gray'} size="xs">{sale.payment_method}</Badge>
+                          )}
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="tabular-nums text-body font-semibold text-[#191F28] dark:text-white">

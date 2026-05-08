@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom';
 import api, { reservationsAPI, roomsAPI, templatesAPI, smsAssignmentsAPI, settingsAPI } from '../services/api';
 import { normalizeUtcString } from '../lib/utils';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/queryKeys';
 import { useTenantStore } from '@/stores/tenant-store';
 import dayjs, { Dayjs } from 'dayjs';
 import { toast } from 'sonner';
@@ -52,6 +54,7 @@ import { RoomRow, type RoomEntry } from './RoomAssignment/components/RoomRow';
 import { BuildingGroup } from './RoomAssignment/components/BuildingGroup';
 import { useReservationForm } from './RoomAssignment/hooks/useReservationForm';
 import { useUndoStack } from './RoomAssignment/hooks/useUndoStack';
+import { useSseInvalidator } from '../hooks/useSseInvalidator';
 import { useGuestMove } from './RoomAssignment/hooks/useGuestMove';
 import { PageHeader } from './RoomAssignment/components/PageHeader';
 import { SummaryCards } from './RoomAssignment/components/SummaryCards';
@@ -94,17 +97,16 @@ const RoomAssignment = () => {
   const currentTenant = tenants.find(t => String(t.id) === currentTenantId);
   const hasUnstable = currentTenant?.has_unstable ?? false;
 
+  const qc = useQueryClient();
   const [selectedDate, setSelectedDate] = useState<Dayjs>(dayjs());
   const {
-    reservations, setReservations,
+    reservations,
     sectionOverrides, setSectionOverrides,
-    nextDayReservations, setNextDayReservations,
-    rooms, setRooms,
+    nextDayReservations,
+    rooms,
     templateLabels,
-    roomGroups, setRoomGroups,
+    roomGroups,
     loading,
-    fetchReservations, fetchRooms, fetchRoomGroups,
-    prevDateRef, reservationsRef, nextDayRef,
     roomInfoMap, roomMemoMap, saveRoomMemo,
     activeRoomEntries, nextDayRoomMap, roomGroupMap,
     assignedRooms,
@@ -115,6 +117,68 @@ const RoomAssignment = () => {
     findReservation,
     buildingGroups,
   } = useReservationsData(selectedDate);
+
+  // ===== Inline mutations (Phase 3b) =====
+  const _dateStr = selectedDate.format('YYYY-MM-DD');
+  const _nextDateStr = selectedDate.add(1, 'day').format('YYYY-MM-DD');
+  const _invalidateReservations = useCallback(() => {
+    qc.invalidateQueries({ queryKey: queryKeys.reservations.list(_dateStr) });
+    qc.invalidateQueries({ queryKey: queryKeys.reservations.list(_nextDateStr) });
+  }, [qc, _dateStr, _nextDateStr]);
+
+  // Color set: batch update highlight_color for selected ids
+  const setColorMutation = useMutation({
+    mutationFn: ({ ids, color }: { ids: number[]; color: string | null }) =>
+      Promise.all(ids.map(id => reservationsAPI.update(id, { highlight_color: color }))),
+    onError: () => toast.error('색상 저장 실패'),
+    // Invalidation handled by caller after loop; onSettled omitted to avoid N invalidations.
+  });
+
+  // Copy to unstable: batch updateDailyInfo unstable_party=true
+  const copyToUnstableMutation = useMutation({
+    mutationFn: ({ ids, dateStr }: { ids: number[]; dateStr: string }) =>
+      Promise.all(ids.map(id => reservationsAPI.updateDailyInfo(id, { date: dateStr, unstable_party: true }))),
+    onError: () => toast.error('복사 실패'),
+  });
+
+  // Remove from unstable: batch updateDailyInfo unstable_party=false
+  const removeFromUnstableMutation = useMutation({
+    mutationFn: ({ ids, dateStr }: { ids: number[]; dateStr: string }) =>
+      Promise.all(ids.map(id => reservationsAPI.updateDailyInfo(id, { date: dateStr, unstable_party: false }))),
+    onError: () => toast.error('제거 실패'),
+  });
+
+  // Extend stay
+  const extendStayMutation = useMutation({
+    mutationFn: ({ resId, roomId }: { resId: number; roomId: number | null }) =>
+      api.post(`/api/reservations/${resId}/extend-stay`, { room_id: roomId }),
+    onError: (err: any) => toast.error(err?.response?.data?.detail || '연박추가 실패'),
+    onSettled: () => _invalidateReservations(),
+  });
+
+  // Cancel extend stay
+  const cancelExtendStayMutation = useMutation({
+    mutationFn: (resId: number) => api.delete(`/api/reservations/${resId}/extend-stay`),
+    onSuccess: () => toast.success('수동연박 취소 완료'),
+    onError: (err: any) => toast.error(err?.response?.data?.detail || '연박취소 실패'),
+    onSettled: () => _invalidateReservations(),
+  });
+
+  // Assign extend-stay room
+  const assignExtendStayRoomMutation = useMutation({
+    mutationFn: ({
+      newResId, roomId, date, moveExistingToUnassigned,
+    }: { newResId: number; roomId: number; date: string; moveExistingToUnassigned: boolean }) =>
+      api.post(`/api/reservations/${newResId}/extend-stay/assign-room`, {
+        new_reservation_id: newResId,
+        room_id: roomId,
+        date,
+        move_existing_to_unassigned: moveExistingToUnassigned,
+      }),
+    onError: () => toast.error('배정 실패'),
+    onSettled: () => _invalidateReservations(),
+  });
+
   const [nextDayExpanded, setNextDayExpanded] = useState(() => {
     const saved = localStorage.getItem('roomAssignment_nextDayExpanded');
     if (saved !== null) return saved === 'true';
@@ -137,7 +201,7 @@ const RoomAssignment = () => {
   }, [nextDayExpanded]);
 
   // Undo stack for room assignments
-  const { canUndo, pushUndo, handleUndo } = useUndoStack({ selectedDate, fetchReservations });
+  const { canUndo, pushUndo, handleUndo } = useUndoStack({ selectedDate });
 
   const [processing] = useState(false);
   const [quickAddedId, setQuickAddedId] = useState<number | null>(null);
@@ -152,7 +216,6 @@ const RoomAssignment = () => {
   } = useReservationForm({
     reservations,
     selectedDate,
-    fetchReservations,
     findReservation,
     showConfirm,
     setQuickAddedId,
@@ -175,9 +238,6 @@ const RoomAssignment = () => {
     reservations,
     nextDayReservations,
     selectedDate,
-    fetchReservations,
-    setReservations,
-    setNextDayReservations,
     sectionOverrides,
     setSectionOverrides,
     findReservation,
@@ -227,7 +287,7 @@ const RoomAssignment = () => {
     if (field === 'party_type') {
       try {
         await reservationsAPI.updateDailyInfo(resId, { date: effectiveDate.format('YYYY-MM-DD'), party_type: value || null });
-        fetchReservations(selectedDate);
+        _invalidateReservations();
       } catch {
         toast.error('저장 실패');
       }
@@ -236,7 +296,7 @@ const RoomAssignment = () => {
     if (field === 'notes') {
       try {
         await reservationsAPI.updateDailyInfo(resId, { date: effectiveDate.format('YYYY-MM-DD'), notes: value });
-        fetchReservations(selectedDate);
+        _invalidateReservations();
       } catch {
         toast.error('저장 실패');
       }
@@ -256,7 +316,7 @@ const RoomAssignment = () => {
       } else {
         await reservationsAPI.update(resId, { [field]: value });
       }
-      fetchReservations(selectedDate);
+      _invalidateReservations();
     } catch {
       toast.error('저장 실패');
     }
@@ -287,47 +347,20 @@ const RoomAssignment = () => {
     reservations,
     selectedDate,
     templateLabels,
-    refetch: () => fetchReservations(selectedDate),
     onConfirmRequest: () => setSendConfirm({ type: 'campaign' }),
     onConfirmClose: () => setSendConfirm(null),
   });
   const [sendConfirm, setSendConfirm] = useState<{ type: 'campaign' | 'toggle'; resId?: number; templateKey?: string; customerName?: string; templateName?: string } | null>(null);
   const { autoAssignConfirm, autoAssigning, handleAutoAssign, openConfirm: openAutoAssignConfirm, closeConfirm: closeAutoAssignConfirm } =
-    useAutoAssign(selectedDate, () => fetchReservations(selectedDate));
+    useAutoAssign(selectedDate, () => _invalidateReservations());
 
   // 날짜 변경 시 캠페인 발송 대상 초기화 (데이터 페칭은 useReservationsData 내부에서 처리)
   useEffect(() => {
     clearTargets();
   }, [selectedDate, clearTargets]);
 
-  // SSE: 스케줄 발송 완료 시 예약 목록 자동 새로고침
-  useEffect(() => {
-    const token = localStorage.getItem('sms-token') || '';
-    const tenantId = localStorage.getItem('sms-tenant-id') || '';
-    const es = new EventSource(`/api/events/stream?token=${encodeURIComponent(token)}&tenant_id=${tenantId}`);
-    es.onmessage = (e) => {
-      try {
-        const { event, data } = JSON.parse(e.data);
-        if (event === 'schedule_complete') {
-          fetchReservations(selectedDate);
-        }
-        // Phase 2-1: 자동 배정 실패 알림
-        else if (event === 'room_assign_failed') {
-          const count = data?.count ?? 0;
-          toast.warning(`객실 자동 배정 실패 ${count}건 — 활동 로그에서 확인하세요`, {
-            duration: 10000,
-            action: {
-              label: '로그 보기',
-              onClick: () => { window.location.href = '/activity-logs'; }
-            }
-          });
-        }
-      } catch {
-        // malformed payload, ignore
-      }
-    };
-    return () => es.close();
-  }, [selectedDate, fetchReservations]);
+  // SSE: 스케줄 발송 완료 시 예약 목록 자동 새로고침 (Phase 4)
+  useSseInvalidator(selectedDate);
 
   // quickAddedId 자동 클리어 제거 — 새 InlineInput 의 마운트 effect 가 autoFocus
   // 처리 후 자체적으로 편집 모드 진입. 500ms race 로 fetch 가 늦으면 autoFocus 미작동
@@ -377,8 +410,12 @@ const RoomAssignment = () => {
 
     const effectiveSection = firstRes.room_id ? 'room' : (sectionOverrides[firstRes.id] ?? firstRes.section ?? 'unassigned');
     const isCopied = contextMenu.zone === 'unstable' && firstRes.section !== 'unstable';
-    const setter = contextIsNextDay ? setNextDayReservations : setReservations;
     const dateStr = (contextIsNextDay ? selectedDate.add(1, 'day') : selectedDate).format('YYYY-MM-DD');
+    const optimisticUpdate = (updater: (r: Reservation) => Reservation) => {
+      qc.setQueryData<Reservation[]>(queryKeys.reservations.list(dateStr), (prev) =>
+        prev?.map((r) => (targetIds.includes(r.id) ? updater(r) : r))
+      );
+    };
 
     return {
       targetCount: targetIds.length,
@@ -413,7 +450,7 @@ const RoomAssignment = () => {
               } catch { /* skip */ }
             }
             toast.success(`${targetIds.length}명 삭제 완료`);
-            fetchReservations(selectedDate);
+            _invalidateReservations();
           });
         } else {
           // DIAG_BLOCK_START
@@ -423,116 +460,90 @@ const RoomAssignment = () => {
         }
         setContextMenu(null);
       },
-      onLinkStayGroup: () => {
-        if (contextIsNextDay) {
-          toast.info('해당 날짜로 이동 후 연박 설정해주세요');
-          setContextMenu(null);
-          return;
-        }
+      // Phase 4: "연박 묶기" (link) removed — only show unlink for naver-detected groups.
+      // Pass handler only when the guest has a stay_group_id so GuestContextMenu renders "연박 해제".
+      onLinkStayGroup: firstRes.stay_group_id ? () => {
         // DIAG_BLOCK_START
-        window.__diagAction = firstRes.stay_group_id
-          ? 'ctx_menu:stay_group_unlink'
-          : 'ctx_menu:stay_group_link';
+        window.__diagAction = 'ctx_menu:stay_group_unlink';
         // DIAG_BLOCK_END
-        if (firstRes.stay_group_id) {
-          stayGroup.unlink(firstRes.id);
-        } else {
-          stayGroup.open(firstRes.id);
-        }
+        stayGroup.unlink(firstRes.id);
+        setContextMenu(null);
+      } : undefined,
+      onSetColor: (color: string | null) => {
+        // DIAG_BLOCK_START
+        window.__diagAction = 'ctx_menu:set_color';
+        // DIAG_BLOCK_END
+        // Optimistic local update
+        optimisticUpdate(r => ({ ...r, highlight_color: color }));
+        setColorMutation.mutate(
+          { ids: targetIds, color },
+          { onSettled: () => _invalidateReservations() },
+        );
         setContextMenu(null);
       },
-      onSetColor: async (color: string | null) => {
-        for (const id of targetIds) {
-          try {
-            // DIAG_BLOCK_START
-            window.__diagAction = 'ctx_menu:set_color';
-            // DIAG_BLOCK_END
-            await reservationsAPI.update(id, { highlight_color: color });
-          } catch { /* skip */ }
-        }
-        setter(prev => prev.map(r =>
-          targetIds.includes(r.id) ? { ...r, highlight_color: color } : r
-        ));
-        setContextMenu(null);
-      },
-      onCopyToUnstable: async () => {
-        for (const id of targetIds) {
-          try {
-            // DIAG_BLOCK_START
-            window.__diagAction = 'ctx_menu:copy_to_unstable';
-            // DIAG_BLOCK_END
-            await reservationsAPI.updateDailyInfo(id, { date: dateStr, unstable_party: true });
-          } catch { /* skip */ }
-        }
-        setter(prev => prev.map(r =>
-          targetIds.includes(r.id) ? { ...r, unstable_party: true } : r
-        ));
+      onCopyToUnstable: () => {
+        // DIAG_BLOCK_START
+        window.__diagAction = 'ctx_menu:copy_to_unstable';
+        // DIAG_BLOCK_END
+        // Optimistic local update
+        optimisticUpdate(r => ({ ...r, unstable_party: true }));
         toast.success(`언스테이블에 복사${targetIds.length > 1 ? ` (${targetIds.length}명)` : ''}`);
+        copyToUnstableMutation.mutate(
+          { ids: targetIds, dateStr },
+          { onSettled: () => _invalidateReservations() },
+        );
         setContextMenu(null);
       },
-      onRemoveFromUnstable: async () => {
-        for (const id of targetIds) {
-          try {
-            // DIAG_BLOCK_START
-            window.__diagAction = 'ctx_menu:remove_from_unstable';
-            // DIAG_BLOCK_END
-            await reservationsAPI.updateDailyInfo(id, { date: dateStr, unstable_party: false });
-          } catch { /* skip */ }
-        }
-        setter(prev => prev.map(r =>
-          targetIds.includes(r.id) ? { ...r, unstable_party: false } : r
-        ));
+      onRemoveFromUnstable: () => {
+        // DIAG_BLOCK_START
+        window.__diagAction = 'ctx_menu:remove_from_unstable';
+        // DIAG_BLOCK_END
+        // Optimistic local update
+        optimisticUpdate(r => ({ ...r, unstable_party: false }));
         toast.success('언스테이블 복사본 제거');
+        removeFromUnstableMutation.mutate(
+          { ids: targetIds, dateStr },
+          { onSettled: () => _invalidateReservations() },
+        );
         setContextMenu(null);
       },
-      onExtendStay: (targetIds.length === 1 && !contextIsNextDay) ? async () => {
+      onExtendStay: (targetIds.length === 1 && !contextIsNextDay) ? () => {
         const resId = targetIds[0];
         const res = reservations.find((r) => r.id === resId);
         if (!res) return;
         setContextMenu(null);
-
         const nextDate = selectedDate.add(1, 'day');
-        const nextDateStr = nextDate.format('YYYY-MM-DD');
-
-        try {
-          // DIAG_BLOCK_START
-          window.__diagAction = 'ctx_menu:extend_stay';
-          // DIAG_BLOCK_END
-          const { data } = await api.post(`/api/reservations/${resId}/extend-stay`, {
-            room_id: res.room_id || null,
-          });
-
-          if (data.conflict_guests && data.conflict_guests.length > 0) {
-            const roomEntry = activeRoomEntries.find((e: any) => e.room_id === res.room_id);
-            setExtendStayConflict({
-              open: true,
-              newResId: data.new_reservation_id,
-              roomId: res.room_id!,
-              roomNumber: roomEntry?.room_number || String((res as any).room_number || ''),
-              existingGuests: data.conflict_guests,
-            });
-          } else {
-            toast.success(`연박추가 완료 — ${res.customer_name} (${nextDateStr})`);
-            fetchReservations(selectedDate);
-          }
-        } catch (err: any) {
-          toast.error(err?.response?.data?.detail || '연박추가 실패');
-          console.error(err);
-        }
+        const extendNextDateStr = nextDate.format('YYYY-MM-DD');
+        // DIAG_BLOCK_START
+        window.__diagAction = 'ctx_menu:extend_stay';
+        // DIAG_BLOCK_END
+        extendStayMutation.mutate(
+          { resId, roomId: res.room_id || null },
+          {
+            onSuccess: ({ data }) => {
+              if (data.conflict_guests && data.conflict_guests.length > 0) {
+                const roomEntry = activeRoomEntries.find((e: any) => e.room_id === res.room_id);
+                setExtendStayConflict({
+                  open: true,
+                  newResId: data.reservation_id ?? data.new_reservation_id,
+                  roomId: res.room_id!,
+                  roomNumber: roomEntry?.room_number || String((res as any).room_number || ''),
+                  existingGuests: data.conflict_guests,
+                });
+              } else {
+                toast.success(`연박추가 완료 — ${res.customer_name} (${extendNextDateStr})`);
+              }
+            },
+          },
+        );
       } : undefined,
-      onCancelExtendStay: (targetIds.length === 1 && firstRes?.stay_group_id?.startsWith('manual-') && !contextIsNextDay) ? async () => {
+      onCancelExtendStay: (targetIds.length === 1 && !!firstRes?.manually_extended_until && !contextIsNextDay) ? () => {
         const resId = targetIds[0];
         setContextMenu(null);
-        try {
-          // DIAG_BLOCK_START
-          window.__diagAction = 'ctx_menu:cancel_extend_stay';
-          // DIAG_BLOCK_END
-          await api.delete(`/api/reservations/${resId}/extend-stay`);
-          toast.success('수동연박 취소 완료');
-          fetchReservations(selectedDate);
-        } catch (err: any) {
-          toast.error(err?.response?.data?.detail || '연박취소 실패');
-        }
+        // DIAG_BLOCK_START
+        window.__diagAction = 'ctx_menu:cancel_extend_stay';
+        // DIAG_BLOCK_END
+        cancelExtendStayMutation.mutate(resId);
       } : undefined,
       onChangeDates: (targetIds.length === 1) ? () => {
         const res = findReservation(targetIds[0])?.res;
@@ -561,7 +572,7 @@ const RoomAssignment = () => {
         window.location.href = `tel:${phone}`;
       } : undefined,
     };
-  }, [contextMenu, reservations, nextDayReservations, findReservation, sectionOverrides, handleDropOnPool, handleDropOnParty, handleDeleteGuest, selectedDate, fetchReservations, stayGroup.unlink, stayGroup.open, showConfirm, activeRoomEntries]);
+  }, [contextMenu, reservations, nextDayReservations, findReservation, sectionOverrides, handleDropOnPool, handleDropOnParty, handleDeleteGuest, selectedDate, qc, stayGroup.unlink, showConfirm, activeRoomEntries, setColorMutation, copyToUnstableMutation, removeFromUnstableMutation, extendStayMutation, cancelExtendStayMutation, _invalidateReservations]);
 
 
 
@@ -569,7 +580,6 @@ const RoomAssignment = () => {
     reservations,
     selectedDate,
     templateLabels,
-    setReservations,
     onToggleConfirmRequest: (params) => setSendConfirm({ type: 'toggle', ...params }),
   });
 
@@ -658,58 +668,44 @@ const RoomAssignment = () => {
   };
 
   const navigateDate = useCallback(
-    (direction: 'prev' | 'next') => {
+    async (direction: 'prev' | 'next') => {
       if (animDirection !== 'none') return;
-      setAnimDirection(direction === 'prev' ? 'left' : 'right');
 
-      const newDate = direction === 'prev'
-        ? selectedDate.subtract(1, 'day')
-        : selectedDate.add(1, 'day');
+      const newDate = direction === 'next'
+        ? selectedDate.add(1, 'day')
+        : selectedDate.subtract(1, 'day');
+      const newDateStr = newDate.format('YYYY-MM-DD');
+      const newNextDateStr = newDate.add(1, 'day').format('YYYY-MM-DD');
 
-      // 애니메이션(200ms) + 데이터 fetch를 동시에 시작
+      setAnimDirection(direction === 'next' ? 'left' : 'right');
+
       const animPromise = new Promise((r) => setTimeout(r, 200));
-      const dateStr = newDate.format('YYYY-MM-DD');
-      const diff = direction === 'next' ? 1 : -1;
 
-      let dataPromise: Promise<void>;
+      // RQ cache が fresh なら即座に解決。キャッシュ未ヒットなら fetch する。
+      const dataPromise = Promise.all([
+        qc.prefetchQuery({
+          queryKey: queryKeys.reservations.list(newDateStr),
+          queryFn: () =>
+            reservationsAPI
+              .getAll({ date: newDateStr, limit: 200 })
+              .then((res) => filterActive(res.data.items ?? res.data, newDateStr)),
+          staleTime: 30_000,
+        }),
+        qc.prefetchQuery({
+          queryKey: queryKeys.reservations.list(newNextDateStr),
+          queryFn: () =>
+            reservationsAPI
+              .getAll({ date: newNextDateStr, limit: 200 })
+              .then((res) => filterActive(res.data.items ?? res.data, newNextDateStr)),
+          staleTime: 30_000,
+        }),
+      ]).catch(() => { toast.error('예약 목록을 불러오지 못했습니다.'); });
 
-      if (diff === 1 && nextDayRef.current.length > 0) {
-        // 다음: 시프트 + 익일만 fetch
-        const newCurrent = nextDayRef.current;
-        dataPromise = reservationsAPI.getAll({ date: newDate.add(1, 'day').format('YYYY-MM-DD'), limit: 200 })
-          .catch(() => ({ data: { items: [] } }))
-          .then((res: any) => {
-            const nextDateStr2 = newDate.add(1, 'day').format('YYYY-MM-DD');
-            const nextData = filterActive(res.data.items ?? res.data, nextDateStr2);
-            reservationsRef.current = newCurrent;
-            nextDayRef.current = nextData;
-            setReservations(newCurrent);
-            setNextDayReservations(nextData);
-          });
-      } else {
-        // 폴백: 당일 먼저
-        dataPromise = reservationsAPI.getAll({ date: dateStr, limit: 200 })
-          .then((res) => {
-            const curr = filterActive(res.data.items ?? res.data, dateStr);
-            reservationsRef.current = curr;
-            setReservations(curr);
-            // 다음날 백그라운드
-            const nextDateStr2 = newDate.add(1, 'day').format('YYYY-MM-DD');
-            reservationsAPI.getAll({ date: nextDateStr2, limit: 200 })
-              .then(r => { const d = filterActive(r.data.items ?? r.data, nextDateStr2); setNextDayReservations(d); nextDayRef.current = d; })
-              .catch(() => { setNextDayReservations([]); nextDayRef.current = []; });
-          })
-          .catch(() => { toast.error('예약 목록을 불러오지 못했습니다.'); });
-      }
-
-      // 애니메이션과 fetch 둘 다 끝나면 날짜 전환
-      Promise.all([animPromise, dataPromise]).then(() => {
-        prevDateRef.current = newDate;
-        setSelectedDate(newDate);
-        setAnimDirection('none');
-      });
+      await Promise.all([animPromise, dataPromise]);
+      setSelectedDate(newDate);
+      setAnimDirection('none');
     },
-    [animDirection, selectedDate, filterActive],
+    [animDirection, selectedDate, qc, filterActive],
   );
 
   // suppress unused handleEditGuest warning — used via modal open
@@ -998,7 +994,7 @@ const RoomAssignment = () => {
               }
               toast.success(`${ids.length}명 삭제 완료`);
               setSelectedGuestIds(new Set());
-              fetchReservations(selectedDate);
+              _invalidateReservations();
             });
           } else {
             handleDeleteGuest(ids[0]);
@@ -1097,7 +1093,10 @@ const RoomAssignment = () => {
 
             toast.success('구분선 설정이 저장되었습니다');
             setTableSettingsOpen(false);
-            await Promise.all([fetchRooms(), fetchRoomGroups()]);
+            await Promise.all([
+              qc.invalidateQueries({ queryKey: queryKeys.rooms.list() }),
+              qc.invalidateQueries({ queryKey: queryKeys.rooms.groups() }),
+            ]);
           } catch {
             toast.error('구분선 설정 저장에 실패했습니다');
           }
@@ -1127,38 +1126,40 @@ const RoomAssignment = () => {
       <ExtendStayConflictModal
         data={extendStayConflict}
         onClose={() => setExtendStayConflict(null)}
-        onKeepSameRoom={async () => {
+        onKeepSameRoom={() => {
           if (!extendStayConflict) return;
-          try {
-            await api.post(`/api/reservations/${extendStayConflict.newResId}/extend-stay/assign-room`, {
-              new_reservation_id: extendStayConflict.newResId,
-              room_id: extendStayConflict.roomId,
+          assignExtendStayRoomMutation.mutate(
+            {
+              newResId: extendStayConflict.newResId,
+              roomId: extendStayConflict.roomId,
               date: selectedDate.add(1, 'day').format('YYYY-MM-DD'),
-              move_existing_to_unassigned: false,
-            });
-            toast.success('같은 방에 배정 완료');
-          } catch { toast.error('배정 실패'); }
-          setExtendStayConflict(null);
-          fetchReservations(selectedDate);
+              moveExistingToUnassigned: false,
+            },
+            {
+              onSuccess: () => toast.success('같은 방에 배정 완료'),
+              onSettled: () => setExtendStayConflict(null),
+            },
+          );
         }}
-        onMoveExistingToPool={async () => {
+        onMoveExistingToPool={() => {
           if (!extendStayConflict) return;
-          try {
-            await api.post(`/api/reservations/${extendStayConflict.newResId}/extend-stay/assign-room`, {
-              new_reservation_id: extendStayConflict.newResId,
-              room_id: extendStayConflict.roomId,
+          assignExtendStayRoomMutation.mutate(
+            {
+              newResId: extendStayConflict.newResId,
+              roomId: extendStayConflict.roomId,
               date: selectedDate.add(1, 'day').format('YYYY-MM-DD'),
-              move_existing_to_unassigned: true,
-            });
-            toast.success('기존 게스트 미배정 → 새 게스트 배정 완료');
-          } catch { toast.error('배정 실패'); }
-          setExtendStayConflict(null);
-          fetchReservations(selectedDate);
+              moveExistingToUnassigned: true,
+            },
+            {
+              onSuccess: () => toast.success('기존 게스트 미배정 → 새 게스트 배정 완료'),
+              onSettled: () => setExtendStayConflict(null),
+            },
+          );
         }}
         onSkipAssign={() => {
           toast.info('방 배정 없이 연박추가 완료');
           setExtendStayConflict(null);
-          fetchReservations(selectedDate);
+          _invalidateReservations();
         }}
       />
 
@@ -1178,7 +1179,7 @@ const RoomAssignment = () => {
               toast.info('날짜 변경으로 기존 객실 배정이 해제될 수 있습니다', { duration: 5000 });
             }
             setDateChangeModal(null);
-            fetchReservations(selectedDate);
+            _invalidateReservations();
           } catch (err: any) {
             toast.error(err?.response?.data?.detail || '날짜 변경 실패');
           }
