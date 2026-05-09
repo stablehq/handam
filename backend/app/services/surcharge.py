@@ -43,6 +43,27 @@ def _is_double_room(db: Session, room: Room) -> bool:
     return False
 
 
+def _is_dormitory_reservation(db: Session, reservation) -> bool:
+    """예약의 naver_biz_item_id 매핑이 모두 도미토리 객실이면 True.
+
+    도미토리 상품 손님은 침대 단가로 결제했으므로, 운영 편의로 일반실에
+    배정해도 인원 초과 추가요금을 청구하지 않는다.
+    biz_item 미상/매핑 없음은 False (보수적으로 일반실 룰 유지).
+    """
+    biz_id = getattr(reservation, 'naver_biz_item_id', None)
+    if not biz_id:
+        return False
+    room_ids = [
+        l.room_id for l in db.query(RoomBizItemLink)
+        .filter(RoomBizItemLink.biz_item_id == str(biz_id))
+        .all()
+    ]
+    if not room_ids:
+        return False
+    rooms = db.query(Room).filter(Room.id.in_(room_ids)).all()
+    return bool(rooms) and all(r.is_dormitory for r in rooms)
+
+
 def _find_schedule(db: Session, custom_type: str) -> Optional[TemplateSchedule]:
     return db.query(TemplateSchedule).filter(
         TemplateSchedule.schedule_category == 'custom_schedule',
@@ -110,6 +131,13 @@ def reconcile_surcharge(
         ).first()
         if not reservation:
             return
+
+        # 도미토리 상품 예약을 운영 편의로 일반실에 배정한 경우
+        # 손님은 침대 단가로 결제했으므로 추가요금 청구 부적절.
+        if _is_dormitory_reservation(db, reservation):
+            _delete_all_surcharge_chips(db, reservation_id, date)
+            return
+
         excess = compute_excess(reservation, room)
 
         # 5. 칩 생성/삭제
