@@ -369,13 +369,29 @@ def _condition_column_match(spec: dict, ctx: dict):
         # 양쪽 스케줄이 모두 매칭되어야 한다 (예: 객후 → promiss 첫박 + review 마지막박).
         res_notes = getattr(Reservation, column)
         daily_notes = getattr(ReservationDailyInfo, column)
-        # stay 박일 범위: check_in_date <= daily.date < check_out_date
-        # (check_out_date NULL = 단일 박 → daily 매칭 없음, reservation.notes 만 검사)
+        # stay 박일 범위:
+        #   - 다박(co > ci): check_in_date <= daily.date < check_out_date
+        #   - 1박(co IS NULL 또는 co == ci): daily.date == check_in_date
+        # 코드베이스 컨벤션 "NULL 또는 co==ci 는 1박으로 동일 취급" 준수.
         stay_predicate = and_(
             ReservationDailyInfo.reservation_id == Reservation.id,
-            ReservationDailyInfo.date >= Reservation.check_in_date,
-            Reservation.check_out_date.isnot(None),
-            ReservationDailyInfo.date < Reservation.check_out_date,
+            or_(
+                # 1박 케이스
+                and_(
+                    ReservationDailyInfo.date == Reservation.check_in_date,
+                    or_(
+                        Reservation.check_out_date.is_(None),
+                        Reservation.check_out_date == Reservation.check_in_date,
+                    ),
+                ),
+                # 다박 케이스
+                and_(
+                    Reservation.check_out_date.isnot(None),
+                    Reservation.check_out_date > Reservation.check_in_date,
+                    ReservationDailyInfo.date >= Reservation.check_in_date,
+                    ReservationDailyInfo.date < Reservation.check_out_date,
+                ),
+            ),
         )
         if operator == 'contains' and text:
             like = f'%{_escape_like(text)}%'
