@@ -30,7 +30,7 @@ Stay options (stay_filter):
 """
 import json
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_, func
+from sqlalchemy import or_, and_, func, exists
 
 from app.diag_logger import diag
 from app.db.models import (
@@ -339,7 +339,8 @@ def _condition_column_match(spec: dict, ctx: dict):
     if column not in _COLUMN_MATCH_COLUMNS:
         return None
 
-    if column in ('party_type', 'notes'):
+    if column == 'party_type':
+        # party_type 은 일자별 의미가 강함 (당일 파티 타입) → target_date 의 daily_info 우선
         target_date = ctx.get('target_date')
         daily_col = getattr(ReservationDailyInfo, column)
         daily_sub = (
@@ -360,6 +361,44 @@ def _condition_column_match(spec: dict, ctx: dict):
             return effective.like(f'%{_escape_like(text)}%', escape='\\')
         if operator == 'not_contains' and text:
             return ~effective.like(f'%{_escape_like(text)}%', escape='\\') | effective.is_(None)
+        return None
+
+    if column == 'notes':
+        # notes 는 stay 전체 메모로 취급 — stay 기간 daily_info notes OR reservation.notes 검사.
+        # 운영자가 첫박/중간/마지막 어느 박일에 키워드 입력해도 first_night/last_night
+        # 양쪽 스케줄이 모두 매칭되어야 한다 (예: 객후 → promiss 첫박 + review 마지막박).
+        res_notes = getattr(Reservation, column)
+        daily_notes = getattr(ReservationDailyInfo, column)
+        # stay 박일 범위: check_in_date <= daily.date < check_out_date
+        # (check_out_date NULL = 단일 박 → daily 매칭 없음, reservation.notes 만 검사)
+        stay_predicate = and_(
+            ReservationDailyInfo.reservation_id == Reservation.id,
+            ReservationDailyInfo.date >= Reservation.check_in_date,
+            Reservation.check_out_date.isnot(None),
+            ReservationDailyInfo.date < Reservation.check_out_date,
+        )
+        if operator == 'contains' and text:
+            like = f'%{_escape_like(text)}%'
+            stay_match = exists().where(and_(stay_predicate, daily_notes.like(like, escape='\\')))
+            return stay_match | res_notes.like(like, escape='\\')
+        if operator == 'not_contains' and text:
+            like = f'%{_escape_like(text)}%'
+            any_match = exists().where(and_(stay_predicate, daily_notes.like(like, escape='\\')))
+            return ~any_match & (~res_notes.like(like, escape='\\') | res_notes.is_(None))
+        if operator == 'is_empty':
+            any_nonempty = exists().where(and_(
+                stay_predicate,
+                daily_notes.isnot(None),
+                daily_notes != '',
+            ))
+            return ~any_nonempty & (res_notes.is_(None) | (res_notes == ''))
+        if operator == 'is_not_empty':
+            any_nonempty = exists().where(and_(
+                stay_predicate,
+                daily_notes.isnot(None),
+                daily_notes != '',
+            ))
+            return any_nonempty | (res_notes.isnot(None) & (res_notes != ''))
         return None
 
     col_attr = getattr(Reservation, column, None)
