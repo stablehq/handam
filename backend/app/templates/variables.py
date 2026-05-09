@@ -268,7 +268,10 @@ def _format_man_won(amount_won: int) -> str:
 
 def _inject_surcharge_vars(context: Dict[str, Any], reservation, room_assignment, db: Session) -> None:
     """surcharge 템플릿용 변수 주입 — excess/nights/per_night/total."""
-    from app.services.surcharge import _is_double_room, compute_guest_count, compute_excess
+    from app.services.surcharge import (
+        _is_double_room, compute_guest_count, compute_excess,
+        _is_dormitory_reservation,
+    )
     from app.db.models import Room, Tenant
     from app.db.tenant_context import get_session_tenant_id
 
@@ -288,9 +291,10 @@ def _inject_surcharge_vars(context: Dict[str, Any], reservation, room_assignment
     double_room_fee = getattr(tenant, 'surcharge_double_room_fee', 5000) if tenant else 5000
 
     # guest_count / excess / nights 계산 (surcharge.py 와 공유 helper 사용)
+    # 도미토리 상품은 1차 방어(reconcile 게이트) 우회 race 대비 excess=0 강제 — 부당 청구 방지.
     guest_count = compute_guest_count(reservation)
     base_capacity = room.base_capacity if room else 0
-    excess = compute_excess(reservation, room)
+    excess = 0 if _is_dormitory_reservation(db, reservation) else compute_excess(reservation, room)
     nights = _calculate_stay_nights(reservation)
 
     excess_fee_per_night = unit_standard * excess
