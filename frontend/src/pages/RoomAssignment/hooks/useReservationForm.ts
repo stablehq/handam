@@ -151,10 +151,12 @@ export function useReservationForm({
 
   // 게스트 삭제 (확인 다이얼로그 → mutation)
   const handleDeleteGuest = useCallback((id: number) => {
-    showConfirm('게스트 삭제', '정말 삭제하시겠습니까?', () => {
+    const guest = reservations.find((r) => r.id === id);
+    const name = guest?.customer_name?.trim() || '해당 게스트';
+    showConfirm('게스트 삭제', `${name}님을 삭제하시겠습니까?`, () => {
       deleteMutation.mutate(id);
     });
-  }, [showConfirm, deleteMutation]);
+  }, [showConfirm, deleteMutation, reservations]);
 
   // 폼 저장 — 입력 검증 + 변환 + mutation 호출
   const handleSubmit = useCallback(() => {

@@ -440,7 +440,9 @@ const RoomAssignment = () => {
       },
       onDelete: () => {
         if (targetIds.length > 1) {
-          showConfirm('게스트 일괄 삭제', `${targetIds.length}명을 삭제하시겠습니까?`, async () => {
+          const names = targetIds.map((id) => findReservation(id)?.res.customer_name?.trim() || '?').slice(0, 5);
+          const nameList = names.join(', ') + (targetIds.length > 5 ? ` 외 ${targetIds.length - 5}명` : '');
+          showConfirm('게스트 일괄 삭제', `${nameList} (총 ${targetIds.length}명) 을 삭제하시겠습니까?`, async () => {
             for (const id of targetIds) {
               try {
                 // DIAG_BLOCK_START
@@ -993,7 +995,9 @@ const RoomAssignment = () => {
           const ids = [...selectedGuestIds];
           if (ids.length === 0) return;
           if (ids.length > 1) {
-            showConfirm('게스트 일괄 삭제', `${ids.length}명을 삭제하시겠습니까?`, async () => {
+            const names = ids.map((id) => findReservation(id)?.res.customer_name?.trim() || '?').slice(0, 5);
+            const nameList = names.join(', ') + (ids.length > 5 ? ` 외 ${ids.length - 5}명` : '');
+            showConfirm('게스트 일괄 삭제', `${nameList} (총 ${ids.length}명) 을 삭제하시겠습니까?`, async () => {
               for (const id of ids) {
                 try { await reservationsAPI.delete(id); } catch { /* skip */ }
               }
