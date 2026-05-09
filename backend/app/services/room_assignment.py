@@ -220,6 +220,7 @@ def assign_room(
     skip_sms_sync: bool = False,
     created_by: Optional[str] = None,
     skip_logging: bool = False,
+    allow_double_booking: bool = False,
 ) -> Tuple[List[RoomAssignment], List[Dict]]:
     """
     Assign a room for date range [from_date, end_date).
@@ -292,6 +293,24 @@ def assign_room(
                     f"Manual multi-assign on today/past: room {room_obj.room_number} on {d} "
                     f"already has reservation {existing.reservation_id}, "
                     f"adding reservation {reservation_id} (by {assigned_by})"
+                )
+                continue
+
+            # 명시적 공동 점유 옵션 — 일반실에서도 push-out 우회하고 두 RoomAssignment 공존.
+            # 도미토리와 동일 메커니즘 (RoomAssignment unique 는 (reservation_id, date) 만이라
+            # 같은 (date, room_id) 에 여러 reservation 안전).
+            if allow_double_booking:
+                logger.info(
+                    f"Manual double-booking allowed: room {room_obj.room_number} on {d} "
+                    f"existing res={existing.reservation_id}, adding res={reservation_id}"
+                )
+                diag(
+                    "assign_room.double_booking_allowed",
+                    level="critical",
+                    res_id=reservation_id,
+                    room_id=room_id,
+                    date=d,
+                    existing_res_id=existing.reservation_id,
                 )
                 continue
 

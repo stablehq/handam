@@ -307,10 +307,13 @@ async def extend_stay_assign_room(
             db.delete(ra)
         db.flush()
 
+    # move_existing_to_unassigned=False = "같은 방에 유지" → 일반실에서도 공동 점유 허용
+    # (assign_room 의 default push-out 우회. RoomAssignment unique 는 (res_id, date) 만)
     assign_room(
         db, target_reservation_id, request.room_id, request.date,
         assigned_by="manual",
         created_by=current_user.username,
+        allow_double_booking=not request.move_existing_to_unassigned,
     )
 
     db.commit()
