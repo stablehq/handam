@@ -105,6 +105,11 @@ export const InlineInput = ({
     <span
       onDoubleClick={activate}
       onTouchEnd={handleTouchEnd}
+      // 키보드 Tab 흐름: span 자체를 focusable 로 만들고 focus 받으면 자동 activate.
+      // 활성 input 에서 Tab → blur(commit) → 다음 InlineInput span 으로 focus 이동
+      // → onFocus → activate → input 모드 진입. (이름→전화→파티→성별→메모 자연스러운 흐름)
+      tabIndex={disabled ? -1 : 0}
+      onFocus={activate}
       title={disabled ? undefined : '더블클릭하여 수정'}
       // touchAction: 'manipulation' 제거 — iOS에서 long-press → contextmenu 도 같이
       // 차단해 컨텍스트 메뉴가 안 뜸. 더블탭 줌은 handleTouchEnd 의 preventDefault 로
@@ -112,7 +117,7 @@ export const InlineInput = ({
       // non-compact 모드: block + 세로 padding 으로 셀 전체를 더블클릭 영역으로 확장
       // (값 비어있을 때 클릭 범위가 좁아 수정 활성화 어렵던 문제 해결)
       // compact 모드 (이름): 컨텐츠 너비 유지로 inline span 그대로
-      className={`${compact ? '' : 'w-full block py-1.5'} text-body truncate select-none ${disabled ? '' : 'cursor-text'} ${className || ''}`}
+      className={`${compact ? '' : 'w-full block py-1.5'} text-body truncate select-none ${disabled ? '' : 'cursor-text'} outline-none focus:bg-[#F2F4F6] dark:focus:bg-[#2C2C34] focus:rounded ${className || ''}`}
     >
       {value || (
         <span className="text-[#B0B8C1] dark:text-[#4E5968]">
