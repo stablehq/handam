@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import dayjs from 'dayjs'
 import { useTenantStore } from '@/stores/tenant-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { Modal, ModalHeader, ModalBody } from '@/components/ui/modal'
@@ -151,7 +152,7 @@ export default function PartyCheckin() {
         phone: addModal.phone.trim(),
         check_in_date: selectedDate,
         check_in_time: '00:00',
-        check_out_date: selectedDate,
+        check_out_date: dayjs(selectedDate).add(1, 'day').format('YYYY-MM-DD'),
         status: 'confirmed',
         male_count: m || null,
         female_count: f || null,

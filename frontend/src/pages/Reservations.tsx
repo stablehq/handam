@@ -309,6 +309,7 @@ export default function Reservations() {
         phone:              form.phone.trim(),
         check_in_date:      form.reservation_date,
         check_in_time:      '00:00',
+        check_out_date:     dayjs(form.reservation_date).add(1, 'day').format('YYYY-MM-DD'),
         status:             form.status,
         party_size: (maleCount + femaleCount) || null,
         gender:             genderParts.join('') || null,

@@ -117,11 +117,13 @@ export function useReservationForm({
 
   // QuickMenuBar 의 즉시 추가 — 모달 없이 빈 게스트 생성 + 마킹
   const handleQuickAddParty = useCallback(() => {
+    const ci = selectedDate.format('YYYY-MM-DD');
     quickAddMutation.mutate({
       customer_name: '',
       phone: '',
-      check_in_date: selectedDate.format('YYYY-MM-DD'),
+      check_in_date: ci,
       check_in_time: '18:00',
+      check_out_date: selectedDate.add(1, 'day').format('YYYY-MM-DD'),
       naver_room_type: '파티만',
       section: 'party',
       status: 'confirmed',
@@ -174,12 +176,11 @@ export function useReservationForm({
     values.male_count = maleCount || null;
     values.female_count = femaleCount || null;
 
-    // 연박: check_out_date 계산
-    if (values.multi_night && values.nights && values.nights >= 2 && values.date) {
+    // 연박: check_out_date 계산 (1박 default 도 명시 ci+1 로 통일 — NULL/co==ci 회피)
+    if (values.date) {
       const checkIn = dayjs(values.date);
-      values.check_out_date = checkIn.add(values.nights, 'day').format('YYYY-MM-DD');
-    } else if (values.date) {
-      values.check_out_date = null;
+      const nights = (values.multi_night && values.nights && values.nights >= 2) ? values.nights : 1;
+      values.check_out_date = checkIn.add(nights, 'day').format('YYYY-MM-DD');
     }
     delete values.multi_night;
     delete values.nights;
