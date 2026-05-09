@@ -116,11 +116,13 @@ export const SmsCell: React.FC<SmsCellProps> = ({
             const priorSendNote = isFailed && a.sent_at
               ? `\n(이전 발송 기록 있음: ${dayjs(normalizeUtcString(a.sent_at)).format('YYYY-MM-DD HH:mm')})`
               : '';
+            // surcharge 칩은 총액 텍스트 우선 표시 (예: "추가요금 8만원")
+            const baseTitle = a.surcharge_total_text || getFullName(a.template_key);
             const chipTitle = isFailed
-              ? `${getFullName(a.template_key)} — 발송 실패: ${a.send_error || '알 수 없는 오류'}${priorSendNote}`
+              ? `${baseTitle} — 발송 실패: ${a.send_error || '알 수 없는 오류'}${priorSendNote}`
               : isPastChip
-                ? `${getFullName(a.template_key)} (${a.date} 발송완료)`
-                : getFullName(a.template_key);
+                ? `${baseTitle} (${a.date} 발송완료)`
+                : baseTitle;
             return (
               <span
                 key={a.template_key}

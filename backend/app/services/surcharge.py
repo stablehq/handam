@@ -18,6 +18,7 @@ from app.db.models import (
     ReservationSmsAssignment,
     TemplateSchedule,
     RoomBizItemLink,
+    NaverBizItem,
 )
 from app.db.tenant_context import get_session_tenant_id
 from app.diag_logger import diag
@@ -81,12 +82,28 @@ def compute_guest_count(reservation) -> int:
     )
 
 
-def compute_excess(reservation, room) -> int:
-    """기준 인원 초과분 계산 (base_capacity 대비)."""
+def _resolve_product_base_capacity(db, reservation, room) -> int:
+    """기준 인원 결정 — 예약 상품(NaverBizItem) 의 default_capacity 우선.
+
+    객실 업그레이드(예약 상품보다 더 큰 객실 배정) 케이스에서도 예약 시점 기준으로
+    초과 판정해야 한다. 예: 더블룸(default=2) 예약 → 스위트(base=4) 배정 → 3명 →
+    추1 (이전 코드는 객실 base=4 기준으로 추0 처리하던 bug).
+
+    biz_item 없거나 default_capacity 미설정인 경우는 객실 base 로 fallback.
+    """
+    biz_id = getattr(reservation, 'naver_biz_item_id', None)
+    if biz_id:
+        item = db.query(NaverBizItem).filter(NaverBizItem.biz_item_id == str(biz_id)).first()
+        if item and item.default_capacity:
+            return item.default_capacity
+    return (room.base_capacity if room else 0) or 0
+
+
+def compute_excess(db, reservation, room) -> int:
+    """기준 인원 초과분 계산 — 예약 상품 default_capacity 대비."""
     if room is None:
         return 0
-    base_capacity = room.base_capacity or 0
-    return max(0, compute_guest_count(reservation) - base_capacity)
+    return max(0, compute_guest_count(reservation) - _resolve_product_base_capacity(db, reservation, room))
 
 
 def reconcile_surcharge(
@@ -138,7 +155,7 @@ def reconcile_surcharge(
             _delete_all_surcharge_chips(db, reservation_id, date)
             return
 
-        excess = compute_excess(reservation, room)
+        excess = compute_excess(db, reservation, room)
 
         # 5. 칩 생성/삭제
         if excess > 0:

@@ -19,6 +19,7 @@ export interface SmsAssignment {
   date: string;
   send_status?: string | null;
   send_error?: string | null;
+  surcharge_total_text?: string | null;  // 'add_standard'/'add_double' 칩 툴팁용 ("추가요금 8만원")
 }
 
 export interface Reservation {

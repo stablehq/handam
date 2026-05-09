@@ -294,7 +294,7 @@ def _inject_surcharge_vars(context: Dict[str, Any], reservation, room_assignment
     # 도미토리 상품은 1차 방어(reconcile 게이트) 우회 race 대비 excess=0 강제 — 부당 청구 방지.
     guest_count = compute_guest_count(reservation)
     base_capacity = room.base_capacity if room else 0
-    excess = 0 if _is_dormitory_reservation(db, reservation) else compute_excess(reservation, room)
+    excess = 0 if _is_dormitory_reservation(db, reservation) else compute_excess(db, reservation, room)
     nights = _calculate_stay_nights(reservation)
 
     excess_fee_per_night = unit_standard * excess

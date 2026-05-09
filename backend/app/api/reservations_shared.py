@@ -65,6 +65,38 @@ class ReservationUpdate(BaseModel):
         return self
 
 
+_SURCHARGE_TEMPLATE_KEYS = {'add_standard', 'add_double'}
+
+
+def _compute_surcharge_text(db, reservation, chip):
+    """surcharge 칩 ('add_standard'/'add_double') 의 툴팁용 총액 텍스트.
+
+    예: "추가요금 8만원" (2인×2박×2만원). excess=0 이거나 surcharge 류 아니면 None.
+    variables._inject_surcharge_vars 와 동일 로직 재사용.
+    """
+    if chip.template_key not in _SURCHARGE_TEMPLATE_KEYS:
+        return None
+    try:
+        from app.db.models import RoomAssignment
+        from app.templates.variables import _inject_surcharge_vars
+        ra = db.query(RoomAssignment).filter(
+            RoomAssignment.reservation_id == reservation.id,
+            RoomAssignment.date == (chip.date or ''),
+        ).first()
+        if not ra:
+            return None
+        ctx: dict = {}
+        _inject_surcharge_vars(ctx, reservation, ra, db)
+        if (ctx.get('excess') or 0) <= 0:
+            return None
+        total = ctx.get('total_surcharge')
+        if total in (None, '', '0'):
+            return None
+        return f'추가요금 {total}만원'
+    except Exception:
+        return None
+
+
 class SmsAssignmentResponse(BaseModel):
     template_key: str
     assigned_at: datetime
@@ -73,6 +105,9 @@ class SmsAssignmentResponse(BaseModel):
     date: str = ''
     send_status: Optional[str] = None
     send_error: Optional[str] = None
+    # surcharge 류 칩 ('add_standard'/'add_double') 만 채움 — 툴팁용 총액 텍스트
+    # 예: "추가요금 8만원" (2인×2박×2만원). excess=0 이거나 surcharge 류 아니면 None.
+    surcharge_total_text: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -171,6 +206,7 @@ def _to_response(res: Reservation, override_room: Optional[str] = None, override
                 date=a.date or '',
                 send_status=a.send_status,
                 send_error=a.send_error,
+                surcharge_total_text=_compute_surcharge_text(db, res, a),
             )
             for a in source
         ]

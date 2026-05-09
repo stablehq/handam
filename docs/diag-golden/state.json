@@ -1,9 +1,9 @@
 {
   "_comment": "ooo-log-validation 스킬이 자동 갱신하는 체크포인트. 수동 수정 지양.",
-  "last_log_timestamp": "2026-05-06 07:50:04",
-  "last_commit_sha": "06c94d8",
-  "last_coverage_scan_sha": "06c94d8",
-  "validated_cases_count": 30,
+  "last_log_timestamp": "2026-05-09 23:59:59",
+  "last_commit_sha": "12e92a6",
+  "last_coverage_scan_sha": "12e92a6",
+  "validated_cases_count": 60,
   "pending_golden_updates": [
     {
       "event": "surcharge.reconcile_failed",
