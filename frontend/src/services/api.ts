@@ -230,7 +230,7 @@ export const reservationsAPI = {
   /** New model: reduce manually_extended_until by N days (default 1). */
   reduceExtension: (reservationId: number, days: number = 1) =>
     api.post(`/api/reservations/${reservationId}/reduce-extension`, { days }),
-  assignExtendStayRoom: (reservationId: number, payload: { new_reservation_id: number; room_id: number; date: string; move_existing_to_unassigned: boolean }) =>
+  assignExtendStayRoom: (reservationId: number, payload: { new_reservation_id: number; room_id: number; date: string }) =>
     api.post(`/api/reservations/${reservationId}/extend-stay/assign-room`, payload),
 };
 

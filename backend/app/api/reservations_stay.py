@@ -49,7 +49,6 @@ class ExtendStayAssignRequest(BaseModel):
     new_reservation_id: int      # treated as original reservation_id (backward compat)
     room_id: int
     date: str  # YYYY-MM-DD
-    move_existing_to_unassigned: bool = False
 
 
 class ReduceExtensionRequest(BaseModel):
@@ -278,42 +277,20 @@ async def extend_stay_assign_room(
     db: Session = Depends(get_tenant_scoped_db),
     current_user: User = Depends(get_current_user),
 ):
-    """연박추가 충돌 해결: 방 배정 확정 (operates on the original reservation)"""
+    """연박추가 충돌 해결: 방 배정 확정 (operates on the original reservation).
+
+    수동 배정은 항상 공동 점유 허용. 운영자가 의도적으로 같은 방에 배정하는 경우
+    기존자를 밀어내지 않고 같은 셀에 공존 (RoomAssignment unique 는 (res_id, date) 만).
+    """
     from app.services.room_assignment import assign_room
-    from app.db.tenant_context import get_session_tenant_id
 
     # new_reservation_id is kept for backward compat — it IS the original reservation_id now
     target_reservation_id = request.new_reservation_id
-    tid = get_session_tenant_id(db)
 
-    if request.move_existing_to_unassigned:
-        existing = (
-            db.query(RoomAssignment)
-            .filter(
-                RoomAssignment.date == request.date,
-                RoomAssignment.room_id == request.room_id,
-                RoomAssignment.reservation_id != target_reservation_id,
-                RoomAssignment.tenant_id == tid,
-            )
-            .all()
-        )
-        for ra in existing:
-            res = db.query(Reservation).filter(
-                Reservation.id == ra.reservation_id,
-                Reservation.tenant_id == tid,
-            ).first()
-            if res:
-                res.section = "unassigned"
-            db.delete(ra)
-        db.flush()
-
-    # move_existing_to_unassigned=False = "같은 방에 유지" → 일반실에서도 공동 점유 허용
-    # (assign_room 의 default push-out 우회. RoomAssignment unique 는 (res_id, date) 만)
     assign_room(
         db, target_reservation_id, request.room_id, request.date,
         assigned_by="manual",
         created_by=current_user.username,
-        allow_double_booking=not request.move_existing_to_unassigned,
     )
 
     db.commit()

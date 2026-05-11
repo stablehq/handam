@@ -23,7 +23,7 @@ def check_assignment_validity(db: Session, reservation: Reservation) -> List[str
     체크 항목:
       1. 도미토리: 성별 잠금 (다른 성별 입실자 존재)
       2. 도미토리: 용량 초과
-      3. 일반실: 미래 날짜 이중배정 (M-4 반영)
+      (일반실 다중 점유는 운영자 수동 결정으로 정책상 허용)
 
     과거/당일 배정은 체크 대상에서 제외 (변경 비실용적).
 
@@ -115,17 +115,9 @@ def check_assignment_validity(db: Session, reservation: Reservation) -> List[str
                 )
                 continue
         else:
-            # 일반실: 미래 날짜 이중배정 금지
-            if len(others) > 0:
-                invalid.append(ra.date)
-                diag(
-                    "invariant.violation",
-                    level="verbose",
-                    res_id=reservation.id,
-                    date=ra.date,
-                    reason="double_booking",
-                )
-                continue
+            # 일반실: 수동 공동 점유 허용 (운영자 의도된 배정).
+            # 자동배정은 한 방 1팀 강제이므로 일반실 다중 점유는 항상 수동 결정.
+            pass
 
     diag("invariant.check.exit", level="verbose", res_id=reservation.id, invalid_count=len(invalid))
     return invalid

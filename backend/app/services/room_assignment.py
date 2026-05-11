@@ -220,7 +220,6 @@ def assign_room(
     skip_sms_sync: bool = False,
     created_by: Optional[str] = None,
     skip_logging: bool = False,
-    allow_double_booking: bool = False,
 ) -> Tuple[List[RoomAssignment], List[Dict]]:
     """
     Assign a room for date range [from_date, end_date).
@@ -287,92 +286,21 @@ def assign_room(
                     f"Room {room_obj.room_number} is already occupied on {d} by reservation {existing.reservation_id}"
                 )
 
-            # 수동 배정 (1-4): 당일/과거는 경고만, 미래는 기존자 밀어내기
-            if d <= today_str:
-                logger.warning(
-                    f"Manual multi-assign on today/past: room {room_obj.room_number} on {d} "
-                    f"already has reservation {existing.reservation_id}, "
-                    f"adding reservation {reservation_id} (by {assigned_by})"
-                )
-                continue
-
-            # 명시적 공동 점유 옵션 — 일반실에서도 push-out 우회하고 두 RoomAssignment 공존.
-            # 도미토리와 동일 메커니즘 (RoomAssignment unique 는 (reservation_id, date) 만이라
-            # 같은 (date, room_id) 에 여러 reservation 안전).
-            if allow_double_booking:
-                logger.info(
-                    f"Manual double-booking allowed: room {room_obj.room_number} on {d} "
-                    f"existing res={existing.reservation_id}, adding res={reservation_id}"
-                )
-                diag(
-                    "assign_room.double_booking_allowed",
-                    level="critical",
-                    res_id=reservation_id,
-                    room_id=room_id,
-                    date=d,
-                    existing_res_id=existing.reservation_id,
-                )
-                continue
-
-            # 미래 이중배정 → savepoint로 격리하여 기존 예약자 미배정 처리
-            pushed_res_id = existing.reservation_id
-            other_res = db.query(Reservation).filter(
-                Reservation.id == pushed_res_id
-            ).first()
-            other_name = other_res.customer_name if other_res else "?"
-
-            savepoint = db.begin_nested()
-            try:
-                if other_res:
-                    other_res.section = "unassigned"
-                db.delete(existing)
-                db.flush()
-
-                # C-1/H-3: 밀려난 예약의 SMS 칩 + surcharge 정리
-                try:
-                    sync_sms_tags(db, pushed_res_id)
-                except Exception as e:
-                    logger.warning(f"Pushed-out sync_sms_tags failed: {e}")
-                try:
-                    from app.services.surcharge import _delete_all_surcharge_chips
-                    _delete_all_surcharge_chips(db, pushed_res_id, d)
-                except Exception as e:
-                    logger.warning(f"Pushed-out surcharge cleanup failed: {e}")
-
-                log_activity(
-                    db, type="room_move",
-                    title=f"[{other_name}] 이중배정 회피 — 미배정 이동 ({d})",
-                    detail={
-                        "reservation_id": pushed_res_id,
-                        "date": d,
-                        "cause": "pushed_out_by",
-                        "pushed_out_by_reservation_id": reservation_id,
-                        "pushed_out_by_customer": reservation.customer_name,
-                        "room_id": room_id,
-                    },
-                    created_by="system",
-                )
-                savepoint.commit()
-                pushed_out.append({
-                    "reservation_id": pushed_res_id,
-                    "customer_name": other_name,
-                    "date": d,
-                    "cause": "pushed_out_by",
-                })
-                diag(
-                    "double_booking.pushed_out",
-                    level="critical",
-                    pushed_res_id=pushed_res_id,
-                    caused_by=reservation_id,
-                    date=d,
-                    room_id=room_id,
-                )
-            except Exception as e:
-                savepoint.rollback()
-                logger.error(
-                    f"Push-out failed for res={pushed_res_id} on {d}: {e}"
-                )
-                # 한 명 실패가 전체 루프를 막지 않음 — 계속 진행
+            # 수동 배정은 오늘/미래 구분 없이 공동 점유 허용.
+            # RoomAssignment unique 는 (reservation_id, date) 만이라 같은 (room_id, date) 에
+            # 여러 reservation 안전. 자동 배정은 위에서 raise 처리됨.
+            logger.info(
+                f"Manual multi-assign: room {room_obj.room_number} on {d} "
+                f"existing res={existing.reservation_id}, adding res={reservation_id}"
+            )
+            diag(
+                "assign_room.manual_multi_assign",
+                level="verbose",
+                res_id=reservation_id,
+                room_id=room_id,
+                date=d,
+                existing_res_id=existing.reservation_id,
+            )
 
     # Dormitory manual-assignment hardline check (1-5)
     if is_dorm and assigned_by == "manual":
@@ -977,55 +905,20 @@ def reconcile_dates(db: Session, reservation: Reservation):
                 conflict_query = conflict_query.with_for_update()
             conflicts = conflict_query.all()
 
-            if conflicts and d > today_str:
-                # 미래 날짜 충돌 — 연장 예약자 우선, 기존자 미배정으로 밀어냄
-                for c_ra in conflicts:
-                    c_pushed_id = c_ra.reservation_id
-                    c_res = db.query(Reservation).filter(
-                        Reservation.id == c_pushed_id
-                    ).first()
-                    c_name = c_res.customer_name if c_res else "?"
-                    if c_res:
-                        c_res.section = "unassigned"
-                    db.delete(c_ra)
-                    db.flush()
-
-                    try:
-                        sync_sms_tags(db, c_pushed_id)
-                    except Exception as e:
-                        logger.warning(f"Extension push-out sync_sms_tags failed: {e}")
-                    try:
-                        from app.services.surcharge import _delete_all_surcharge_chips
-                        _delete_all_surcharge_chips(db, c_pushed_id, d)
-                    except Exception as e:
-                        logger.warning(f"Extension push-out surcharge cleanup failed: {e}")
-
-                    log_activity(
-                        db, type="room_move",
-                        title=f"[{c_name}] 연박 연장에 밀림 — 미배정 이동 ({d})",
-                        detail={
-                            "reservation_id": c_pushed_id,
-                            "date": d,
-                            "cause": "long_stay_extension_priority",
-                            "caused_by_reservation_id": reservation.id,
-                            "caused_by_customer": reservation.customer_name,
-                            "room_id": reference.room_id,
-                        },
-                        created_by="system",
-                    )
-                    diag(
-                        "reconcile_dates.extension_pushed_out",
-                        level="critical",
-                        pushed_res_id=c_pushed_id,
-                        caused_by=reservation.id,
-                        date=d,
-                        room_id=reference.room_id,
-                    )
-            elif conflicts and d <= today_str:
-                # 당일/과거 충돌은 밀어내지 않음 (당일 이중배정 허용 정책과 일치)
-                logger.warning(
-                    f"reconcile_dates: conflict on {d} not pushed (today/past). "
-                    f"manual review needed for res={reservation.id}"
+            if conflicts:
+                # 공동 점유 — 연박 연장 시에도 기존자를 밀어내지 않음.
+                # RoomAssignment unique 가 (reservation_id, date) 만이라 같은 셀에 공존 안전.
+                logger.info(
+                    f"reconcile_dates: co-occupy on {d} with "
+                    f"{[c.reservation_id for c in conflicts]} for res={reservation.id}"
+                )
+                diag(
+                    "reconcile_dates.co_occupy",
+                    level="verbose",
+                    res_id=reservation.id,
+                    date=d,
+                    existing_res_ids=[c.reservation_id for c in conflicts],
+                    room_id=reference.room_id,
                 )
 
             # 새 RoomAssignment INSERT (bed_order 재계산)

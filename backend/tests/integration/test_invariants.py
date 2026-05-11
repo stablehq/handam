@@ -98,8 +98,8 @@ class TestCheckAssignmentValidity:
 
         assert "2026-04-10" in invalid
 
-    def test_regular_room_double_booking_flagged(self, db):
-        """일반실 미래 이중배정 → 해당 날짜 invalid."""
+    def test_regular_room_double_booking_allowed(self, db):
+        """일반실 다중 점유 = 운영자 수동 결정으로 허용 → invariant 위반 아님."""
         b = _make_building(db)
         room = _make_regular_room(db, b.id)
 
@@ -114,7 +114,7 @@ class TestCheckAssignmentValidity:
             mock_dt.strptime = datetime.strptime
             invalid = check_assignment_validity(db, res2)
 
-        assert "2026-04-10" in invalid
+        assert "2026-04-10" not in invalid
 
     def test_past_dates_not_checked(self, db):
         """과거/당일 배정은 체크 대상 아님 → 위반 있어도 빈 리스트."""

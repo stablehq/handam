@@ -12,16 +12,14 @@ export interface ExtendStayConflictData {
 interface ExtendStayConflictModalProps {
   data: ExtendStayConflictData | null;
   onClose: () => void;
-  onKeepSameRoom: () => void;     // '같은방에 유지'
-  onMoveExistingToPool: () => void; // '미배정으로 이동'
-  onSkipAssign: () => void;        // 방 배정 없이 연박만
+  onKeepSameRoom: () => void;  // '같은방에 유지' (공동 점유)
+  onSkipAssign: () => void;    // 방 배정 없이 연박만
 }
 
 export function ExtendStayConflictModal({
   data,
   onClose,
   onKeepSameRoom,
-  onMoveExistingToPool,
   onSkipAssign,
 }: ExtendStayConflictModalProps) {
   return (
@@ -43,9 +41,6 @@ export function ExtendStayConflictModal({
         <div className="flex gap-2 w-full">
           <Button color="blue" className="flex-1" onClick={onKeepSameRoom}>
             같은방에 유지
-          </Button>
-          <Button color="light" className="flex-1" onClick={onMoveExistingToPool}>
-            미배정으로 이동
           </Button>
           <Button color="light" className="flex-1" onClick={onSkipAssign}>
             취소

@@ -164,16 +164,15 @@ const RoomAssignment = () => {
     onSettled: () => _invalidateReservations(),
   });
 
-  // Assign extend-stay room
+  // Assign extend-stay room (수동 배정은 항상 공동 점유 허용)
   const assignExtendStayRoomMutation = useMutation({
     mutationFn: ({
-      newResId, roomId, date, moveExistingToUnassigned,
-    }: { newResId: number; roomId: number; date: string; moveExistingToUnassigned: boolean }) =>
+      newResId, roomId, date,
+    }: { newResId: number; roomId: number; date: string }) =>
       api.post(`/api/reservations/${newResId}/extend-stay/assign-room`, {
         new_reservation_id: newResId,
         room_id: roomId,
         date,
-        move_existing_to_unassigned: moveExistingToUnassigned,
       }),
     onError: () => toast.error('배정 실패'),
     onSettled: () => _invalidateReservations(),
@@ -1142,25 +1141,9 @@ const RoomAssignment = () => {
               newResId: extendStayConflict.newResId,
               roomId: extendStayConflict.roomId,
               date: selectedDate.add(1, 'day').format('YYYY-MM-DD'),
-              moveExistingToUnassigned: false,
             },
             {
               onSuccess: () => toast.success('같은 방에 배정 완료'),
-              onSettled: () => setExtendStayConflict(null),
-            },
-          );
-        }}
-        onMoveExistingToPool={() => {
-          if (!extendStayConflict) return;
-          assignExtendStayRoomMutation.mutate(
-            {
-              newResId: extendStayConflict.newResId,
-              roomId: extendStayConflict.roomId,
-              date: selectedDate.add(1, 'day').format('YYYY-MM-DD'),
-              moveExistingToUnassigned: true,
-            },
-            {
-              onSuccess: () => toast.success('기존 게스트 미배정 → 새 게스트 배정 완료'),
               onSettled: () => setExtendStayConflict(null),
             },
           );
