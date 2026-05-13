@@ -350,16 +350,17 @@ def _reconcile_room_upgrade_after_grade_change(
     room_ids: Optional[List[int]] = None,
     biz_item_ids: Optional[List[str]] = None,
 ) -> None:
-    """grade 변경 직후 영향 예약의 room_upgrade_review 칩 재계산.
+    """grade 변경 직후 영향 예약의 room_upgrade_promise / _review 칩 재계산.
 
     room_ids: 해당 객실에 배정된 오늘 이후 RoomAssignment 대상
     biz_item_ids: 해당 상품을 예약한 진행중/미래 예약의 stay 전체 박일 대상
 
-    스케줄 비활성 시 reconcile_room_upgrade_review_batch 가 즉시 return —
-    grade 만 입력해두는 운영 단계 (PR 3 활성화 전) 에서도 부담 0.
+    각 모듈은 스케줄 비활성 시 즉시 return — grade 만 입력해두는 운영 단계
+    (스케줄 활성화 전) 에서도 부담 0.
     """
     from datetime import datetime
     from app.config import KST
+    from app.services.room_upgrade_promise import reconcile_room_upgrade_promise_batch
     from app.services.room_upgrade_review import reconcile_room_upgrade_review_batch
 
     today_str = datetime.now(KST).strftime("%Y-%m-%d")
@@ -407,10 +408,16 @@ def _reconcile_room_upgrade_after_grade_change(
 
     for date, ids in targets.items():
         try:
+            reconcile_room_upgrade_promise_batch(db, list(ids), date)
+        except Exception as e:
+            logger.warning(
+                f"grade-change promise reconcile failed for date={date}: {e}"
+            )
+        try:
             reconcile_room_upgrade_review_batch(db, list(ids), date)
         except Exception as e:
             logger.warning(
-                f"grade-change reconcile failed for date={date}: {e}"
+                f"grade-change review reconcile failed for date={date}: {e}"
             )
 
 

@@ -124,7 +124,7 @@ def _make_template(db):
     return t
 
 
-def _make_schedule(db, template, active=True):
+def _make_schedule(db, template, active=True, target_mode="last_night"):
     s = TemplateSchedule(
         tenant_id=1,
         template_id=template.id,
@@ -134,6 +134,7 @@ def _make_schedule(db, template, active=True):
         minute=30,
         schedule_category="custom_schedule",
         custom_type=ROOM_UPGRADE_REVIEW,
+        target_mode=target_mode,
         is_active=active,
     )
     db.add(s)
@@ -369,44 +370,17 @@ class TestReconcile:
         assert len(_chips(db, res.id, DATE)) == 1
 
 
-class TestStayDedup:
-    def test_multinight_only_one_chip(self, db):
-        """다박 D1=더블(2)/D2=스위트(5)/D3=트윈(3), 예약 상품=더블(2).
-        D1 동급 → 칩 없음. D2 업그레이드 → 칩 1개. D3 reconcile → stay 1칩 가드로 skip.
+class TestTargetModeLastNight:
+    """review 는 target_mode='last_night' — 마지막박만 발송 대상."""
+
+    def test_first_night_skipped_when_upgrade(self, db):
+        """다박 D1=스위트(5)/D2=더블(2), 예약 더블(2), check_out=04-12.
+        last_night = 04-11 (D2=동급). D1 (04-10) 은 업그레이드지만 last_night 아니라 skip.
         """
         _setup_schedule(db)
         b = _make_building(db)
-        room_d1 = _make_room(db, b.id, room_number="D1", grade=2)  # 더블
-        room_d2 = _make_room(db, b.id, room_number="D2", grade=5)  # 스위트
-        room_d3 = _make_room(db, b.id, room_number="D3", grade=3)  # 트윈
-        item = _make_biz_item(db, grade=2)
-        res = _make_reservation(
-            db,
-            biz_item_id=item.biz_item_id,
-            party_size=2,
-            check_in="2026-04-10",
-            check_out="2026-04-13",
-        )
-        _make_assignment(db, res.id, room_d1.id, date="2026-04-10")
-        _make_assignment(db, res.id, room_d2.id, date="2026-04-11")
-        _make_assignment(db, res.id, room_d3.id, date="2026-04-12")
-
-        # 각 박일에 reconcile 호출 (실제 호출 패턴 모사)
-        for d in ["2026-04-10", "2026-04-11", "2026-04-12"]:
-            reconcile_room_upgrade_review(db, res.id, d)
-
-        # stay 전체에 칩 1개만
-        chips = _chips(db, res.id)
-        assert len(chips) == 1
-        # D2 (첫 업그레이드 박일) 에 생성됨 — D1 이 동급이라 skip 됐기 때문
-        assert chips[0].date == "2026-04-11"
-
-    def test_existing_sent_chip_blocks_new(self, db):
-        """stay 내 sent 칩이 있으면 다른 박일도 추가 생성 skip."""
-        _setup_schedule(db)
-        b = _make_building(db)
-        room_d1 = _make_room(db, b.id, room_number="D1", grade=3)
-        room_d2 = _make_room(db, b.id, room_number="D2", grade=5)
+        room_d1 = _make_room(db, b.id, room_number="D1_HIGH", grade=5)
+        room_d2 = _make_room(db, b.id, room_number="D2_SAME", grade=2)
         item = _make_biz_item(db, grade=2)
         res = _make_reservation(
             db,
@@ -418,17 +392,57 @@ class TestStayDedup:
         _make_assignment(db, res.id, room_d1.id, date="2026-04-10")
         _make_assignment(db, res.id, room_d2.id, date="2026-04-11")
 
-        # D1 칩 생성 + 발송 처리
+        # D1 (첫박) 에 reconcile — last_night 아니라 칩 없음
         reconcile_room_upgrade_review(db, res.id, "2026-04-10")
-        chip = _chips(db, res.id)[0]
-        chip.sent_at = datetime.now(timezone.utc)
-        db.flush()
+        assert _chips(db, res.id) == []
 
-        # D2 reconcile → sent 칩 있어서 추가 생성 안 됨
+        # D2 (last_night) 에 reconcile — 동급이라 칩 없음
         reconcile_room_upgrade_review(db, res.id, "2026-04-11")
+        assert _chips(db, res.id) == []
+
+    def test_last_night_upgrade_creates_chip(self, db):
+        """다박 D1=더블(2)/D2=스위트(5), 예약 더블(2), check_out=04-12.
+        last_night = 04-11 (D2=업그레이드). D1 skip, D2 칩 1개.
+        """
+        _setup_schedule(db)
+        b = _make_building(db)
+        room_d1 = _make_room(db, b.id, room_number="D1_SAME", grade=2)
+        room_d2 = _make_room(db, b.id, room_number="D2_HIGH", grade=5)
+        item = _make_biz_item(db, grade=2)
+        res = _make_reservation(
+            db,
+            biz_item_id=item.biz_item_id,
+            party_size=2,
+            check_in="2026-04-10",
+            check_out="2026-04-12",
+        )
+        _make_assignment(db, res.id, room_d1.id, date="2026-04-10")
+        _make_assignment(db, res.id, room_d2.id, date="2026-04-11")
+
+        for d in ["2026-04-10", "2026-04-11"]:
+            reconcile_room_upgrade_review(db, res.id, d)
         chips = _chips(db, res.id)
         assert len(chips) == 1
-        assert chips[0].date == "2026-04-10"
+        assert chips[0].date == "2026-04-11"  # last_night 에만 생성
+
+    def test_single_night_check_in_is_last_night(self, db):
+        """1박 (check_out 명시) — check_in == last_night."""
+        _setup_schedule(db)
+        b = _make_building(db)
+        room = _make_room(db, b.id, grade=3)
+        item = _make_biz_item(db, grade=2)
+        res = _make_reservation(
+            db,
+            biz_item_id=item.biz_item_id,
+            party_size=2,
+            check_in="2026-04-15",
+            check_out="2026-04-16",
+        )
+        _make_assignment(db, res.id, room.id, date="2026-04-15")
+
+        reconcile_room_upgrade_review(db, res.id, "2026-04-15")
+        chips = _chips(db, res.id, "2026-04-15")
+        assert len(chips) == 1
 
 
 class TestSurchargeIndependence:

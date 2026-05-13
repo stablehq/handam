@@ -448,10 +448,12 @@ def assign_room(
                         )
                     try:
                         from app.services.room_upgrade_review import _delete_all_room_upgrade_review_chips
+                        from app.services.room_upgrade_promise import _delete_all_room_upgrade_promise_chips
                         _delete_all_room_upgrade_review_chips(db, p_id, p_date)
+                        _delete_all_room_upgrade_promise_chips(db, p_id, p_date)
                     except Exception as e:
                         logger.warning(
-                            f"Dorm push-out room_upgrade_review cleanup failed for res={p_id} date={p_date}: {e}"
+                            f"Dorm push-out room_upgrade cleanup failed for res={p_id} date={p_date}: {e}"
                         )
 
     # Capture old room for move logging
@@ -640,16 +642,18 @@ def unassign_room(
 
     # section과 SMS 태그는 호출자가 관리 (PUT endpoint → sync_sms_tags)
 
-    # Surcharge / room_upgrade_review 칩 정리 (방 해제 시)
+    # Surcharge / room_upgrade_promise / room_upgrade_review 칩 정리 (방 해제 시)
     try:
         from app.services.surcharge import _delete_all_surcharge_chips
         from app.services.room_upgrade_review import _delete_all_room_upgrade_review_chips
+        from app.services.room_upgrade_promise import _delete_all_room_upgrade_promise_chips
         cleanup_dates = dates if from_date else _date_range(reservation.check_in_date, reservation.check_out_date)
         for d in cleanup_dates:
             _delete_all_surcharge_chips(db, reservation_id, d)
+            _delete_all_room_upgrade_promise_chips(db, reservation_id, d)
             _delete_all_room_upgrade_review_chips(db, reservation_id, d)
     except Exception as e:
-        logger.warning(f"Surcharge/room_upgrade_review cleanup failed for res={reservation_id}: {e}")
+        logger.warning(f"Surcharge/room_upgrade cleanup failed for res={reservation_id}: {e}")
 
     diag(
         "unassign_room.exit",

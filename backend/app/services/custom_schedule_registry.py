@@ -22,7 +22,8 @@ CUSTOM_SCHEDULE_TYPES = {
     "surcharge_standard": "인원 초과 (일반 객실)",
     "surcharge_double": "인원 초과 (더블 객실, 업그레이드비 포함)",
     "party3_today_mms": "파티 당일 안내 (MMS, 2차 참여자)",
-    "room_upgrade_review": "무료 업그레이드 후기 안내 (객후)",
+    "room_upgrade_promise": "무료 업그레이드 약속 안내 (첫박)",
+    "room_upgrade_review": "무료 업그레이드 후기 안내 (마지막박, 객후)",
 }
 
 
@@ -109,21 +110,17 @@ def _refresh_party3_today_mms(db: Session, target_date: str) -> None:
     reconcile_party3_mms(db, target_date)
 
 
-def _refresh_room_upgrade_review(db: Session, target_date: str) -> None:
-    """room_upgrade_review (객후) 발송 직전 칩 상태 최신화.
+def _refresh_room_upgrade(db: Session, target_date: str, custom_type: str) -> None:
+    """room_upgrade_* (약속/객후) 발송 직전 칩 상태 최신화 공통 핸들러.
 
     대상:
       (1) target_date 에 방 배정된 모든 예약 — 신규/유지 칩 정리
-      (2) target_date 에 객후 미발송 칩이 이미 있는 예약 — stale 칩 정리 포함
+      (2) target_date 에 해당 custom_type 미발송 칩이 이미 있는 예약 — stale 정리
 
-    reconcile_room_upgrade_review 는 idempotent — 진입 가드(_find_schedule) 가
-    내장이라 스케줄 비활성이면 즉시 return (no-op).
+    호출자 (각 reconcile 함수) 가 자체 진입 가드 (find_single_schedule) 를
+    가지고 있어 스케줄 비활성 시 즉시 return (no-op).
     """
     from app.db.models import ReservationSmsAssignment, RoomAssignment, TemplateSchedule
-    from app.services.room_upgrade_review import (
-        ROOM_UPGRADE_REVIEW,
-        reconcile_room_upgrade_review_batch,
-    )
 
     # (1) 현재 target_date 에 방 배정된 예약
     assigned_ids = {
@@ -133,11 +130,11 @@ def _refresh_room_upgrade_review(db: Session, target_date: str) -> None:
         .all()
     }
 
-    # (2) 객후 미발송 칩 보유 예약 (stale 가능)
+    # (2) 해당 custom_type 미발송 칩 보유 예약 (stale 가능)
     schedule_ids = {
         row[0]
         for row in db.query(TemplateSchedule.id)
-        .filter(TemplateSchedule.custom_type == ROOM_UPGRADE_REVIEW)
+        .filter(TemplateSchedule.custom_type == custom_type)
         .all()
     }
     stale_chip_ids: set[int] = set()
@@ -156,7 +153,21 @@ def _refresh_room_upgrade_review(db: Session, target_date: str) -> None:
     reservation_ids = list(assigned_ids | stale_chip_ids)
     if not reservation_ids:
         return
-    reconcile_room_upgrade_review_batch(db, reservation_ids, target_date)
+
+    if custom_type == "room_upgrade_promise":
+        from app.services.room_upgrade_promise import reconcile_room_upgrade_promise_batch
+        reconcile_room_upgrade_promise_batch(db, reservation_ids, target_date)
+    elif custom_type == "room_upgrade_review":
+        from app.services.room_upgrade_review import reconcile_room_upgrade_review_batch
+        reconcile_room_upgrade_review_batch(db, reservation_ids, target_date)
+
+
+def _refresh_room_upgrade_promise(db: Session, target_date: str) -> None:
+    _refresh_room_upgrade(db, target_date, "room_upgrade_promise")
+
+
+def _refresh_room_upgrade_review(db: Session, target_date: str) -> None:
+    _refresh_room_upgrade(db, target_date, "room_upgrade_review")
 
 
 # custom_type → (db, target_date) -> None
@@ -165,6 +176,7 @@ PRE_SEND_REFRESH_HANDLERS: dict[str, Callable[[Session, str], None]] = {
     "surcharge_standard": _refresh_surcharge,
     "surcharge_double": _refresh_surcharge,
     "party3_today_mms": _refresh_party3_today_mms,
+    "room_upgrade_promise": _refresh_room_upgrade_promise,
     "room_upgrade_review": _refresh_room_upgrade_review,
 }
 
