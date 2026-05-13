@@ -208,7 +208,7 @@ class TemplateScheduleExecutor:
                             date=target_date or '',
                         )
 
-                        self.db.flush()
+                        self.db.commit()  # 성공 즉시 영구화 — 후속 hang 시 중복 발송 방지
                         logger.info(f"Sent SMS to {reservation.customer_name} ({reservation.phone})")
                         send_results.append({
                             "customer_name": reservation.customer_name,
@@ -229,7 +229,7 @@ class TemplateScheduleExecutor:
                             self.db, reservation.id, template_key,
                             error=error_msg, date=target_date or '',
                         )
-                        self.db.flush()
+                        self.db.commit()  # 실패 기록도 즉시 영구화
 
                         send_results.append({
                             "customer_name": reservation.customer_name,
