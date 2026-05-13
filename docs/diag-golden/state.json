@@ -1,9 +1,9 @@
 {
   "_comment": "ooo-log-validation 스킬이 자동 갱신하는 체크포인트. 수동 수정 지양.",
-  "last_log_timestamp": "2026-05-09 23:59:59",
-  "last_commit_sha": "12e92a6",
-  "last_coverage_scan_sha": "12e92a6",
-  "validated_cases_count": 60,
+  "last_log_timestamp": "2026-05-13 08:35:04",
+  "last_commit_sha": "c513fef",
+  "last_coverage_scan_sha": "c513fef",
+  "validated_cases_count": 9223,
   "pending_golden_updates": [
     {
       "event": "surcharge.reconcile_failed",
@@ -18,7 +18,8 @@
     {
       "event": "sms_sender.blocked_empty_room",
       "reason": "missing_vars 필드 추가됨 — 기존 정답지에 필드 스키마 갱신 필요",
-      "added_commit": "cb2671b"
+      "added_commit": "cb2671b",
+      "observed": "2026-05-12 res=5254/5255 — 운영자가 체크인 전날(05-11) 로 칩 토글한 케이스. 정답지 작성 가능 단계"
     },
     {
       "event": "reservation.extend_stay_cancelled",
@@ -48,7 +49,8 @@
     {
       "event": "auto_assign.enter (bypass_active/tenant_ctx 필드 추가)",
       "reason": "c930a7c 에서 auto_assign.enter 에 bypass_active, tenant_ctx 필드 추가 — 기존 auto-assign-button 정답지 영향 없음 (PASS 유지). sync 경로 정답지(_draft/job-detect-consecutive-stays 등) 갱신 시 반영",
-      "added_commit": "c930a7c"
+      "added_commit": "c930a7c",
+      "observed": "2026-05-10/11 22:40/21:25 — bypass_active=False tenant_ctx=2 형태로 정상 emit. sync 경로 정답지 갱신 가능"
     },
     {
       "event": "stay_group.unlinked (excluded 필드 추가)",
@@ -70,6 +72,17 @@
       "reason": "11회차 (5/4 14:54 req=dva3k6x9) 첫 관측 — existing_sent=False 정상 차단. 정답지 작성 가능 단계. 다음 회차 또는 별도 처리",
       "added_session": "2026-05-06",
       "first_observed": "2026-05-04 14:54:51"
+    },
+    {
+      "event": "send_single_sms.exit (blocked_* 경로 누락)",
+      "reason": "sms_sender 의 blocked_empty_room/blocked_invalid_phone/blocked_template_missing 경로가 .exit emit 안 함. 페어링 무결성 회복용 별도 PR 후 정답지 일괄 갱신 필요",
+      "added_session": "2026-05-13"
+    },
+    {
+      "event": "sms.failed_recorded 중복",
+      "reason": "스케줄러 자동발송 + 가드 차단 시 sms_sender 와 template_scheduler 양쪽이 모두 record_sms_failed 호출 — 같은 res+template 에 2회 연속 발화 관찰 (5/10 5099). DB 레벨에서 중복 기록 가능성 별도 조사",
+      "added_session": "2026-05-13",
+      "first_observed": "2026-05-10 13:00:04"
     }
   ],
   "known_gaps": [
@@ -530,9 +543,15 @@
       "confidence": "draft",
       "first_seen": "2026-05-06",
       "instance_count": 1
+    },
+    "sms-blocked-invalid-phone": {
+      "confidence": "draft",
+      "first_seen": "2026-05-13",
+      "instance_count": 2,
+      "note": "res=5099 phone=\"인스타\" — party_info+room_info 2회 발화"
     }
   },
-  "last_validation_run": "2026-05-06T11:00:00+09:00",
+  "last_validation_run": "2026-05-13T18:00:00+09:00",
   "notes": [
     "2026-04-24 두 번째 검증 실행. 새 에러 0건 (기존 3건만 — 2건은 이미 수정, 1건 race 는 작업 예정).",
     "baseline coverage scan 58건 일괄 suppress. 다음 스캔부터 증분으로만 잡음.",
@@ -593,6 +612,7 @@
     "404 6건 모두 봇 스캐너 (/api/.env, /api/vendor/phpunit/...). 401 burst 시간당 최대 67건 (5/5 16시) — 정상 bootstrap 윈도우 패턴.",
     "신규 커밋 3건 (8eb5709..06c94d8): 661c567 chore(diag-golden 10회차 후속), 53b9ccb fix(diag retention TimedRotatingFileHandler), 06c94d8 feat(LMS 제목 커스텀 입력). diag() 신규 추가 0건 — 정답지 영향 없음.",
     "신규 coverage gap 1건 — backend/app/api/templates.py:421 POST /preview (read-only preview, mutation 아님, 영구 suppress).",
-    "2026-05-06 11회차 후속 — pending 4건 정리 (A 옵션): stay_group.link_api.*|unlink_api.* 종결(ctx-menu-stay-group-unlink 정답지 작성됨), sms_assignment.duplicate 4/24 entry 제거(5/6 entry 와 중복), password_display.prefix_skipped 종결(9회차 의도된 동작 확정), stay_group.validate_failed 종결(9+11회차 합 5건 모두 정상 dates_not_consecutive 거부). pending 17→13건."
+    "2026-05-06 11회차 후속 — pending 4건 정리 (A 옵션): stay_group.link_api.*|unlink_api.* 종결(ctx-menu-stay-group-unlink 정답지 작성됨), sms_assignment.duplicate 4/24 entry 제거(5/6 entry 와 중복), password_display.prefix_skipped 종결(9회차 의도된 동작 확정), stay_group.validate_failed 종결(9+11회차 합 5건 모두 정상 dates_not_consecutive 거부). pending 17→13건.",
+    "2026-05-13 검증: W-001(phase3 auth) 만료 — 발화 0건, archive 권장. INV 위반 0건. 97k 이벤트 / 9163 request 검증."
   ]
 }

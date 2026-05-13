@@ -1,0 +1,64 @@
+action: sms_blocked_invalid_phone (전화번호 형식 오류로 SMS 차단)
+description: |
+  운영자가 예약 phone 칸에 전화번호가 아닌 값(예: 인스타 ID, 메모) 을 입력한
+  예약에 대해 스케줄러 또는 수동 발송이 트리거되면, sms_sender 의 phone 정규화
+  검증(9~15 자리 숫자) 이 실패하고 `sms_sender.blocked_invalid_phone` 가 발화.
+
+  발송은 차단되고 `sms.failed_recorded` 로 실패 추적이 기록됨. 사용자(운영자) 가
+  예약 phone 칸을 올바른 번호로 수정할 때까지 매 스케줄 실행마다 재발화.
+
+reference_commit: 12e92a6
+reference_case: |
+  2026-05-10 13:00:04,943~,997  res_id=5099  phone='인스타'
+    template=party_info  scheduler 자동 발송 (req=-)
+  2026-05-10 16:45:01,062~,115  res_id=5099  phone='인스타'
+    template=room_info  scheduler 자동 발송 (req=-)
+created_at: 2026-05-13
+confidence: draft
+promotion_threshold: 3
+
+preconditions:
+  reservation_phone: |
+    영문/한글/특수문자가 섞여 있거나, 숫자만 추출 시 길이가 9 미만 또는 15 초과인 값
+  trigger: schedule (req=-) 또는 manual (req=<id>) 모두 가능
+
+expected_trace:
+  - event: send_single_sms.enter
+    category: MANDATORY
+    fields:
+      template_key: "*"
+      date: "*"
+
+  - event: sms_sender.blocked_invalid_phone
+    category: MANDATORY
+    fields:
+      template_key: "*"
+      phone_preview: "*"  # 비숫자 phone 의 앞 20자 (PII 부분 마스킹)
+
+  - event: sms.failed_recorded
+    category: MANDATORY
+    fields:
+      template_key: "*"
+      error_pattern: "전화번호 형식 오류"
+
+forbidden_events:
+  - event: template.render.enter
+    reason: phone 가드는 template 조회 이전 단계 — 렌더링 자체가 일어나면 안 됨
+
+  - event: sms_sender.provider_call
+    reason: 가드 차단이라 provider 호출 절대 금지
+
+  - event: aligo.send_sms.enter
+    reason: 위와 동일
+
+notes: |
+  - 현재 sms_sender 코드 버그로 인해 send_single_sms.exit 이벤트가 emit 되지
+    않음 (blocked_* 경로 전체에서 동일). 정답지에는 누락이 정상이지만,
+    별도 PR 로 .exit emit 통일 시 정답지에 추가 필요.
+
+  - 같은 res_id+template 에 대해 sms.failed_recorded 가 2회 연속 발화하는
+    패턴이 관측됨 (sms_sender 내부 record + scheduler 의 else 분기 record).
+    중복 기록 가능성 — 별도 조사 후 정답지 갱신.
+
+  - 운영자에게 phone 칸을 수정하라고 알림을 띄우거나, 스케줄러 타겟 필터에서
+    phone 정규식 검증을 미리 거르면 매번 발화하지 않음.
