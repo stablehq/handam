@@ -294,7 +294,6 @@ const RoomSettings = () => {
     }
   };
 
-  const roomGradeMissingCount = rooms.filter(r => r.active && typeof r.grade !== 'number').length;
 
   // ── Room CRUD ──
   const openCreate = () => {
@@ -687,14 +686,9 @@ const RoomSettings = () => {
               <Settings className="mr-1.5 h-3.5 w-3.5" />
               상품 설정
             </Button>
-            <Button color="light" size="sm" className="whitespace-nowrap relative" onClick={() => setRoomGradeModalOpen(true)}>
+            <Button color="light" size="sm" className="whitespace-nowrap" onClick={() => setRoomGradeModalOpen(true)}>
               <Settings className="mr-1.5 h-3.5 w-3.5" />
               객실 등급
-              {roomGradeMissingCount > 0 && (
-                <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-[#FF9F00] px-1.5 py-0.5 text-tiny font-semibold text-white">
-                  {roomGradeMissingCount}건 미설정
-                </span>
-              )}
             </Button>
             <Button color="light" size="sm" className="whitespace-nowrap" onClick={openPriorityModal}>
               <ArrowUpDown className="mr-1.5 h-3.5 w-3.5" />
@@ -1380,7 +1374,6 @@ const RoomSettings = () => {
                     {rooms.map(room => {
                       const current = roomGradeEdits[room.id];
                       const displayValue = typeof current === 'number' ? current : (room.grade ?? '');
-                      const isMissing = displayValue === '';
                       return (
                         <TableRow key={room.id}>
                           <TableCell>
@@ -1395,22 +1388,17 @@ const RoomSettings = () => {
                             <span className="text-caption text-[#8B95A1]">{room.building_name ?? '-'}</span>
                           </TableCell>
                           <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Select
-                                sizing="sm"
-                                value={displayValue}
-                                onChange={e => handleRoomGradeChange(room.id, parseInt(e.target.value))}
-                                className="min-w-[80px]"
-                              >
-                                <option value="" disabled>미설정</option>
-                                {GRADE_OPTIONS.map(g => (
-                                  <option key={g} value={g}>{g}</option>
-                                ))}
-                              </Select>
-                              {isMissing && (
-                                <Badge color="warning" size="xs">미설정</Badge>
-                              )}
-                            </div>
+                            <Select
+                              sizing="sm"
+                              value={displayValue}
+                              onChange={e => handleRoomGradeChange(room.id, parseInt(e.target.value))}
+                              className="min-w-[80px]"
+                            >
+                              <option value="" disabled>미설정</option>
+                              {GRADE_OPTIONS.map(g => (
+                                <option key={g} value={g}>{g}</option>
+                              ))}
+                            </Select>
                           </TableCell>
                         </TableRow>
                       );
