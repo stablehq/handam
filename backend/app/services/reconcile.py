@@ -1,7 +1,8 @@
 """reconcile.py — 예약 mutation 후 SMS 칩 정합성 단일 진입점.
 
-3종 칩(일반 column_match / 추가요금 surcharge / 파티 MMS party3) 을 한 번에
-재계산한다. 호출자는 이 함수 한 번만 호출하면 모든 칩이 일관된 상태가 됨.
+4종 칩(일반 column_match / 추가요금 surcharge / 파티 MMS party3 /
+무료 업그레이드 후기 room_upgrade_review) 을 한 번에 재계산한다.
+호출자는 이 함수 한 번만 호출하면 모든 칩이 일관된 상태가 됨.
 
 스코프 분리:
   - RoomAssignment(객실 배정) 자체의 정리는 reconcile_dates 가 담당하며,
@@ -37,6 +38,7 @@ def reconcile_all_chips(
     from app.services.room_assignment import sync_sms_tags
     from app.services.surcharge import reconcile_surcharge
     from app.services.party3_mms import reconcile_party3_mms_for_reservation
+    from app.services.room_upgrade_review import reconcile_room_upgrade_review
 
     res = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not res:
@@ -74,6 +76,14 @@ def reconcile_all_chips(
         except Exception as e:
             logger.warning(
                 f"reconcile_all_chips: party3 failed res={reservation_id} date={d}: {e}"
+            )
+        try:
+            # room_upgrade_review 는 자체 진입 가드(_find_schedule) 가 있어
+            # 스케줄 비활성 시 즉시 return (no-op + critical diag 미발화).
+            reconcile_room_upgrade_review(db, reservation_id, d)
+        except Exception as e:
+            logger.warning(
+                f"reconcile_all_chips: room_upgrade_review failed res={reservation_id} date={d}: {e}"
             )
 
     diag("reconcile_all_chips.exit", level="verbose", res_id=reservation_id)

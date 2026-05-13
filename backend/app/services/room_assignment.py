@@ -436,7 +436,7 @@ def assign_room(
                 except Exception as e:
                     logger.warning(f"Dorm push-out sync_sms_tags failed for res={p_id}: {e}")
 
-            # surcharge는 (res_id, date) 단위 — 각각 정리
+            # surcharge / room_upgrade_review 는 (res_id, date) 단위 — 각각 정리
             for p_id, p_dates in pushed_dates_for_surcharge.items():
                 for p_date in p_dates:
                     try:
@@ -445,6 +445,13 @@ def assign_room(
                     except Exception as e:
                         logger.warning(
                             f"Dorm push-out surcharge cleanup failed for res={p_id} date={p_date}: {e}"
+                        )
+                    try:
+                        from app.services.room_upgrade_review import _delete_all_room_upgrade_review_chips
+                        _delete_all_room_upgrade_review_chips(db, p_id, p_date)
+                    except Exception as e:
+                        logger.warning(
+                            f"Dorm push-out room_upgrade_review cleanup failed for res={p_id} date={p_date}: {e}"
                         )
 
     # Capture old room for move logging
@@ -633,14 +640,16 @@ def unassign_room(
 
     # section과 SMS 태그는 호출자가 관리 (PUT endpoint → sync_sms_tags)
 
-    # Surcharge 칩 정리 (방 해제 시)
+    # Surcharge / room_upgrade_review 칩 정리 (방 해제 시)
     try:
         from app.services.surcharge import _delete_all_surcharge_chips
+        from app.services.room_upgrade_review import _delete_all_room_upgrade_review_chips
         cleanup_dates = dates if from_date else _date_range(reservation.check_in_date, reservation.check_out_date)
         for d in cleanup_dates:
             _delete_all_surcharge_chips(db, reservation_id, d)
+            _delete_all_room_upgrade_review_chips(db, reservation_id, d)
     except Exception as e:
-        logger.warning(f"Surcharge cleanup failed for res={reservation_id}: {e}")
+        logger.warning(f"Surcharge/room_upgrade_review cleanup failed for res={reservation_id}: {e}")
 
     diag(
         "unassign_room.exit",

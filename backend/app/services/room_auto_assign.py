@@ -115,6 +115,14 @@ def auto_assign_rooms(db: Session, target_date: str = None, created_by: str = "s
     except Exception as e:
         logger.warning(f"Surcharge batch reconcile failed: {e}")
 
+    # room_upgrade_review batch reconcile (무료 업그레이드 후기 안내).
+    # 자체 진입 가드(_find_schedule) 가 있어 스케줄 비활성 시 즉시 return.
+    try:
+        from app.services.room_upgrade_review import reconcile_room_upgrade_review_batch
+        reconcile_room_upgrade_review_batch(db, assigned_reservation_ids, target_date)
+    except Exception as e:
+        logger.warning(f"room_upgrade_review batch reconcile failed: {e}")
+
     # Summary activity log (like template scheduler)
     if assigned_count > 0:
         from app.services.activity_logger import log_activity

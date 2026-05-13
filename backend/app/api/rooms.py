@@ -280,9 +280,20 @@ def update_biz_items(
             biz_item.grade = item_data.grade
         updated.append(biz_item)
 
+    # grade 가 변경된 biz_item 의 영향 예약에 대해 stale 칩 정리.
+    # commit 전에 reconcile 실행 — 같은 트랜잭션에 묶어 race 방지.
+    grade_changed_biz_ids = [
+        item.biz_item_id
+        for item in updated
+        for req in items
+        if req.biz_item_id == item.biz_item_id and req.grade is not None
+    ]
+    if grade_changed_biz_ids:
+        _reconcile_room_upgrade_after_grade_change(
+            db, biz_item_ids=grade_changed_biz_ids,
+        )
+
     db.commit()
-    # TODO(PR 2): grade 가 변경된 biz_item 의 영향 예약에 대해
-    # reconcile_room_upgrade_review_batch 호출 — stale 칩 방지
     return [_biz_item_to_response(item) for item in updated]
 
 
@@ -325,10 +336,82 @@ def update_room_grades(
     for room in rooms:
         room.grade = grade_map[room.id]
 
+    # grade 가 변경된 Room 에 배정된 오늘 이후 예약 stale 칩 정리.
+    # commit 전에 reconcile 실행 — 같은 트랜잭션.
+    _reconcile_room_upgrade_after_grade_change(db, room_ids=target_ids)
+
     db.commit()
-    # TODO(PR 2): grade 가 변경된 Room 에 배정된 오늘 이후 예약에 대해
-    # reconcile_room_upgrade_review_batch 호출 — stale 칩 방지
     return [_room_to_response(r) for r in rooms]
+
+
+def _reconcile_room_upgrade_after_grade_change(
+    db: Session,
+    *,
+    room_ids: Optional[List[int]] = None,
+    biz_item_ids: Optional[List[str]] = None,
+) -> None:
+    """grade 변경 직후 영향 예약의 room_upgrade_review 칩 재계산.
+
+    room_ids: 해당 객실에 배정된 오늘 이후 RoomAssignment 대상
+    biz_item_ids: 해당 상품을 예약한 진행중/미래 예약의 stay 전체 박일 대상
+
+    스케줄 비활성 시 reconcile_room_upgrade_review_batch 가 즉시 return —
+    grade 만 입력해두는 운영 단계 (PR 3 활성화 전) 에서도 부담 0.
+    """
+    from datetime import datetime
+    from app.config import KST
+    from app.services.room_upgrade_review import reconcile_room_upgrade_review_batch
+
+    today_str = datetime.now(KST).strftime("%Y-%m-%d")
+
+    # date → reservation_id 집합 으로 그룹핑 (batch 함수가 (ids, date) 시그니처)
+    targets: Dict[str, set] = {}
+
+    if room_ids:
+        assigns = (
+            db.query(RoomAssignment.reservation_id, RoomAssignment.date)
+            .filter(
+                RoomAssignment.room_id.in_(room_ids),
+                RoomAssignment.date >= today_str,
+            )
+            .all()
+        )
+        for res_id, date in assigns:
+            targets.setdefault(date, set()).add(res_id)
+
+    if biz_item_ids:
+        # 진행 중 / 미래 예약: check_out_date >= today 또는 check_out_date IS NULL
+        from app.db.models import Reservation, ReservationStatus
+        from sqlalchemy import and_, or_
+
+        res_rows = (
+            db.query(Reservation.id, Reservation.check_in_date, Reservation.check_out_date)
+            .filter(
+                Reservation.naver_biz_item_id.in_(biz_item_ids),
+                Reservation.status == ReservationStatus.CONFIRMED,
+                or_(
+                    Reservation.check_out_date.is_(None),
+                    Reservation.check_out_date >= today_str,
+                ),
+            )
+            .all()
+        )
+        # stay 의 각 박일 (오늘 이후만) 추가
+        from app.services.schedule_utils import date_range
+        for res_id, ci, co in res_rows:
+            if not ci:
+                continue
+            for d in date_range(ci, co):
+                if d >= today_str:
+                    targets.setdefault(d, set()).add(res_id)
+
+    for date, ids in targets.items():
+        try:
+            reconcile_room_upgrade_review_batch(db, list(ids), date)
+        except Exception as e:
+            logger.warning(
+                f"grade-change reconcile failed for date={date}: {e}"
+            )
 
 
 @router.post("/naver/biz-items/sync")

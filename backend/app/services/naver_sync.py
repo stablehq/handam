@@ -351,6 +351,15 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
         except Exception as e:
             logger.warning(f"Surcharge batch reconcile after sync failed: {e}")
 
+        # room_upgrade_review reconcile (무료 업그레이드 후기 안내).
+        # 자체 진입 가드가 있어 스케줄 비활성 시 즉시 return.
+        try:
+            from app.services.room_upgrade_review import reconcile_room_upgrade_review_batch
+            today_str = datetime.now(KST).strftime("%Y-%m-%d")
+            reconcile_room_upgrade_review_batch(db, chip_target_ids, today_str)
+        except Exception as e:
+            logger.warning(f"room_upgrade_review batch reconcile after sync failed: {e}")
+
     # ── Phase 6: event SMS 즉시 발송 훅 (fire-and-forget, 격리) ──
     # 활성 event 스케줄(gender_filter / hours_since_booking 등) 매칭되는 신규 예약에
     # 즉시 안내 SMS 발송. 실패는 sync 메인 흐름에 영향 없음.
@@ -786,13 +795,15 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
                             changed=compacted,
                         )
 
-                # S5 반영: surcharge 칩 정리
+                # S5 반영: surcharge / room_upgrade_review 칩 정리
                 try:
                     from app.services.surcharge import _delete_all_surcharge_chips
+                    from app.services.room_upgrade_review import _delete_all_room_upgrade_review_chips
                     for d in affected_dates:
                         _delete_all_surcharge_chips(db, existing.id, d)
+                        _delete_all_room_upgrade_review_chips(db, existing.id, d)
                 except Exception as e:
-                    logger.warning(f"Naver same-day cancel surcharge cleanup failed: {e}")
+                    logger.warning(f"Naver same-day cancel chip cleanup failed: {e}")
 
                 diag("naver_sync.same_day_cancel", level="critical", reservation_id=existing.id, dates=affected_dates)
         else:

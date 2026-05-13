@@ -22,6 +22,7 @@ CUSTOM_SCHEDULE_TYPES = {
     "surcharge_standard": "인원 초과 (일반 객실)",
     "surcharge_double": "인원 초과 (더블 객실, 업그레이드비 포함)",
     "party3_today_mms": "파티 당일 안내 (MMS, 2차 참여자)",
+    "room_upgrade_review": "무료 업그레이드 후기 안내 (객후)",
 }
 
 
@@ -108,12 +109,63 @@ def _refresh_party3_today_mms(db: Session, target_date: str) -> None:
     reconcile_party3_mms(db, target_date)
 
 
+def _refresh_room_upgrade_review(db: Session, target_date: str) -> None:
+    """room_upgrade_review (객후) 발송 직전 칩 상태 최신화.
+
+    대상:
+      (1) target_date 에 방 배정된 모든 예약 — 신규/유지 칩 정리
+      (2) target_date 에 객후 미발송 칩이 이미 있는 예약 — stale 칩 정리 포함
+
+    reconcile_room_upgrade_review 는 idempotent — 진입 가드(_find_schedule) 가
+    내장이라 스케줄 비활성이면 즉시 return (no-op).
+    """
+    from app.db.models import ReservationSmsAssignment, RoomAssignment, TemplateSchedule
+    from app.services.room_upgrade_review import (
+        ROOM_UPGRADE_REVIEW,
+        reconcile_room_upgrade_review_batch,
+    )
+
+    # (1) 현재 target_date 에 방 배정된 예약
+    assigned_ids = {
+        row[0]
+        for row in db.query(RoomAssignment.reservation_id)
+        .filter(RoomAssignment.date == target_date)
+        .all()
+    }
+
+    # (2) 객후 미발송 칩 보유 예약 (stale 가능)
+    schedule_ids = {
+        row[0]
+        for row in db.query(TemplateSchedule.id)
+        .filter(TemplateSchedule.custom_type == ROOM_UPGRADE_REVIEW)
+        .all()
+    }
+    stale_chip_ids: set[int] = set()
+    if schedule_ids:
+        stale_chip_ids = {
+            row[0]
+            for row in db.query(ReservationSmsAssignment.reservation_id)
+            .filter(
+                ReservationSmsAssignment.schedule_id.in_(schedule_ids),
+                ReservationSmsAssignment.date == target_date,
+                ReservationSmsAssignment.sent_at.is_(None),
+            )
+            .all()
+        }
+
+    reservation_ids = list(assigned_ids | stale_chip_ids)
+    if not reservation_ids:
+        return
+    reconcile_room_upgrade_review_batch(db, reservation_ids, target_date)
+
+
 # custom_type → (db, target_date) -> None
 # 같은 reconcile 로직을 공유하는 타입은 같은 handler 를 가리키면 됨.
 PRE_SEND_REFRESH_HANDLERS: dict[str, Callable[[Session, str], None]] = {
     "surcharge_standard": _refresh_surcharge,
     "surcharge_double": _refresh_surcharge,
     "party3_today_mms": _refresh_party3_today_mms,
+    "room_upgrade_review": _refresh_room_upgrade_review,
 }
 
 
