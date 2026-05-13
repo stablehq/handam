@@ -260,6 +260,7 @@ class Room(TenantMixin, Base):
     bed_capacity = Column("dormitory_beds", Integer, default=1)
     door_password = Column("default_password", String(20), nullable=True)  # 객실 고정 비밀번호
     room_memo = Column(Text, nullable=True)  # 운영자용 메모 (RoomAssignment 라벨 셀에 표시)
+    grade = Column(Integer, nullable=True)  # 1~5 객실 등급 (1=도미 < 2=더블 < 3=트윈 < 4=트윈3인실 < 5=스위트). room_upgrade_review 칩 발송 조건.
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
@@ -308,6 +309,7 @@ class NaverBizItem(TenantMixin, Base):
     default_capacity = Column(Integer, default=1, nullable=True)  # 예약 단위 기본 인원 (도미토리=1, 개인실=2~3)
     section_hint = Column(String(20), nullable=True)  # 'party' | 'room' | null(=unassigned)
     default_party_type = Column(String(10), nullable=True)  # '1' | '2' | '2차만' | null — 패키지 상품 예약 시 Reservation.party_type 자동 세팅
+    grade = Column(Integer, nullable=True)  # 1~5 예약 상품 등급. Room.grade 와 비교해 객실 업그레이드 판정.
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 

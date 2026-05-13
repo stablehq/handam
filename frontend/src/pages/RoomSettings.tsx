@@ -53,7 +53,12 @@ interface Room {
   door_password?: string | null;
   building_id?: number | null;
   building_name?: string | null;
+  grade?: number | null;  // 1~5 객실 등급 (room_upgrade_review 칩 발송 조건)
 }
+
+// 객실 등급 가이드 — 객실 설정 / 상품 설정 모달 양쪽에서 동일 척도 사용.
+const GRADE_GUIDE_TEXT = '1=도미 < 2=더블 < 3=트윈 < 4=트윈3인실 < 5=스위트';
+const GRADE_OPTIONS = [1, 2, 3, 4, 5];
 
 interface RoomForm {
   room_number: string;
@@ -136,12 +141,18 @@ const RoomSettings = () => {
     default_capacity: number;
     section_hint: string;
     default_party_type: string | null;
+    grade: number | null;
     active: boolean;
     exposed?: boolean;
   }>>([]);
-  const [bizItemEdits, setBizItemEdits] = useState<Record<string, {display_name?: string; default_capacity?: number; section_hint?: string; default_party_type?: string}>>({});
+  const [bizItemEdits, setBizItemEdits] = useState<Record<string, {display_name?: string; default_capacity?: number; section_hint?: string; default_party_type?: string; grade?: number}>>({});
   const [bizItemSaving, setBizItemSaving] = useState(false);
   const [bizItemSyncing, setBizItemSyncing] = useState(false);
+
+  // ── Room grade modal state ──
+  const [roomGradeModalOpen, setRoomGradeModalOpen] = useState(false);
+  const [roomGradeEdits, setRoomGradeEdits] = useState<Record<number, number>>({});
+  const [roomGradeSaving, setRoomGradeSaving] = useState(false);
 
   // ── Init ──
   useEffect(() => {
@@ -242,6 +253,48 @@ const RoomSettings = () => {
       setBizItemSyncing(false);
     }
   };
+
+  // ── Room grade modal ──
+  // 모달 열릴 때 현재 등급으로 edits 초기화 (운영자가 보고 변경 가능).
+  useEffect(() => {
+    if (!roomGradeModalOpen) return;
+    const initial: Record<number, number> = {};
+    for (const r of rooms) {
+      if (typeof r.grade === 'number') initial[r.id] = r.grade;
+    }
+    setRoomGradeEdits(initial);
+  }, [roomGradeModalOpen, rooms]);
+
+  const handleRoomGradeChange = (roomId: number, grade: number) => {
+    setRoomGradeEdits(prev => ({ ...prev, [roomId]: grade }));
+  };
+
+  const handleRoomGradeSave = async () => {
+    // 원본과 다른 항목만 PATCH 대상
+    const items = Object.entries(roomGradeEdits)
+      .map(([id, grade]) => ({ id: Number(id), grade }))
+      .filter(({ id, grade }) => {
+        const orig = rooms.find(r => r.id === id);
+        return orig && orig.grade !== grade;
+      });
+    if (items.length === 0) {
+      setRoomGradeModalOpen(false);
+      return;
+    }
+    setRoomGradeSaving(true);
+    try {
+      await roomsAPI.updateRoomGrades(items);
+      toast.success('객실 등급이 저장되었습니다.');
+      await loadRooms();
+      setRoomGradeModalOpen(false);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail ?? '객실 등급 저장에 실패했습니다.');
+    } finally {
+      setRoomGradeSaving(false);
+    }
+  };
+
+  const roomGradeMissingCount = rooms.filter(r => r.active && typeof r.grade !== 'number').length;
 
   // ── Room CRUD ──
   const openCreate = () => {
@@ -633,6 +686,15 @@ const RoomSettings = () => {
             <Button color="light" size="sm" className="whitespace-nowrap" onClick={() => setBizItemModalOpen(true)}>
               <Settings className="mr-1.5 h-3.5 w-3.5" />
               상품 설정
+            </Button>
+            <Button color="light" size="sm" className="whitespace-nowrap relative" onClick={() => setRoomGradeModalOpen(true)}>
+              <Settings className="mr-1.5 h-3.5 w-3.5" />
+              객실 등급
+              {roomGradeMissingCount > 0 && (
+                <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-[#FF9F00] px-1.5 py-0.5 text-tiny font-semibold text-white">
+                  {roomGradeMissingCount}건 미설정
+                </span>
+              )}
             </Button>
             <Button color="light" size="sm" className="whitespace-nowrap" onClick={openPriorityModal}>
               <ArrowUpDown className="mr-1.5 h-3.5 w-3.5" />
@@ -1185,6 +1247,9 @@ const RoomSettings = () => {
                 )}
               </Button>
             </div>
+            <p className="text-caption text-[#8B95A1]">
+              등급 가이드: {GRADE_GUIDE_TEXT}
+            </p>
 
             {bizItemSettingsList.length > 0 ? (
               <div className="rounded-lg border border-[#E5E8EB] dark:border-gray-700">
@@ -1194,6 +1259,7 @@ const RoomSettings = () => {
                       <TableHeadCell className="text-caption">상품명 (네이버)</TableHeadCell>
                       <TableHeadCell className="text-caption">표시명</TableHeadCell>
                       <TableHeadCell className="text-caption w-24">기준인원</TableHeadCell>
+                      <TableHeadCell className="text-caption w-24">등급</TableHeadCell>
                       <TableHeadCell className="text-caption w-28">섹션</TableHeadCell>
                       <TableHeadCell className="text-caption w-28">파티포함</TableHeadCell>
                     </TableRow>
@@ -1227,6 +1293,18 @@ const RoomSettings = () => {
                               value={edits.default_capacity ?? item.default_capacity ?? 1}
                               onChange={e => handleBizItemEdit(item.biz_item_id, 'default_capacity', parseInt(e.target.value) || 1)}
                             />
+                          </TableCell>
+                          <TableCell>
+                            <Select
+                              sizing="sm"
+                              value={edits.grade ?? item.grade ?? ''}
+                              onChange={e => handleBizItemEdit(item.biz_item_id, 'grade', parseInt(e.target.value))}
+                            >
+                              <option value="">미설정</option>
+                              {GRADE_OPTIONS.map(g => (
+                                <option key={g} value={g}>{g}</option>
+                              ))}
+                            </Select>
                           </TableCell>
                           <TableCell>
                             <Select
@@ -1267,6 +1345,86 @@ const RoomSettings = () => {
           <Button color="light" onClick={() => setBizItemModalOpen(false)}>닫기</Button>
           <Button color="blue" onClick={handleBizItemSave} disabled={bizItemSaving || Object.keys(bizItemEdits).length === 0}>
             {bizItemSaving ? (
+              <><Spinner size="sm" className="mr-2" />저장 중...</>
+            ) : (
+              '저장'
+            )}
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* 객실 등급 설정 모달 — room_upgrade_review (객후) 칩 발송 조건 */}
+      <Modal size="lg" show={roomGradeModalOpen} onClose={() => setRoomGradeModalOpen(false)}>
+        <ModalHeader>객실 등급 설정</ModalHeader>
+        <ModalBody>
+          <div className="space-y-4">
+            <p className="text-caption text-[#8B95A1]">
+              가이드: {GRADE_GUIDE_TEXT} · 무료 업그레이드 안내 SMS(객후) 발송 조건으로 사용됩니다.
+            </p>
+            {rooms.length === 0 ? (
+              <div className="empty-state">
+                <p className="text-label text-[#8B95A1]">등록된 객실이 없습니다.</p>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-[#E5E8EB] dark:border-gray-700">
+                <Table className="whitespace-nowrap">
+                  <TableHead>
+                    <TableRow>
+                      <TableHeadCell className="text-caption">객실</TableHeadCell>
+                      <TableHeadCell className="text-caption">타입</TableHeadCell>
+                      <TableHeadCell className="text-caption">건물</TableHeadCell>
+                      <TableHeadCell className="text-caption w-32">등급</TableHeadCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {rooms.map(room => {
+                      const current = roomGradeEdits[room.id];
+                      const displayValue = typeof current === 'number' ? current : (room.grade ?? '');
+                      const isMissing = displayValue === '';
+                      return (
+                        <TableRow key={room.id}>
+                          <TableCell>
+                            <span className="text-body font-medium text-[#191F28] dark:text-white">
+                              {room.room_number}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-caption text-[#8B95A1]">{room.room_type}</span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-caption text-[#8B95A1]">{room.building_name ?? '-'}</span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Select
+                                sizing="sm"
+                                value={displayValue}
+                                onChange={e => handleRoomGradeChange(room.id, parseInt(e.target.value))}
+                                className="min-w-[80px]"
+                              >
+                                <option value="" disabled>미설정</option>
+                                {GRADE_OPTIONS.map(g => (
+                                  <option key={g} value={g}>{g}</option>
+                                ))}
+                              </Select>
+                              {isMissing && (
+                                <Badge color="warning" size="xs">미설정</Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button color="light" onClick={() => setRoomGradeModalOpen(false)}>닫기</Button>
+          <Button color="blue" onClick={handleRoomGradeSave} disabled={roomGradeSaving}>
+            {roomGradeSaving ? (
               <><Spinner size="sm" className="mr-2" />저장 중...</>
             ) : (
               '저장'

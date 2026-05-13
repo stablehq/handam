@@ -86,6 +86,7 @@ class RoomResponse(BaseModel):
     room_group_name: Optional[str] = None
     door_password: Optional[str] = None
     room_memo: Optional[str] = None
+    grade: Optional[int] = None  # 1~5 객실 등급 (room_upgrade_review 칩 발송 조건)
     created_at: datetime
     updated_at: datetime
 
@@ -108,6 +109,7 @@ class NaverBizItemResponse(BaseModel):
     section_hint: Optional[str] = None
     default_party_type: Optional[str] = None
     biz_item_type: Optional[str] = None
+    grade: Optional[int] = None  # 1~5 예약 상품 등급 (room_upgrade_review 칩 발송 조건)
     exposed: bool = True
     active: bool
     created_at: datetime
@@ -145,6 +147,7 @@ def _room_to_response(room: Room) -> dict:
         bed_capacity=room.bed_capacity,
         door_password=room.door_password,
         room_memo=room.room_memo,
+        grade=room.grade,
         created_at=room.created_at,
         updated_at=room.updated_at,
     )
@@ -221,6 +224,7 @@ def _biz_item_to_response(item: NaverBizItem) -> NaverBizItemResponse:
         section_hint=item.section_hint,
         default_party_type=item.default_party_type,
         biz_item_type=item.biz_item_type,
+        grade=item.grade,
         exposed=item.is_exposed,
         active=item.is_active,
         created_at=item.created_at,
@@ -241,6 +245,7 @@ class BizItemUpdateRequest(BaseModel):
     default_capacity: Optional[int] = None
     section_hint: Optional[str] = None
     default_party_type: Optional[str] = None
+    grade: Optional[int] = None  # 1~5. None 은 변경 안 함 (NULL 로 되돌리기 미지원)
 
 
 @router.patch("/naver/biz-items")
@@ -265,10 +270,65 @@ def update_biz_items(
             biz_item.section_hint = item_data.section_hint or None  # empty string → None
         if item_data.default_party_type is not None:
             biz_item.default_party_type = item_data.default_party_type or None  # empty string → None
+        if item_data.grade is not None:
+            from app.services.room_grade import is_valid_grade
+            if not is_valid_grade(item_data.grade):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"등급은 1~5 사이의 정수여야 합니다 (입력: {item_data.grade})",
+                )
+            biz_item.grade = item_data.grade
         updated.append(biz_item)
 
     db.commit()
+    # TODO(PR 2): grade 가 변경된 biz_item 의 영향 예약에 대해
+    # reconcile_room_upgrade_review_batch 호출 — stale 칩 방지
     return [_biz_item_to_response(item) for item in updated]
+
+
+class RoomGradeUpdateItem(BaseModel):
+    id: int
+    grade: int  # 1~5 (NULL 로 되돌리기 미지원)
+
+
+@router.patch("/grades")
+def update_room_grades(
+    items: List[RoomGradeUpdateItem],
+    db: Session = Depends(get_tenant_scoped_db),
+    current_user: User = Depends(require_admin_or_above),
+):
+    """객실 등급 일괄 업데이트 (room_upgrade_review 칩 발송 조건).
+
+    단일 트랜잭션 — 한 행 validation 실패 시 전체 rollback.
+    """
+    from app.services.room_grade import is_valid_grade
+
+    # 1. validation 먼저 — 한 행이라도 잘못되면 DB 안 건드림
+    for item_data in items:
+        if not is_valid_grade(item_data.grade):
+            raise HTTPException(
+                status_code=400,
+                detail=f"등급은 1~5 사이의 정수여야 합니다 (id={item_data.id}, 입력={item_data.grade})",
+            )
+
+    # 2. 일괄 업데이트
+    target_ids = [i.id for i in items]
+    grade_map = {i.id: i.grade for i in items}
+    rooms = db.query(Room).filter(Room.id.in_(target_ids)).all()
+    found_ids = {r.id for r in rooms}
+    missing = set(target_ids) - found_ids
+    if missing:
+        raise HTTPException(
+            status_code=404,
+            detail=f"존재하지 않는 객실 id: {sorted(missing)}",
+        )
+    for room in rooms:
+        room.grade = grade_map[room.id]
+
+    db.commit()
+    # TODO(PR 2): grade 가 변경된 Room 에 배정된 오늘 이후 예약에 대해
+    # reconcile_room_upgrade_review_batch 호출 — stale 칩 방지
+    return [_room_to_response(r) for r in rooms]
 
 
 @router.post("/naver/biz-items/sync")
@@ -289,6 +349,10 @@ async def sync_naver_biz_items(request: Request, db: Session = Depends(get_tenan
         ).first()
 
         if existing:
+            # ★ 운영자 전용 컬럼은 여기서 갱신하지 않음 (네이버 API 응답에 없는 필드):
+            #   display_name, default_capacity, section_hint, default_party_type, grade
+            # 운영자가 모달에서 직접 입력한 값을 sync 가 덮어쓰지 않도록 보존.
+            # 새 운영자 컬럼 추가 시 같은 원칙 유지할 것.
             existing.name = item_data['name']
             existing.biz_item_type = item_data.get('biz_item_type')
             existing.is_exposed = item_data.get('is_exposed', True)

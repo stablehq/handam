@@ -244,8 +244,10 @@ export const roomsAPI = {
   delete: (id: number) => api.delete(`/api/rooms/${id}`),
   getBizItems: () => api.get('/api/rooms/naver/biz-items'),
   syncBizItems: () => api.post('/api/rooms/naver/biz-items/sync'),
-  updateBizItems: (items: Array<{biz_item_id: string; display_name?: string | null; default_capacity?: number | null; section_hint?: string | null}>) =>
+  updateBizItems: (items: Array<{biz_item_id: string; display_name?: string | null; default_capacity?: number | null; section_hint?: string | null; default_party_type?: string | null; grade?: number | null}>) =>
     api.patch('/api/rooms/naver/biz-items', items),
+  updateRoomGrades: (items: Array<{id: number; grade: number}>) =>
+    api.patch('/api/rooms/grades', items),
   autoAssign: (date?: string) => api.post('/api/rooms/auto-assign', null, { params: date ? { date } : undefined }),
   // Room Groups
   getGroups: () => api.get('/api/rooms/groups'),
