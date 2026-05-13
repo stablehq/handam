@@ -46,7 +46,7 @@ from app.db.models import (
 # ---------------------------------------------------------------------------
 
 _ASSIGNMENT_VALUES = {"room", "party", "unassigned", "unstable"}
-_COLUMN_MATCH_COLUMNS = {"party_type", "gender", "naver_room_type", "notes"}
+_COLUMN_MATCH_COLUMNS = {"party_type", "gender", "naver_room_type", "notes", "customer_name"}
 
 
 # ---------------------------------------------------------------------------

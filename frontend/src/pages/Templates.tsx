@@ -178,6 +178,7 @@ const COLUMN_MATCH_OPTIONS: { value: string; label: string }[] = [
   { value: 'gender', label: '성별' },
   { value: 'naver_room_type', label: '예약객실' },
   { value: 'notes', label: '메모' },
+  { value: 'customer_name', label: '이름' },
 ];
 
 const COLUMN_LABEL_MAP: Record<string, string> = Object.fromEntries(
