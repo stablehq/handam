@@ -16,7 +16,7 @@ from app.config import KST
 from sqlalchemy.orm import Session
 import logging
 
-from sqlalchemy import exists, and_
+from sqlalchemy import exists, and_, or_
 from sqlalchemy.orm import selectinload
 from app.db.models import (
     Reservation, Room, RoomAssignment, ReservationStatus,
@@ -459,14 +459,24 @@ def _assign_all_rooms(
 
 
 def reconcile_stale_chips(db: Session, target_date: str, lookahead_days: int = 1) -> int:
-    """target_date 부터 lookahead_days 동안 칩 0건인 CONFIRMED 예약을 일괄 reconcile.
+    """[target_date, target_date+lookahead_days] 와 stay 가 겹치는 모든 CONFIRMED 예약을
+    reconcile_chips_for_reservation 으로 통과시켜 칩 상태를 정상화.
 
-    auto_assign_rooms 는 신규 배정한 예약만 sync_sms_tags 를 호출하므로,
-    옛 회귀로 칩이 빠진 채 이미 배정된 stale 예약(예: 객실은 있는데 칩 0건)은
-    정상 흐름에서 영원히 복구되지 않는다. 이 함수가 매일 1회 그 갭을 메운다.
+    이전 동작 (좁은 stale_repair):
+      - "칩 0건" 예약만 NOT EXISTS 로 골라서 복구
+      - 부분 누락 (예: 4 schedule 매칭하는데 2 개만 칩 있는 케이스) 놓침
+      - 결과: 옛 ra 로 만들어졌고 schedule 가 나중에 추가/변경된 예약은 영원히 unreached
 
-    reconcile_chips_for_reservation 은 idempotent — 정상 칩이 있으면 no-op.
-    sync_denormalized_field 는 reservation.room_number 빈 값을 같이 채운다.
+    현재 동작 (in-stay 전체 reconcile):
+      - target_date 와 stay 가 overlap 하는 모든 confirmed 를 후보로
+      - 각 예약을 reconcile_chips_for_reservation 통과 — idempotent
+        · 정상이면 no-op (work 만 하고 변화 없음)
+        · 누락 칩 있으면 추가
+        · stale 칩 (expected 에 없는 unsent unprotected) 있으면 삭제
+      - chip 수 변화한 예약을 repaired 로 카운트
+
+    Cost: in-stay ~30 res × active schedule 매칭 = 약 1.5k 쿼리/run.
+          daily 1회 (호출자 daily_assign_rooms) 라서 부담 없음.
     """
     tid = get_session_tenant_id(db)
     if tid is None:
@@ -476,30 +486,42 @@ def reconcile_stale_chips(db: Session, target_date: str, lookahead_days: int = 1
         datetime.strptime(target_date, "%Y-%m-%d") + timedelta(days=lookahead_days)
     ).strftime("%Y-%m-%d")
 
-    # NOT EXISTS 패턴 — outer join 을 쓰면 옵션 C 자동 필터의 froms fallback
-    # (tenant_context.py) 가 ReservationSmsAssignment 에도 WHERE tenant_id=X 를
-    # 추가해 LEFT JOIN 이 INNER JOIN 처럼 동작 → stale(칩 0건) 예약이 결과에서
-    # 제거됨. NOT EXISTS 는 subquery 라서 froms 영향 없음 + 명시 tenant 필터로
-    # cross-tenant chip 계수도 차단.
-    stale_ids = [
+    diag(
+        "stale_chip_reconcile.enter",
+        level="verbose",
+        target_date=target_date,
+        end_date=end_date,
+        lookahead_days=lookahead_days,
+    )
+
+    # in-stay overlap: ci <= end_date AND (co IS NULL OR co > target_date).
+    # ci 가 end_date 이전 시작이고, co 가 target_date 이후거나 NULL(=당일 1박) 이면
+    # window 와 stay 가 겹침. 다박 진행중인 옛 예약도 잡힘.
+    candidate_ids = [
         rid
         for (rid,) in db.query(Reservation.id)
         .filter(
             Reservation.tenant_id == tid,
             Reservation.status == ReservationStatus.CONFIRMED,
-            Reservation.check_in_date >= target_date,
             Reservation.check_in_date <= end_date,
-            ~exists().where(
-                and_(
-                    ReservationSmsAssignment.reservation_id == Reservation.id,
-                    ReservationSmsAssignment.tenant_id == tid,
-                )
+            or_(
+                Reservation.check_out_date.is_(None),
+                Reservation.check_out_date > target_date,
             ),
         )
         .all()
     ]
 
-    if not stale_ids:
+    if not candidate_ids:
+        diag(
+            "daily_chip_reconcile.stale_repair",
+            level="critical",
+            target_date=target_date,
+            lookahead_days=lookahead_days,
+            candidates=0,
+            repaired=0,
+            failed=0,
+        )
         return 0
 
     from app.services.chip_reconciler import reconcile_chips_for_reservation
@@ -514,25 +536,53 @@ def reconcile_stale_chips(db: Session, target_date: str, lookahead_days: int = 1
     )
 
     repaired = 0
-    for rid in stale_ids:
+    failed = 0
+    for rid in candidate_ids:
         try:
+            before = db.query(ReservationSmsAssignment).filter(
+                ReservationSmsAssignment.tenant_id == tid,
+                ReservationSmsAssignment.reservation_id == rid,
+            ).count()
             reconcile_chips_for_reservation(db, rid, schedules=schedules)
+            after = db.query(ReservationSmsAssignment).filter(
+                ReservationSmsAssignment.tenant_id == tid,
+                ReservationSmsAssignment.reservation_id == rid,
+            ).count()
+            if before != after:
+                repaired += 1
+                # 실제로 칩 수가 바뀐 케이스만 critical 로 마킹 — log_validation 에서
+                # 어떤 res 가 stale_repair 로 영향 받았는지 즉시 식별 가능하게.
+                diag(
+                    "stale_chip_reconcile.res_repaired",
+                    level="critical",
+                    res_id=rid,
+                    before=before,
+                    after=after,
+                    delta=after - before,
+                )
             res = db.query(Reservation).filter(Reservation.id == rid).first()
             if res:
                 room_assignment.sync_denormalized_field(db, res)
-            repaired += 1
+            db.commit()
         except Exception as e:
+            db.rollback()
+            failed += 1
             logger.warning(f"reconcile_stale_chips failed for res={rid}: {e}")
-
-    db.commit()
+            diag(
+                "stale_chip_reconcile.res_failed",
+                level="critical",
+                res_id=rid,
+                error=str(e)[:200],
+            )
 
     diag(
         "daily_chip_reconcile.stale_repair",
         level="critical",
         target_date=target_date,
         lookahead_days=lookahead_days,
-        candidates=len(stale_ids),
+        candidates=len(candidate_ids),
         repaired=repaired,
+        failed=failed,
     )
     return repaired
 
