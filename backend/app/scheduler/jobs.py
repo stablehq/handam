@@ -406,7 +406,10 @@ def setup_scheduler():
         ),
         id='sync_naver_reservations',
         name='Sync Naver Reservations',
-        replace_existing=True
+        replace_existing=True,
+        coalesce=True,           # missed fire 누적 시 1번만 catch-up
+        misfire_grace_time=60,   # 60초 이내 늦은 fire 허용
+        max_instances=1,
     )
 
     # Unstable reservations sync — 피크(15~20시)는 10분 간격, 그 외엔 00:05 / 12:05 하루 2회
@@ -416,6 +419,9 @@ def setup_scheduler():
         id='sync_unstable_reservations_peak',
         name='언스테이블 예약 동기화 (피크 15~20시, 10분 간격)',
         replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=120,  # 10분 간격 — 2분까지 허용
+        max_instances=1,
     )
     scheduler.add_job(
         sync_unstable_reservations_job,
@@ -423,6 +429,9 @@ def setup_scheduler():
         id='sync_unstable_reservations_offpeak',
         name='언스테이블 예약 동기화 (오프피크 00:05·12:05)',
         replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=300,  # 하루 2회 — 5분까지 허용
+        max_instances=1,
     )
 
     # Daily room auto-assignment - 10am KST (당일+내일)
@@ -432,6 +441,9 @@ def setup_scheduler():
         id='daily_room_assign',
         name='객실 자동 배정 (오전 10:01)',
         replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=300,  # 하루 1회 — 5분까지 허용
+        max_instances=1,
     )
 
     # Daily reconciliation - 09:55 KST (before room assignment at 10:00)
@@ -441,6 +453,9 @@ def setup_scheduler():
         id='reconcile_today_reservations',
         name='네이버 예약 대사 (오전 9:55)',
         replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=300,  # 하루 1회 — 5분까지 허용
+        max_instances=1,
     )
 
     # Consecutive stay detection - 4 times daily (09, 10, 11, 12 KST)
@@ -450,6 +465,9 @@ def setup_scheduler():
         id='detect_consecutive_stays',
         name='연박 감지 (하루 4회)',
         replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=300,  # 하루 4회 — 5분까지 허용
+        max_instances=1,
     )
 
     # Sync status log - every 6 hours (00, 06, 12, 18)
@@ -459,6 +477,9 @@ def setup_scheduler():
         id='sync_status_log',
         name='동기화 상태 로그 (6시간)',
         replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=300,  # 6시간마다 — 5분까지 허용
+        max_instances=1,
     )
 
     # Snapshot refresh - 4 times daily KST (08:50, 09:50, 11:50, 22:50)
@@ -468,6 +489,9 @@ def setup_scheduler():
         id='refresh_snapshots_morning',
         name='참여자 스냅샷 갱신 (08:50)',
         replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=300,
+        max_instances=1,
     )
     scheduler.add_job(
         refresh_snapshots_job,
@@ -475,6 +499,9 @@ def setup_scheduler():
         id='refresh_snapshots_morning_late',
         name='참여자 스냅샷 갱신 (09:50)',
         replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=300,
+        max_instances=1,
     )
     scheduler.add_job(
         refresh_snapshots_job,
@@ -482,6 +509,9 @@ def setup_scheduler():
         id='refresh_snapshots_noon',
         name='참여자 스냅샷 갱신 (11:50)',
         replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=300,
+        max_instances=1,
     )
     scheduler.add_job(
         refresh_snapshots_job,
@@ -489,6 +519,9 @@ def setup_scheduler():
         id='refresh_snapshots_night',
         name='참여자 스냅샷 갱신 (22:50)',
         replace_existing=True,
+        coalesce=True,
+        misfire_grace_time=300,
+        max_instances=1,
     )
 
     # Load template schedules on startup

@@ -168,7 +168,10 @@ class ScheduleManager:
             trigger=trigger,
             id=job_id,
             name=schedule.schedule_name,
-            replace_existing=True
+            replace_existing=True,
+            coalesce=True,           # missed fire 누적 시 1번만 catch-up
+            misfire_grace_time=60,   # 60초 이내 늦은 fire 허용
+            max_instances=1,
         )
 
         # Update next_run in database
