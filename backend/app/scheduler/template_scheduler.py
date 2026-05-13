@@ -539,7 +539,138 @@ class TemplateScheduleExecutor:
         if effective_stay_filter == 'exclude':
             results = [r for r in results if not r.is_long_stay]
 
+        # ── custom_schedule chip-vs-result blocked breakdown ──
+        # chip 은 만들어졌는데 (= decide_chip 통과) 발송 대상에서 빠진 res 들을
+        # 각 가드별로 분류해 critical diag 로 발화. filters 제거 안전성 검증에 사용.
+        # 비용: blocked 가 있을 때만 추가 query 5개 실행. chip_count 보통 작아 부담 미미.
+        if is_custom:
+            self._emit_blocked_breakdown(
+                schedule=schedule,
+                target_date=target_date,
+                effective_target_mode=effective_target_mode,
+                results=results,
+                min_date=min_date,
+                max_date=max_date,
+            )
+
         return results
+
+    def _emit_blocked_breakdown(
+        self,
+        schedule: TemplateSchedule,
+        target_date: Optional[str],
+        effective_target_mode: Optional[str],
+        results: List[Reservation],
+        min_date: str,
+        max_date: str,
+    ) -> None:
+        """chip 보유 res 중 발송 대상에서 빠진 res 들을 가드별로 분류해 diag 발화.
+
+        chip_holders = ReservationSmsAssignment 에 해당 schedule.template_key 미발송 칩
+        → 각 가드(safety / stay_coverage / target_mode / filters / exclude_sent)
+          별 통과/차단 set 계산
+        → blocked 가 있을 때만 critical diag emit.
+        """
+        from app.services.filters import stay_coverage_filter
+        template_key = schedule.template.template_key if schedule.template else None
+        if not template_key or not target_date:
+            return
+
+        # 1) chip 보유 res (= eligible_set, decide_chip 통과)
+        chip_holders = {
+            r[0] for r in
+            self.db.query(ReservationSmsAssignment.reservation_id).filter(
+                ReservationSmsAssignment.tenant_id == schedule.tenant_id,
+                ReservationSmsAssignment.template_key == template_key,
+                ReservationSmsAssignment.date == target_date,
+                ReservationSmsAssignment.sent_at.is_(None),
+                or_(
+                    ReservationSmsAssignment.send_status.is_(None),
+                    ReservationSmsAssignment.send_status != 'failed',
+                ),
+            ).all()
+        }
+        result_ids = {r.id for r in results}
+        blocked_total = chip_holders - result_ids
+        sent_chip_res_ids = chip_holders & result_ids
+        if not chip_holders:
+            return  # 등급 비교 통과한 chip 자체가 없음 — 분류할 대상 없음
+
+        # 2) safety guard (check_in ±7일)
+        safety_pass = {
+            r[0] for r in self.db.query(Reservation.id).filter(
+                Reservation.id.in_(chip_holders),
+                Reservation.tenant_id == schedule.tenant_id,
+                Reservation.status == ReservationStatus.CONFIRMED,
+                Reservation.check_in_date >= min_date,
+                Reservation.check_in_date <= max_date,
+            ).all()
+        }
+        safety_blocked = chip_holders - safety_pass
+
+        # 3) stay_coverage
+        if safety_pass:
+            stay_pass = {
+                r[0] for r in self.db.query(Reservation.id).filter(
+                    Reservation.id.in_(safety_pass),
+                    stay_coverage_filter(target_date),
+                ).all()
+            }
+        else:
+            stay_pass = set()
+        stay_blocked = safety_pass - stay_pass
+
+        # 4) target_mode (first_night → ci==date / last_night → _filter_last_day)
+        if stay_pass:
+            if effective_target_mode == 'first_night':
+                tmode_pass = {
+                    r[0] for r in self.db.query(Reservation.id).filter(
+                        Reservation.id.in_(stay_pass),
+                        Reservation.check_in_date == target_date,
+                    ).all()
+                }
+            elif effective_target_mode == 'last_night':
+                res_for_lastnight = self.db.query(Reservation).filter(
+                    Reservation.id.in_(stay_pass)
+                ).all()
+                tmode_pass = {r.id for r in self._filter_last_day(res_for_lastnight, target_date)}
+            else:
+                tmode_pass = stay_pass
+        else:
+            tmode_pass = set()
+        target_mode_blocked = stay_pass - tmode_pass
+
+        # 5) filters (assignment + column_match — 통합 평가)
+        if tmode_pass:
+            filter_q = self.db.query(Reservation.id).filter(Reservation.id.in_(tmode_pass))
+            filter_q = self._apply_structural_filters(filter_q, schedule, target_date)
+            filter_pass = {r[0] for r in filter_q.all()}
+        else:
+            filter_pass = set()
+        filters_blocked = tmode_pass - filter_pass
+
+        # 6) 잔여 (exclude_sent / stay_filter 등 — 발송 직전 마지막 가드)
+        exclude_or_post_blocked = filter_pass - result_ids
+
+        # filters_blocked 가 핵심 정보: "메모 없어서 차단된 손님 = filters 제거 시 발송 대상".
+        # blocked 있으면 critical (운영자 검토 필요), 없으면 verbose (정상 발송 + 통과 흔적).
+        diag(
+            "custom_schedule.chip_eligibility_breakdown",
+            level="critical" if blocked_total else "verbose",
+            schedule_id=schedule.id,
+            custom_type=schedule.custom_type,
+            template_key=template_key,
+            target_date=target_date,
+            chip_count=len(chip_holders),
+            sent_count=len(sent_chip_res_ids),
+            sent_chip_res_ids=sorted(sent_chip_res_ids)[:20],
+            blocked_total=len(blocked_total),
+            safety_blocked=sorted(safety_blocked)[:20],
+            stay_blocked=sorted(stay_blocked)[:20],
+            target_mode_blocked=sorted(target_mode_blocked)[:20],
+            filters_blocked=sorted(filters_blocked)[:20],
+            exclude_or_post_blocked=sorted(exclude_or_post_blocked)[:20],
+        )
 
     def _get_targets_event(
         self,
