@@ -105,11 +105,15 @@ export const InlineInput = ({
     <span
       onDoubleClick={activate}
       onTouchEnd={handleTouchEnd}
-      // 키보드 Tab 흐름: span 자체를 focusable 로 만들고 focus 받으면 자동 activate.
+      // 키보드 Tab 흐름: span 자체를 focusable 로 만들고 키보드 focus 시 자동 activate.
       // 활성 input 에서 Tab → blur(commit) → 다음 InlineInput span 으로 focus 이동
       // → onFocus → activate → input 모드 진입. (이름→전화→파티→성별→메모 자연스러운 흐름)
+      // :focus-visible 매칭으로 키보드 focus 만 활성화 — 마우스 단일 클릭/터치 focus 는
+      // activate 하지 않아 더블클릭 진입 규칙 유지.
       tabIndex={disabled ? -1 : 0}
-      onFocus={activate}
+      onFocus={(e) => {
+        if (e.currentTarget.matches(':focus-visible')) activate();
+      }}
       title={disabled ? undefined : '더블클릭하여 수정'}
       // touchAction: 'manipulation' 제거 — iOS에서 long-press → contextmenu 도 같이
       // 차단해 컨텍스트 메뉴가 안 뜸. 더블탭 줌은 handleTouchEnd 의 preventDefault 로
