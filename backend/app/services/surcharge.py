@@ -82,7 +82,7 @@ def compute_guest_count(reservation) -> int:
     )
 
 
-def _resolve_product_base_capacity(db, reservation, room) -> int:
+def resolve_product_base_capacity(db, reservation, room) -> int:
     """기준 인원 결정 — 예약 상품(NaverBizItem) 의 default_capacity 우선.
 
     객실 업그레이드(예약 상품보다 더 큰 객실 배정) 케이스에서도 예약 시점 기준으로
@@ -90,6 +90,8 @@ def _resolve_product_base_capacity(db, reservation, room) -> int:
     추1 (이전 코드는 객실 base=4 기준으로 추0 처리하던 bug).
 
     biz_item 없거나 default_capacity 미설정인 경우는 객실 base 로 fallback.
+
+    Public API — surcharge.py 외부 (room_upgrade_review 등) 에서도 같은 기준이 필요.
     """
     biz_id = getattr(reservation, 'naver_biz_item_id', None)
     if biz_id:
@@ -103,7 +105,7 @@ def compute_excess(db, reservation, room) -> int:
     """기준 인원 초과분 계산 — 예약 상품 default_capacity 대비."""
     if room is None:
         return 0
-    return max(0, compute_guest_count(reservation) - _resolve_product_base_capacity(db, reservation, room))
+    return max(0, compute_guest_count(reservation) - resolve_product_base_capacity(db, reservation, room))
 
 
 def reconcile_surcharge(
