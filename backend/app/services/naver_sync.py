@@ -2,7 +2,7 @@
 Shared Naver reservation sync logic.
 Used by both the API endpoint and the scheduler job.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
@@ -256,13 +256,26 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
     # ── Phase 5: 자동 객실 배정 ──
     # auto_assign_rooms → assign_room() → ★ 칩 reconcile (2차)
     # 이번에는 RoomAssignment 있으므로 building 필터 통과 → 칩 생성됨
-    # reconcile 경로: 오늘 포함 / 일반 sync 경로: 내일 이후만 (오늘은 수동 배정 유지)
+    # reconcile 경로: 항상 오늘 포함 (09:55 일일 대사)
+    # 일반 sync 경로: 15:00 KST 이전이면 오늘 포함, 이후엔 내일 이후만 (오후 늦게 들어온
+    # 당일 예약은 운영자 수동 배정에 맡김 — 아래 SAME_DAY_AUTO_CUTOFF_HOUR 참조)
     if added_count > 0 or date_changed_ids:
         try:
-            today = datetime.now(KST).strftime("%Y-%m-%d")
+            now_kst = datetime.now(KST)
+            today = now_kst.strftime("%Y-%m-%d")
+
+            # 당일 예약 자동 배정 컷오프 (15:00 KST).
+            # - 15:00 이전: 오늘 포함 자동 배정 (운영자 도착 전 자동 처리)
+            # - 15:00 이후: 오늘 제외 (체크인 임박 — 운영자 수동 배정에 맡김)
+            # reconcile 모드 (09:55 일일 대사) 는 항상 오늘 포함 (시각상 항상 cutoff 이전).
+            SAME_DAY_AUTO_CUTOFF_HOUR = 15
+            include_today_in_auto = now_kst.hour < SAME_DAY_AUTO_CUTOFF_HOUR
+            tomorrow = (now_kst + timedelta(days=1)).strftime("%Y-%m-%d")
+            auto_assign_threshold = today if (reconcile_date or include_today_in_auto) else tomorrow
+
             dates = set()
 
-            # added reservations: 기존 로직
+            # added reservations
             new_external_ids = set()
             for res_data in reservations:
                 ext = res_data.get("external_id") or res_data.get("naver_booking_id")
@@ -273,12 +286,8 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
                 if ext not in new_external_ids:
                     continue
                 d = res_data.get("date")
-                if reconcile_date:
-                    if d and d >= today:
-                        dates.add(d)
-                else:
-                    if d and d > today:
-                        dates.add(d)
+                if d and d >= auto_assign_threshold:
+                    dates.add(d)
 
             # date_changed reservations: 전체 체류 범위 수집
             if date_changed_ids:
@@ -289,7 +298,7 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
                 for res in changed:
                     if res.check_in_date and res.check_out_date:
                         for d in _date_range(str(res.check_in_date), str(res.check_out_date)):
-                            if d >= today:
+                            if d >= auto_assign_threshold:
                                 dates.add(d)
 
             assigned_total = 0
@@ -301,7 +310,10 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
                 db.commit()
 
             diag("naver_sync.phase5", level="verbose", added_count=added_count,
-                 date_changed_count=len(date_changed_ids), dates=sorted(dates))
+                 date_changed_count=len(date_changed_ids), dates=sorted(dates),
+                 auto_assign_threshold=auto_assign_threshold,
+                 same_day_included=include_today_in_auto,
+                 reconcile_mode=bool(reconcile_date))
         except Exception as e:
             logger.error(f"Auto-assign after sync failed: {e}")
             db.rollback()
