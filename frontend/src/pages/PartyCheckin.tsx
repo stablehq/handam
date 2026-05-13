@@ -203,6 +203,10 @@ export default function PartyCheckin() {
   // ── Female invite state ──
   const [invites, setInvites] = useState<InviteRow[]>([])
   const [pendingInvites, setPendingInvites] = useState<{ tempId: number; host: string; count: string }[]>([])
+  // 저장된 invite 행에 대한 편집 오버라이드 (id → {host, count} 문자열).
+  // 편집 모드 진입 시 비어있고, 셀을 변경하면 entry 가 채워짐. 저장 시 원본과 비교해
+  // 변경된 항목만 PATCH 호출.
+  const [editedInvites, setEditedInvites] = useState<Record<number, { host: string; count: string }>>({})
   const [inviteSaving, setInviteSaving] = useState(false)
   const [inviteEditing, setInviteEditing] = useState(true)
 
@@ -269,6 +273,7 @@ export default function PartyCheckin() {
       const editingMode = fetchedInvites.length === 0
       setInviteEditing(editingMode)
       setPendingInvites(editingMode ? [{ tempId: Date.now() + Math.random(), host: '', count: '' }] : [])
+      setEditedInvites({})
     } catch {
       toast.error('매출 데이터를 불러오지 못했습니다')
     } finally {
@@ -401,12 +406,26 @@ export default function PartyCheckin() {
     setPendingInvites(prev => [...prev, { tempId: Date.now() + Math.random(), host: '', count: '' }])
   }
 
-  // 편집 모드 진입 시 빈 행 1개 기본 보장
+  // 편집 모드 진입 시 빈 행 1개 기본 보장 + 저장된 invite 편집 오버라이드 초기화
   useEffect(() => {
     if (inviteEditing) {
       setPendingInvites(prev => prev.length === 0 ? [{ tempId: Date.now() + Math.random(), host: '', count: '' }] : prev)
+      setEditedInvites({})
     }
   }, [inviteEditing])
+
+  function handleSavedInviteChange(id: number, field: 'host' | 'count', value: string) {
+    setEditedInvites(prev => {
+      const existing = prev[id]
+      if (existing) {
+        return { ...prev, [id]: { ...existing, [field]: value } }
+      }
+      const inv = invites.find(i => i.id === id)
+      if (!inv) return prev
+      const seed = { host: inv.host_username, count: String(inv.count) }
+      return { ...prev, [id]: { ...seed, [field]: value } }
+    })
+  }
 
   function handlePendingChange(tempId: number, field: 'host' | 'count', value: string) {
     setPendingInvites(prev => prev.map(p => p.tempId === tempId ? { ...p, [field]: value } : p))
@@ -417,26 +436,45 @@ export default function PartyCheckin() {
   }
 
   async function handleInvitesSave() {
-    if (pendingInvites.length === 0) return
-    for (const p of pendingInvites) {
-      if (!p.host) { toast.error('진행자가 선택되지 않은 행이 있습니다'); return }
-      if (p.count === '' || isNaN(Number(p.count)) || Number(p.count) <= 0) {
-        toast.error(`${p.host} 행의 수치를 확인해주세요`); return
-      }
+    // 비어있거나 유효하지 않은 행은 스킵 — 값이 채워진 행만 저장.
+    const isValidRow = (host: string, count: string) =>
+      !!host && count !== '' && !isNaN(Number(count)) && Number(count) > 0
+
+    const pendingToSave = pendingInvites.filter(p => isValidRow(p.host, p.count))
+    // 저장된 invite 편집분 — 원본과 다르고, 값이 모두 유효한 항목만 PATCH 대상
+    const edits = Object.entries(editedInvites)
+      .map(([id, val]) => ({ id: Number(id), host: val.host, count: val.count }))
+      .filter(e => {
+        const orig = invites.find(i => i.id === e.id)
+        if (!orig) return false
+        if (e.host === orig.host_username && e.count === String(orig.count)) return false
+        return isValidRow(e.host, e.count)
+      })
+
+    if (pendingToSave.length === 0 && edits.length === 0) {
+      setInviteEditing(false)
+      return
     }
+
     setInviteSaving(true)
     try {
-      await Promise.all(
-        pendingInvites.map(p =>
+      await Promise.all([
+        ...pendingToSave.map(p =>
           onsiteFemaleInviteAPI.add({ date: selectedDate, host_username: p.host, count: Number(p.count) })
-        )
-      )
+        ),
+        ...edits.map(e =>
+          onsiteFemaleInviteAPI.update(e.id, { host_username: e.host, count: Number(e.count) })
+        ),
+      ])
       const res = await onsiteFemaleInviteAPI.list(selectedDate)
       setInvites(res.data ?? [])
       setPendingInvites([])
+      setEditedInvites({})
       setInviteEditing(false)
       toast.success('저장되었습니다')
-    } catch { toast.error('저장에 실패했습니다') }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail ?? '저장에 실패했습니다')
+    }
     finally { setInviteSaving(false) }
   }
 
@@ -444,6 +482,12 @@ export default function PartyCheckin() {
     try {
       await onsiteFemaleInviteAPI.delete(id)
       setInvites(prev => prev.filter(i => i.id !== id))
+      setEditedInvites(prev => {
+        if (!(id in prev)) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
       toast.success('삭제되었습니다')
     } catch { toast.error('삭제에 실패했습니다') }
   }
@@ -762,19 +806,45 @@ export default function PartyCheckin() {
               <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">여자초대수</Label>
               {(invites.length > 0 || pendingInvites.length > 0) && (
                 <div className="space-y-1.5">
-                  {invites.map((inv) => (
-                    <div key={`saved-${inv.id}`} className="flex items-center justify-between py-1">
-                      <span className="text-body font-medium text-[#191F28] dark:text-white">{inv.host_username}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="tabular-nums text-body font-semibold text-[#191F28] dark:text-white">
-                          {inv.count}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">명</span>
-                        </span>
-                        <button onClick={() => handleInviteDelete(inv.id)} disabled={!inviteEditing} className="rounded-lg p-1 text-[#B0B8C1] transition-colors hover:bg-[#FFF0F0] hover:text-[#F04452] disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[#B0B8C1] dark:hover:bg-[#F04452]/10" title="삭제">
+                  {invites.map((inv) => {
+                    const edited = editedInvites[inv.id]
+                    const hostVal = edited?.host ?? inv.host_username
+                    const countVal = edited?.count ?? String(inv.count)
+                    // 진행자 카드와 통일 — 항상 Select+TextInput 렌더, disabled 만 토글해서
+                    // 수정 ↔ 보기 전환 시 레이아웃 들썩임 없음.
+                    return (
+                      <div key={`saved-${inv.id}`} className="flex items-center gap-2">
+                        <Select
+                          value={hostVal}
+                          onChange={(e) => handleSavedInviteChange(inv.id, 'host', e.target.value)}
+                          disabled={!inviteEditing}
+                          sizing="sm"
+                          className={`h-9 min-w-0 flex-1 ${!inviteEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : !hostVal ? 'text-label text-[#8B95A1]' : ''}`}
+                        >
+                          <option value="">초대자 선택</option>
+                          {hosts.map((h) => (
+                            <option key={h.id} value={h.name}>{h.name}</option>
+                          ))}
+                        </Select>
+                        <TextInput
+                          type="number"
+                          value={countVal}
+                          onChange={(e) => handleSavedInviteChange(inv.id, 'count', e.target.value)}
+                          disabled={!inviteEditing}
+                          placeholder="0"
+                          className={`h-9 w-16 ${!inviteEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : ''}`}
+                        />
+                        <button
+                          onClick={() => handleInviteDelete(inv.id)}
+                          disabled={!inviteEditing}
+                          className="shrink-0 rounded-lg p-1 text-[#B0B8C1] transition-colors hover:bg-[#FFF0F0] hover:text-[#F04452] disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[#B0B8C1] dark:hover:bg-[#F04452]/10"
+                          title="삭제"
+                        >
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                   {inviteEditing && pendingInvites.map((p) => (
                     <div key={`pending-${p.tempId}`} className="flex items-center gap-2">
                       <Select value={p.host} onChange={(e) => handlePendingChange(p.tempId, 'host', e.target.value)} sizing="sm" className={`h-9 min-w-0 flex-1 ${!p.host ? 'text-label text-[#8B95A1]' : ''}`}>
@@ -794,7 +864,7 @@ export default function PartyCheckin() {
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <Button color="light" size="sm" onClick={handleAddBlankRow} disabled={!inviteEditing} className="h-9">행추가</Button>
                 {inviteEditing ? (
-                  <Button color="blue" size="sm" onClick={handleInvitesSave} disabled={inviteSaving || pendingInvites.length === 0} className="h-9">
+                  <Button color="blue" size="sm" onClick={handleInvitesSave} disabled={inviteSaving || (pendingInvites.length === 0 && Object.keys(editedInvites).length === 0)} className="h-9">
                     {inviteSaving && <Spinner size="sm" className="mr-1.5" />}
                     저장
                   </Button>

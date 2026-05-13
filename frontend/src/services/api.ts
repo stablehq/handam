@@ -442,6 +442,8 @@ export const onsiteFemaleInviteAPI = {
   list: (date: string) => api.get('/api/onsite-female-invites', { params: { date } }),
   add: (data: { date: string; host_username: string; count: number }) =>
     api.post('/api/onsite-female-invites', data),
+  update: (id: number, data: { host_username?: string; count?: number }) =>
+    api.patch(`/api/onsite-female-invites/${id}`, data),
   delete: (id: number) => api.delete(`/api/onsite-female-invites/${id}`),
 };
 
