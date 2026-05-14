@@ -670,16 +670,7 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
     old_date = existing.check_in_date
     old_end_date = existing.check_out_date
     incoming_check_in = res_data.get("date", existing.check_in_date)
-    # check_in_pinned catch-up (Mutator 가 가드 평가 전 사전 해제)
-    if existing.check_in_pinned and incoming_check_in == existing.check_in_date:
-        existing.check_in_pinned = False
-        diag(
-            "naver_sync.check_in_pin_cleared",
-            level="critical",
-            reservation_id=existing.id,
-            check_in_date=existing.check_in_date,
-        )
-    # Mutator: pinned=True 면 guarded → skip, False 면 setattr
+    # Mutator: pinned=True 면 guarded → skip (한번 직접수정한 건 영구. cancel/manual 해제만 인정)
     from app.services.reservation_mutator import ReservationMutator, ChangeSource
     ReservationMutator.apply_changes(
         db, existing, ChangeSource.NAVER, {"check_in_date": incoming_check_in}
@@ -713,17 +704,7 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
                     manually_extended_until=existing.manually_extended_until,
                 )
                 existing.manually_extended_until = None
-            if existing.check_out_pinned and incoming_end >= existing.check_out_date:
-                # Naver caught up to user-set value — clear pin
-                existing.check_out_pinned = False
-                diag(
-                    "naver_sync.check_out_pin_cleared",
-                    level="critical",
-                    reservation_id=existing.id,
-                    check_out_date=existing.check_out_date,
-                    incoming_end=incoming_end,
-                )
-            # Mutator: pinned=False (catch-up 후) → guarded 통과 → setattr
+            # Mutator: pinned=True 면 guarded → skip (한번 직접수정한 건 영구. cancel/manual 해제만 인정)
             ReservationMutator.apply_changes(
                 db, existing, ChangeSource.NAVER, {"check_out_date": incoming_end}
             )
