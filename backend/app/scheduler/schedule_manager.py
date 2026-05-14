@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timezone as tz
 
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.base import JobLookupError
 from sqlalchemy.orm import Session
@@ -259,25 +260,41 @@ class ScheduleManager:
             )
 
         elif schedule.schedule_type == 'interval':
-            # Every N minutes using CronTrigger for precise hour range control
             if not schedule.interval_minutes:
                 logger.error(f"Interval schedule #{schedule.id} missing interval_minutes")
                 return None
 
-            # Build minute spec: */N
-            minute_spec = f'*/{schedule.interval_minutes}'
-
-            # Build hour spec from active hours
             start_h = schedule.active_start_hour
             end_h = schedule.active_end_hour
-            if start_h is not None and end_h is not None and start_h < end_h:
-                hour_spec = f'{start_h}-{end_h - 1}'
-            else:
-                hour_spec = '*'
+            has_hour_range = (
+                start_h is not None and end_h is not None and start_h < end_h
+            )
+            hour_spec_full = f'{start_h}-{end_h - 1}' if has_hour_range else '*'
 
-            return CronTrigger(
-                minute=minute_spec,
-                hour=hour_spec,
+            interval = schedule.interval_minutes
+            if interval < 60:
+                # 분 단위: minute='*/N' (N=1~59)
+                return CronTrigger(
+                    minute=f'*/{interval}',
+                    hour=hour_spec_full,
+                    timezone=timezone,
+                )
+            if interval % 60 == 0:
+                # 시 단위 (60의 배수): hour='start-end/N'
+                hours_step = interval // 60
+                if has_hour_range:
+                    hour_spec_step = f'{start_h}-{end_h - 1}/{hours_step}'
+                else:
+                    hour_spec_step = f'*/{hours_step}'
+                return CronTrigger(
+                    minute=0,
+                    hour=hour_spec_step,
+                    timezone=timezone,
+                )
+            # 60+ 분 중 시간 배수가 아닌 케이스 (예: 90분): IntervalTrigger.
+            # active hour 가드는 execute_job 런타임 체크가 흡수 (line 124~).
+            return IntervalTrigger(
+                minutes=interval,
                 timezone=timezone,
             )
 
