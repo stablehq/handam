@@ -333,8 +333,8 @@ async def update_reservation(
     except Exception:
         pass
 
-    for field, value in update_data.items():
-        setattr(db_reservation, field, value)
+    from app.services.reservation_mutator import ReservationMutator, ChangeSource
+    ReservationMutator.apply_changes(db, db_reservation, ChangeSource.MANUAL, update_data)
 
     # status 가 CANCELLED 로 바뀌면 stay_group 자동 해제 (naver_sync 와 동일 정책)
     # — 취소된 예약이 그룹에 stay_group_id 로 남아있으면 이후 extend_stay 등이 stale 데이터로 실패함
@@ -346,6 +346,7 @@ async def update_reservation(
         and db_reservation.manually_extended_until
     ):
         db_reservation.manually_extended_until = None
+        db_reservation.check_out_pinned = False
 
     if (
         "status" in update_data
@@ -390,45 +391,17 @@ async def update_reservation(
             )
             db_reservation.manually_extended_until = None
         db.flush()
-        room_assignment.shift_daily_records(
-            db, db_reservation, old_dates[0], old_dates[1]
-        )
-        room_assignment.reconcile_dates(db, db_reservation)
+        from app.services.reservation_lifecycle import on_dates_changed
+        on_dates_changed(db, db_reservation, old_dates[0], old_dates[1])
 
-    # Phase 2-5a: 성별/인원 변경 시 invariant 재검증
+    # Phase 2-5a: 성별/인원 변경 시 invariant 재검증 (lifecycle 단계 #11)
     if constraint_changed:
-        try:
-            from app.services.room_assignment_invariants import check_assignment_validity
-            invalid_dates = check_assignment_validity(db, db_reservation)
-        except Exception as e:
-            logger.warning(f"check_assignment_validity failed: {e}")
-            invalid_dates = []
-
-        if invalid_dates:
-            from datetime import timedelta
-            from app.config import KST
-            today_str = datetime.now(KST).strftime("%Y-%m-%d")
-            future_invalid = sorted([d for d in invalid_dates if d > today_str])
-            if future_invalid:
-                end_d = (datetime.strptime(future_invalid[-1], "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
-                room_assignment.unassign_room(
-                    db, reservation_id,
-                    from_date=future_invalid[0],
-                    end_date=end_d,
-                )
-                # ※ unassign 후 칩 재동기화는 함수 끝 reconcile_all_chips 에서 일괄 처리
-                log_activity(
-                    db, type="room_move",
-                    title=f"[{db_reservation.customer_name}] 제약 위반 배정 해제 ({len(future_invalid)}일)",
-                    detail={
-                        "reservation_id": reservation_id,
-                        "invalid_dates": future_invalid,
-                        "trigger": "constraint_field_change",
-                        "changed_fields": list(_CONSTRAINT_FIELDS & set(update_data.keys())),
-                    },
-                    created_by=current_user.username,
-                )
-                diag("invariant.violation_detected", level="critical", reservation_id=reservation_id, invalid_dates=future_invalid)
+        from app.services.reservation_lifecycle import on_constraints_changed
+        on_constraints_changed(
+            db, db_reservation,
+            _CONSTRAINT_FIELDS & set(update_data.keys()),
+            actor=current_user.username if current_user else "system",
+        )
 
     # 통합 칩 재계산: 칩에 영향 주는 변경이 있었으면 한 번에 처리.
     # 날짜 변경 시 reconcile_dates 가 내부에서 wrapper 를 호출하지만, orphaned/missing
@@ -466,15 +439,9 @@ async def delete_reservation(reservation_id: int, db: Session = Depends(get_tena
         from app.services.consecutive_stay import unlink_from_group
         unlink_from_group(db, reservation_id)
 
-    # 연관 레코드 먼저 삭제 (FK 제약, 현재 테넌트만)
-    from app.db.models import PartyCheckin, ReservationDailyInfo
-    from app.db.tenant_context import get_session_tenant_id
-    tid = get_session_tenant_id(db)
-    from app.services.room_assignment import clear_all_for_reservation
-    clear_all_for_reservation(db, reservation_id)
-    db.query(ReservationSmsAssignment).filter(ReservationSmsAssignment.reservation_id == reservation_id, ReservationSmsAssignment.tenant_id == tid).delete()
-    db.query(ReservationDailyInfo).filter(ReservationDailyInfo.reservation_id == reservation_id, ReservationDailyInfo.tenant_id == tid).delete()
-    db.query(PartyCheckin).filter(PartyCheckin.reservation_id == reservation_id, PartyCheckin.tenant_id == tid).delete()
+    # 연관 레코드 정리 (lifecycle 단계 #12)
+    from app.services.reservation_lifecycle import on_reservation_deleted
+    on_reservation_deleted(db, reservation_id)
 
     db.delete(db_reservation)
     db.commit()

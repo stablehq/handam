@@ -422,11 +422,15 @@ def _assign_all_rooms(
                         continue
 
                 # Assign
-                room_assignment.assign_room(
+                _ar_result = room_assignment.assign_room(
                     db, res.id, room.id, target_date, res.check_out_date,
                     assigned_by="auto", skip_sms_sync=True, skip_logging=True,
                 )
                 db.flush()
+                # lifecycle 단계 #19: on_room_assigned (도미토리 분기)
+                from app.services.reservation_lifecycle import on_room_assigned
+                _ar_pushed = _ar_result[1] if isinstance(_ar_result, tuple) else None
+                on_room_assigned(db, res, pushed_out=_ar_pushed)
                 assigned_results.append({"reservation_id": res.id, "customer_name": res.customer_name, "room_number": room.room_number})
                 # Update group room map so next group member prefers same room
                 if res.stay_group_id:
@@ -443,11 +447,14 @@ def _assign_all_rooms(
                         db, reg_room.id, target_date, res.check_out_date,
                         people_count=1, exclude_reservation_id=res.id
                     ):
-                        room_assignment.assign_room(
+                        _ar_result2 = room_assignment.assign_room(
                             db, res.id, reg_room.id, target_date, res.check_out_date,
                             assigned_by="auto", skip_sms_sync=True, skip_logging=True,
                         )
                         db.flush()
+                        # lifecycle 단계 #19: on_room_assigned (일반실 분기)
+                        _ar_pushed2 = _ar_result2[1] if isinstance(_ar_result2, tuple) else None
+                        on_room_assigned(db, res, pushed_out=_ar_pushed2)
                         assigned_results.append({"reservation_id": res.id, "customer_name": res.customer_name, "room_number": reg_room.room_number})
                         if res.stay_group_id:
                             stay_group_room_map[res.stay_group_id] = reg_room.id

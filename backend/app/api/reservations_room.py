@@ -103,6 +103,7 @@ async def assign_room(
             assigned_by="manual",
             created_by=current_user.username,
         )
+        pushed_out_raw = None
         if isinstance(_result, tuple):
             _, pushed_out_raw = _result
             for p in pushed_out_raw:
@@ -112,6 +113,10 @@ async def assign_room(
                     "customer_name": p.get("customer_name"),
                     "date": p["date"],
                 })
+
+        # lifecycle 단계 #18: on_room_assigned (본인 + push-out 예약 칩 재계산)
+        from app.services.reservation_lifecycle import on_room_assigned
+        on_room_assigned(db, db_reservation, pushed_out=pushed_out_raw)
 
         # 연장자 그룹 일괄 이동: 같은 stay_group의 다른 예약도 같은 방으로 배정
         if request.apply_group and db_reservation.stay_group_id:
@@ -123,7 +128,7 @@ async def assign_room(
                 member_from = member.check_in_date
                 member_end = member.check_out_date
                 try:
-                    room_assignment.assign_room(
+                    _gresult = room_assignment.assign_room(
                         db,
                         member.id,
                         room_id,
@@ -133,6 +138,9 @@ async def assign_room(
                         created_by=current_user.username,
                         skip_logging=True,  # 그룹 이동은 대표 로그 1건만
                     )
+                    # lifecycle 단계 #18: 그룹 멤버 on_room_assigned
+                    _gpush = _gresult[1] if isinstance(_gresult, tuple) else None
+                    on_room_assigned(db, member, pushed_out=_gpush)
                 except ValueError as e:
                     warnings.append(f"{member.customer_name}: {e}")
 

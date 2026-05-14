@@ -669,16 +669,29 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
         existing.party_size = res_data.get("people_count", existing.party_size)
     old_date = existing.check_in_date
     old_end_date = existing.check_out_date
-    existing.check_in_date = res_data.get("date", existing.check_in_date)
+    incoming_check_in = res_data.get("date", existing.check_in_date)
+    # check_in_pinned catch-up (Mutator 가 가드 평가 전 사전 해제)
+    if existing.check_in_pinned and incoming_check_in == existing.check_in_date:
+        existing.check_in_pinned = False
+        diag(
+            "naver_sync.check_in_pin_cleared",
+            level="critical",
+            reservation_id=existing.id,
+            check_in_date=existing.check_in_date,
+        )
+    # Mutator: pinned=True 면 guarded → skip, False 면 setattr
+    from app.services.reservation_mutator import ReservationMutator, ChangeSource
+    ReservationMutator.apply_changes(
+        db, existing, ChangeSource.NAVER, {"check_in_date": incoming_check_in}
+    )
     existing.check_in_time = res_data.get("time", existing.check_in_time)
     incoming_end = res_data.get("end_date")
     if incoming_end is not None:
-        if (
-            existing.manually_extended_until
-            and incoming_end < existing.check_out_date
-            and incoming_end < existing.manually_extended_until
-        ):
-            # User manually extended — preserve; naver hasn't caught up yet
+        # 보호 가드 — check_out_pinned 단독으로 모든 수동 변경 케이스 cover.
+        # manually_extended_until 의 보호 효과는 단계 #8 1:1 매핑으로 check_out_pinned 가 흡수.
+        # manually_extended_until 은 운영 표시용 (UI "연박 취소" 버튼 + cancel 진입 조건).
+        if existing.check_out_pinned and incoming_end < existing.check_out_date:
+            # User manually changed check_out — preserve; naver hasn't caught up yet
             diag(
                 "naver_sync.user_extension_preserved",
                 level="critical",
@@ -700,7 +713,20 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
                     manually_extended_until=existing.manually_extended_until,
                 )
                 existing.manually_extended_until = None
-            existing.check_out_date = incoming_end
+            if existing.check_out_pinned and incoming_end >= existing.check_out_date:
+                # Naver caught up to user-set value — clear pin
+                existing.check_out_pinned = False
+                diag(
+                    "naver_sync.check_out_pin_cleared",
+                    level="critical",
+                    reservation_id=existing.id,
+                    check_out_date=existing.check_out_date,
+                    incoming_end=incoming_end,
+                )
+            # Mutator: pinned=False (catch-up 후) → guarded 통과 → setattr
+            ReservationMutator.apply_changes(
+                db, existing, ChangeSource.NAVER, {"check_out_date": incoming_end}
+            )
     existing.biz_item_name = res_data.get("biz_item_name", existing.biz_item_name)
     if not is_split_managed:
         existing.booking_count = res_data.get("booking_count", existing.booking_count)
@@ -741,6 +767,7 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
         # naver_sync 영구 차단되는 silent data drift 방지
         if existing.manually_extended_until:
             existing.manually_extended_until = None
+            existing.check_out_pinned = False
     # status 트랜지션 진단 — 강태호 케이스(2026-04-29) 같은 cancel 누락 재발 시
     # 응답에 들어왔는데 매칭됐는지 추적. idempotent (변경 없으면 noise X).
     if _prev_status != existing.status:
@@ -756,77 +783,13 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
             )
         except Exception:
             pass
-        today_str = datetime.now(KST).strftime("%Y-%m-%d")
-        check_in_str = str(existing.check_in_date) if existing.check_in_date else ""
-        is_same_day_cancel = (check_in_str == today_str)
-        if is_same_day_cancel:
-            # 당일 취소: 오늘 이후 배정만 해제, 미배정 풀에 빨간 행으로 표시
-            from app.db.models import RoomAssignment as RA
-            tid = get_session_tenant_id(db)
-
-            # S5 반영: 영향 날짜 먼저 수집 (+ bed_order 재정렬을 위한 room_id도 함께)
-            affected_rows = db.query(RA).filter(
-                RA.reservation_id == existing.id,
-                RA.tenant_id == tid,
-                RA.date >= today_str,
-            ).all()
-            affected_dates = [ra.date for ra in affected_rows]
-            affected_cells = {(ra.room_id, ra.date) for ra in affected_rows if ra.room_id}
-
-            # Idempotent guard: 이미 정리된 cancelled 예약이면 매 sync 마다 무용한 delete +
-            # critical diag noise 방지. affected_dates 가 비었다는 건 이전 sync 가 이미 정리했거나
-            # 애초에 미배정 상태였다는 뜻 — 더 이상 할 일 없음.
-            if affected_dates:
-                db.query(RA).filter(
-                    RA.reservation_id == existing.id,
-                    RA.tenant_id == tid,
-                    RA.date >= today_str,
-                ).delete(synchronize_session="fetch")
-                existing.room_number = None
-                existing.room_password = None
-
-                if affected_cells:
-                    db.flush()
-                    compacted = room_assignment._compact_bed_orders_in_cells(db, affected_cells)
-                    if compacted:
-                        diag(
-                            "naver_sync.same_day_cancel.compact",
-                            level="verbose",
-                            res_id=existing.id,
-                            cells_count=len(affected_cells),
-                            changed=compacted,
-                        )
-
-                # S5 반영: surcharge / room_upgrade_promise / _review 칩 정리
-                try:
-                    from app.services.surcharge import _delete_all_surcharge_chips
-                    from app.services.room_upgrade_promise import _delete_all_room_upgrade_promise_chips
-                    from app.services.room_upgrade_review import _delete_all_room_upgrade_review_chips
-                    for d in affected_dates:
-                        _delete_all_surcharge_chips(db, existing.id, d)
-                        _delete_all_room_upgrade_promise_chips(db, existing.id, d)
-                        _delete_all_room_upgrade_review_chips(db, existing.id, d)
-                except Exception as e:
-                    logger.warning(f"Naver same-day cancel chip cleanup failed: {e}")
-
-                diag("naver_sync.same_day_cancel", level="critical", reservation_id=existing.id, dates=affected_dates)
-        else:
-            # 사전 취소: 전체 배정 해제 (미배정에 표시하지 않음)
-            room_assignment.clear_all_for_reservation(db, existing.id)
-        # Delete unsent chips on cancellation. tenant_id 명시 — silent cross-tenant
-        # 삭제 회귀 시 가시화. 정상 동작은 verbose noise.
-        _cancel_deleted = db.query(ReservationSmsAssignment).filter(
-            ReservationSmsAssignment.tenant_id == existing.tenant_id,
-            ReservationSmsAssignment.reservation_id == existing.id,
-            ReservationSmsAssignment.sent_at.is_(None),
-        ).delete(synchronize_session='fetch')
-        diag(
-            "naver_sync.cancel_chip_cleanup",
-            level="verbose",
-            res_id=existing.id,
-            tenant_id=existing.tenant_id,
-            deleted=_cancel_deleted,
-        )
+        # lifecycle 단계 #15: status 변화 처리 (CANCELLED 만 — 재활성 시 idempotent 라 skip 안전)
+        if existing.status == ReservationStatus.CANCELLED:
+            today_str = datetime.now(KST).strftime("%Y-%m-%d")
+            check_in_str = str(existing.check_in_date) if existing.check_in_date else ""
+            is_same_day_cancel = (check_in_str == today_str)
+            from app.services.reservation_lifecycle import on_status_cancelled
+            on_status_cancelled(db, existing, same_day=is_same_day_cancel)
         # Remove from consecutive stay group on cancellation + peer 칩 재동기화
         # (reservations.py PATCH 의 CANCELLED 분기와 동일 정책 — peer 의 is_long_stay/
         # stay_group_order 가 unlink 로 갱신되므로 stay_filter 칩 재계산 필수)
@@ -847,10 +810,10 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
                     except Exception as e:
                         logger.warning(f"naver_sync peer sync_sms_tags after unlink failed: res={peer_id} err={e}")
 
-    # Reconcile room assignments if dates changed
+    # Reconcile room assignments if dates changed (lifecycle 단계 #13)
     if existing.check_in_date != old_date or existing.check_out_date != old_end_date:
-        room_assignment.shift_daily_records(db, existing, old_date, old_end_date)
-        room_assignment.reconcile_dates(db, existing)
+        from app.services.reservation_lifecycle import on_dates_changed
+        on_dates_changed(db, existing, old_date, old_end_date)
 
     # Recompute is_long_stay (stay_group_id may be set later by detect_and_link)
     existing.is_long_stay = compute_is_long_stay(existing)
@@ -864,42 +827,18 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
     )
 
     if _CONSTRAINT_CHANGED:
-        try:
-            from app.services.room_assignment_invariants import check_assignment_validity
-            invalid_dates = check_assignment_validity(db, existing)
-        except Exception as e:
-            logger.warning(f"naver_sync invariant check failed: {e}")
-            invalid_dates = []
-
-        if invalid_dates:
-            from datetime import timedelta as _td
-            today_str = datetime.now(KST).strftime("%Y-%m-%d")
-            future_invalid = sorted([d for d in invalid_dates if d > today_str])
-            if future_invalid:
-                end_d = (datetime.strptime(future_invalid[-1], "%Y-%m-%d") + _td(days=1)).strftime("%Y-%m-%d")
-                room_assignment.unassign_room(
-                    db, existing.id,
-                    from_date=future_invalid[0],
-                    end_date=end_d,
-                )
-                # ★ 검증 추가: invariant-violation unassign 후 SMS 칩 재동기화
-                try:
-                    db.flush()
-                    room_assignment.sync_sms_tags(db, existing.id)
-                except Exception as e:
-                    logger.warning(f"naver_sync invariant unassign sync_sms_tags failed: {e}")
-                from app.services.activity_logger import log_activity
-                log_activity(
-                    db, type="room_move",
-                    title=f"[{existing.customer_name}] 네이버 동기화 제약 위반 — 배정 해제",
-                    detail={
-                        "reservation_id": existing.id,
-                        "invalid_dates": future_invalid,
-                        "trigger": "naver_sync_constraint_violation",
-                    },
-                    created_by="naver_sync",
-                )
-                diag("naver_sync.constraint_violation", level="critical", reservation_id=existing.id, invalid_dates=future_invalid)
+        # lifecycle 단계 #14
+        from app.services.reservation_lifecycle import on_constraints_changed
+        _changed_set = set()
+        if old_male != existing.male_count:
+            _changed_set.add("male_count")
+        if old_female != existing.female_count:
+            _changed_set.add("female_count")
+        if old_party_size != existing.party_size:
+            _changed_set.add("party_size")
+        if old_gender != existing.gender:
+            _changed_set.add("gender")
+        on_constraints_changed(db, existing, _changed_set, actor="naver_sync")
 
     # F1: SMS 필터 영향 필드 변경 시 칩 재동기화
     #   reservations.py::PATCH 는 _SMS_TAG_FIELDS 변경 시 sync_sms_tags 를 호출하는데,

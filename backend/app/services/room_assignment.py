@@ -665,6 +665,74 @@ def unassign_room(
     return count
 
 
+def unassign_dates(db: Session, reservation_id: int, dates: list[str]) -> int:
+    """특정 날짜 목록의 RoomAssignment 삭제 + bed_order 재정렬 + 칩 cleanup.
+
+    `unassign_room` (range 기반) 과 달리 비연속 날짜 list 를 받음.
+    사용처 (lifecycle 마이그레이션 단계 #3, #4):
+      - `_do_reduce_extension` 의 dates_to_remove
+      - `naver_sync` cc1 의 affected_dates
+
+    log_activity 는 호출자가 자체 diag/로깅 보유한다고 가정 — 중복 회피.
+    """
+    if not dates:
+        return 0
+
+    reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
+    if not reservation:
+        return 0
+
+    diag(
+        "unassign_dates.enter",
+        level="verbose",
+        res_id=reservation_id,
+        dates_count=len(dates),
+    )
+
+    tid = get_session_tenant_id(db)
+    query = db.query(RoomAssignment).filter(
+        RoomAssignment.reservation_id == reservation_id,
+        RoomAssignment.tenant_id == tid,
+        RoomAssignment.date.in_(dates),
+    )
+    old_assignments = query.all()
+    affected_cells = {(ra.room_id, ra.date) for ra in old_assignments if ra.room_id}
+
+    count = query.delete(synchronize_session="fetch")
+    if affected_cells:
+        db.flush()
+        compacted = _compact_bed_orders_in_cells(db, affected_cells)
+        if compacted:
+            diag(
+                "unassign_dates.compact",
+                level="verbose",
+                res_id=reservation_id,
+                cells_count=len(affected_cells),
+                changed=compacted,
+            )
+
+    # Surcharge / room_upgrade_promise / room_upgrade_review 칩 정리 — unassign_room 과 동일 패턴
+    try:
+        from app.services.surcharge import _delete_all_surcharge_chips
+        from app.services.room_upgrade_review import _delete_all_room_upgrade_review_chips
+        from app.services.room_upgrade_promise import _delete_all_room_upgrade_promise_chips
+        for d in dates:
+            _delete_all_surcharge_chips(db, reservation_id, d)
+            _delete_all_room_upgrade_promise_chips(db, reservation_id, d)
+            _delete_all_room_upgrade_review_chips(db, reservation_id, d)
+    except Exception as e:
+        logger.warning(f"Surcharge/room_upgrade cleanup failed for res={reservation_id}: {e}")
+
+    diag(
+        "unassign_dates.exit",
+        level="verbose",
+        res_id=reservation_id,
+        deleted=count,
+    )
+
+    return count
+
+
 def clear_all_for_reservation(db: Session, reservation_id: int) -> int:
     """Delete ALL RoomAssignment records for a reservation and clear denormalized fields."""
     diag("clear_all_for_reservation.enter", level="verbose", res_id=reservation_id)
@@ -738,7 +806,7 @@ def sync_denormalized_field(db: Session, reservation: Reservation):
             reservation.room_password = None
 
 
-def shift_daily_records(
+def _shift_daily_records(
     db: Session,
     reservation: Reservation,
     old_check_in: Optional[str],
@@ -823,7 +891,7 @@ def shift_daily_records(
     return summary
 
 
-def reconcile_dates(db: Session, reservation: Reservation):
+def _reconcile_dates(db: Session, reservation: Reservation):
     """
     Called when reservation dates change.
     - Deletes assignments for dates no longer in [check_in, check_out) range.

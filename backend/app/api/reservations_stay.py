@@ -162,7 +162,6 @@ async def extend_stay(
 ):
     """연박추가: original reservation end_date += 1 day + room assignment for new day"""
     from app.services.room_assignment import assign_room
-    from app.services.chip_reconciler import reconcile_chips_for_reservation
     from app.db.tenant_context import get_session_tenant_id
     from datetime import timedelta, date as date_type
 
@@ -219,31 +218,30 @@ async def extend_stay(
 
     # 3. Extend end_date
     from app.services.consecutive_stay import compute_is_long_stay
-    original.check_out_date = new_end_str
+    from app.services.reservation_mutator import ReservationMutator, ChangeSource
+    ReservationMutator.apply_changes(db, original, ChangeSource.MANUAL, {"check_out_date": new_end_str})
     original.manually_extended_until = new_end_str
+    original.check_out_pinned = True  # Mutator MANUAL→자동 True, 안전망으로 명시 유지
     original.is_long_stay = compute_is_long_stay(original)
     db.flush()
 
     # 4. Assign room for the new night (only if no conflict)
     if request.room_id and not conflict_guests:
-        assign_room(
+        _result = assign_room(
             db, reservation_id, request.room_id, new_night_str,
             end_date=new_end_str,
             assigned_by="manual",
             created_by=current_user.username,
         )
         conflict_resolved = True
+        # lifecycle 단계 #16: on_room_assigned (push-out 예약 칩 재계산 포함)
+        from app.services.reservation_lifecycle import on_room_assigned
+        _pushed_out = _result[1] if isinstance(_result, tuple) else None
+        on_room_assigned(db, original, pushed_out=_pushed_out)
 
-    # 5. Reconcile chips for the full new date range
-    schedules = (
-        db.query(TemplateSchedule)
-        .filter(
-            TemplateSchedule.tenant_id == tid,
-            TemplateSchedule.is_active == True,
-        )
-        .all()
-    )
-    reconcile_chips_for_reservation(db, reservation_id, schedules=schedules)
+    # 5. lifecycle 단계 #16: on_dates_changed (shift_daily + reconcile_dates + reconcile_all_chips 5종)
+    from app.services.reservation_lifecycle import on_dates_changed
+    on_dates_changed(db, original, original.check_in_date, current_end)
 
     db.commit()
 
@@ -311,7 +309,6 @@ def _do_reduce_extension(
 
     Returns a dict with stats for diag logging.
     """
-    from app.services.chip_reconciler import reconcile_chips_for_reservation
     from app.db.tenant_context import get_session_tenant_id
     from datetime import timedelta, date as date_type
 
@@ -361,19 +358,9 @@ def _do_reduce_extension(
         dates_to_remove.append(d.isoformat())
         d += timedelta(days=1)
 
-    # 1. Delete room assignments for removed dates
-    ra_deleted = (
-        db.query(RoomAssignment)
-        .filter(
-            RoomAssignment.reservation_id == reservation_id,
-            RoomAssignment.date.in_(dates_to_remove),
-            RoomAssignment.tenant_id == tid,
-        )
-        .all()
-    )
-    room_assignments_deleted = len(ra_deleted)
-    for ra in ra_deleted:
-        db.delete(ra)
+    # 1. Delete room assignments for removed dates (lifecycle 단계 #3)
+    from app.services.room_assignment import unassign_dates
+    room_assignments_deleted = unassign_dates(db, reservation_id, dates_to_remove)
 
     # 2. Delete unsent SMS chips for removed dates (preserve sent chips)
     chips_to_check = (
@@ -428,10 +415,12 @@ def _do_reduce_extension(
     check_in_dt = date_type.fromisoformat(original.check_in_date)
     days_remaining = (new_end_dt - check_in_dt).days
 
-    original.check_out_date = new_end_str
+    from app.services.reservation_mutator import ReservationMutator, ChangeSource
+    ReservationMutator.apply_changes(db, original, ChangeSource.MANUAL, {"check_out_date": new_end_str})
     # Clear flag when fully retracted to a 1-night (or shorter) stay — naver_sync resumes normal sync
     if days_remaining <= 1:
         original.manually_extended_until = None
+        original.check_out_pinned = False
         diag(
             "reduce_extension.flag_cleared",
             level="critical",
@@ -441,19 +430,13 @@ def _do_reduce_extension(
         )
     else:
         original.manually_extended_until = new_end_str
+        original.check_out_pinned = True
     original.is_long_stay = compute_is_long_stay(original)
     db.flush()
 
-    # 6. Reconcile chips for new (shorter) date range
-    schedules = (
-        db.query(TemplateSchedule)
-        .filter(
-            TemplateSchedule.tenant_id == tid,
-            TemplateSchedule.is_active == True,
-        )
-        .all()
-    )
-    reconcile_chips_for_reservation(db, reservation_id, schedules=schedules)
+    # 6. lifecycle 단계 #17: on_dates_changed (shift_daily + reconcile_dates + reconcile_all_chips 5종)
+    from app.services.reservation_lifecycle import on_dates_changed
+    on_dates_changed(db, original, original.check_in_date, current_end_str)
 
     duration_ms = int((time.monotonic() - _t0) * 1000)
     diag(
