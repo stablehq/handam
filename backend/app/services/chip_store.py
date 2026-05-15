@@ -39,6 +39,10 @@ if TYPE_CHECKING:
 # OQ-1/OQ-5 결정 반영: manual (운영자 수동) / excluded (명시적 발송 제외) / failed (발송 실패 기록).
 PROTECTED_ASSIGNED_BY = ('manual', 'excluded', 'failed')
 
+# 발송 실패 흔적은 send_status='failed' 컬럼으로도 마크됨. PR4 (OQ-5) 이전 데이터는
+# assigned_by='auto' + send_status='failed' 형태로 존재 — chip_reconciler 의 기존
+# 가드가 이걸 보호. chip_store 도 동일 보호 (PR7 이주 호환).
+
 
 def ensure_chip(
     db: 'Session',
@@ -176,6 +180,9 @@ def remove_chip(
         q = q.filter(
             ReservationSmsAssignment.sent_at.is_(None),
             ~ReservationSmsAssignment.assigned_by.in_(PROTECTED_ASSIGNED_BY),
+            # 옛 데이터 호환 — assigned_by='auto' + send_status='failed' 케이스 보호
+            (ReservationSmsAssignment.send_status.is_(None))
+            | (ReservationSmsAssignment.send_status != 'failed'),
         )
 
     deleted = q.delete(synchronize_session='fetch')
@@ -237,6 +244,9 @@ def delete_chips_for_reservation(
         q = q.filter(
             ReservationSmsAssignment.sent_at.is_(None),
             ~ReservationSmsAssignment.assigned_by.in_(PROTECTED_ASSIGNED_BY),
+            # 옛 데이터 호환 — assigned_by='auto' + send_status='failed' 케이스 보호
+            (ReservationSmsAssignment.send_status.is_(None))
+            | (ReservationSmsAssignment.send_status != 'failed'),
         )
 
     deleted = q.delete(synchronize_session='fetch')
@@ -277,6 +287,9 @@ def delete_chips_for_schedule(
         q = q.filter(
             ReservationSmsAssignment.sent_at.is_(None),
             ~ReservationSmsAssignment.assigned_by.in_(PROTECTED_ASSIGNED_BY),
+            # 옛 데이터 호환 — assigned_by='auto' + send_status='failed' 케이스 보호
+            (ReservationSmsAssignment.send_status.is_(None))
+            | (ReservationSmsAssignment.send_status != 'failed'),
         )
 
     deleted = q.delete(synchronize_session='fetch')

@@ -233,6 +233,25 @@ class TestRemoveChipForceFalse:
         )
         assert deleted == 0
 
+    def test_protects_legacy_failed_send_status(self, db):
+        """⭐ PR7 호환 — 옛 데이터 assigned_by='auto' + send_status='failed' 보호.
+
+        PR4 (OQ-5) 이전에는 record_sms_failed 가 assigned_by 갱신 안 함.
+        그런 옛 칩이 자동 reconcile 사이클에서 삭제 안 되도록 추가 가드.
+        """
+        r = _make_reservation(db)
+        chip = ensure_chip(
+            db, reservation_id=r.id, template_key="k",
+            date="2026-04-20", assigned_by="auto",
+        )
+        chip.send_status = 'failed'
+        chip.send_error = 'legacy phone error'
+        db.flush()
+        deleted = remove_chip(
+            db, reservation_id=r.id, template_key="k", date="2026-04-20",
+        )
+        assert deleted == 0  # 보호됨!
+
 
 class TestRemoveChipForceTrue:
     """force=True — cancel/delete cascade. 가드 우회."""

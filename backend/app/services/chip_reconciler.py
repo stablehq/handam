@@ -18,7 +18,6 @@ import logging
 from datetime import timedelta
 from typing import List, Optional, Set, Tuple
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -34,8 +33,8 @@ from app.services.schedule_utils import get_schedule_dates, resolve_target_date
 
 logger = logging.getLogger(__name__)
 
-# Chip protection rules (unified)
-_PROTECTED_ASSIGNED_BY = {'manual', 'excluded'}
+# Chip protection rules — chip_store 의 PROTECTED_ASSIGNED_BY + send_status
+# 가드가 통합 보호. 본 상수는 PR7 이후 미사용 (제거 예정).
 
 
 def reconcile_chips_for_reservation(
@@ -71,20 +70,19 @@ def reconcile_chips_for_reservation(
 
     diag("reconcile_chips_for_reservation.enter", level="verbose", res_id=reservation_id)
 
-    # 취소된 예약: 기존 미발송 칩만 정리하고 리턴 (새 칩 생성 안 함)
+    # 취소된 예약: 기존 미발송 칩만 정리하고 리턴 (새 칩 생성 안 함).
+    # chip_store.delete_chips_for_reservation 위임 (PR7) — force=False 가
+    # manual/excluded/failed + send_status='failed' 보호.
     if reservation.status == ReservationStatus.CANCELLED:
-        existing = db.query(ReservationSmsAssignment).filter(
-            ReservationSmsAssignment.reservation_id == reservation_id,
-            ReservationSmsAssignment.sent_at.is_(None),
-            ~ReservationSmsAssignment.assigned_by.in_(_PROTECTED_ASSIGNED_BY),
-        ).all()
-        for a in existing:
-            db.delete(a)
+        from app.services.chip_store import delete_chips_for_reservation
+        cleaned = delete_chips_for_reservation(
+            db, reservation_id=reservation_id,
+        )
         diag(
             "reconcile_chips_for_reservation.exit",
             level="verbose",
             res_id=reservation_id,
-            cancelled_cleanup=len(existing),
+            cancelled_cleanup=cleaned,
         )
         return
 
@@ -301,39 +299,37 @@ def _sync_chips(
     existing_pairs = {(a.template_key, a.date) for a in existing}
     excluded_pairs = {(a.template_key, a.date) for a in existing if a.assigned_by == 'excluded'}
 
+    from app.services.chip_store import ensure_chip, remove_chip
+
     created = 0
 
-    # Create missing chips (skip excluded)
+    # Create missing chips — chip_store.ensure_chip 위임 (PR7).
+    # idempotent + race-safe SAVEPOINT 가 내부에서 처리됨. (chip.race_save_point_triggered
+    # → chip_store.ensure.race 로 흡수)
     for (key, d) in expected_pairs:
         if (key, d) not in existing_pairs and (key, d) not in excluded_pairs:
-            try:
-                with db.begin_nested():
-                    new_chip = ReservationSmsAssignment(
-                        reservation_id=reservation_id,
-                        template_key=key,
-                        date=d,
-                        assigned_by='auto',
-                        sent_at=None,
-                        schedule_id=schedule_map.get((key, d)) if schedule_map else None,
-                    )
-                    db.add(new_chip)
-            except IntegrityError:
-                # Concurrent insertion — another transaction beat us; benign
-                diag(
-                    "chip.race_save_point_triggered",
-                    level="critical",
-                    reservation_id=reservation_id,
-                    template_key=key,
-                    date=d,
-                )
-            else:
-                created += 1
+            schedule_id = schedule_map.get((key, d)) if schedule_map else None
+            ensure_chip(
+                db,
+                reservation_id=reservation_id,
+                template_key=key,
+                date=d,
+                assigned_by='auto',
+                schedule_id=schedule_id,
+            )
+            created += 1
 
-    # Delete stale chips (only unprotected, skip failed)
+    # Delete stale chips — chip_store.remove_chip 위임 (PR7).
+    # force=False 가드: sent_at + manual/excluded/failed + send_status='failed' 보호.
     for a in existing:
         if (a.template_key, a.date) not in expected_pairs:
-            if a.sent_at is None and a.assigned_by not in _PROTECTED_ASSIGNED_BY and a.send_status != 'failed':
-                db.delete(a)
+            remove_chip(
+                db,
+                reservation_id=reservation_id,
+                template_key=a.template_key,
+                date=a.date,
+                schedule_id=a.schedule_id,
+            )
 
     return created
 
@@ -356,32 +352,42 @@ def _sync_chips_for_schedule(
     existing_pairs = {(a.reservation_id, a.date) for a in existing}
     excluded_pairs = {(a.reservation_id, a.date) for a in existing if a.assigned_by == 'excluded'}
 
+    from app.services.chip_store import ensure_chip, remove_chip
+
     created = 0
 
-    # Create missing chips (skip excluded)
+    # Create missing chips — chip_store.ensure_chip 위임 (PR7).
+    # 기존 pre-check (already_exists) 는 chip_store 내부 idempotent 가 흡수.
     for (res_id, d) in expected_pairs:
         if (res_id, d) not in existing_pairs and (res_id, d) not in excluded_pairs:
-            # Check if another schedule already created a chip for same unique key
-            already_exists = db.query(ReservationSmsAssignment).filter(
+            # ensure_chip 은 (res, template_key, date) 매칭이라 동일 unique 키
+            # 의 다른 schedule 칩이 있으면 그걸 반환 (신규 생성 안 함). created
+            # 카운트는 신규 생성 여부를 별도 확인.
+            pre_existing = db.query(ReservationSmsAssignment.id).filter(
                 ReservationSmsAssignment.reservation_id == res_id,
                 ReservationSmsAssignment.template_key == template_key,
                 ReservationSmsAssignment.date == d,
-            ).first()
-            if not already_exists:
-                db.add(ReservationSmsAssignment(
-                    reservation_id=res_id,
-                    template_key=template_key,
-                    date=d,
-                    assigned_by='schedule',
-                    sent_at=None,
-                    schedule_id=schedule_id,
-                ))
+            ).scalar()
+            ensure_chip(
+                db,
+                reservation_id=res_id,
+                template_key=template_key,
+                date=d,
+                assigned_by='schedule',
+                schedule_id=schedule_id,
+            )
+            if not pre_existing:
                 created += 1
 
-    # Delete stale chips (only unprotected, skip failed)
+    # Delete stale chips — chip_store.remove_chip 위임 (PR7).
     for a in existing:
         if (a.reservation_id, a.date) not in expected_pairs:
-            if a.sent_at is None and a.assigned_by not in _PROTECTED_ASSIGNED_BY and a.send_status != 'failed':
-                db.delete(a)
+            remove_chip(
+                db,
+                reservation_id=a.reservation_id,
+                template_key=template_key,
+                date=a.date,
+                schedule_id=a.schedule_id,
+            )
 
     return created
