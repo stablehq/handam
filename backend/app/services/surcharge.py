@@ -8,19 +8,16 @@
 """
 import logging
 from typing import Optional, List
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
     Reservation,
     Room,
     RoomAssignment,
-    ReservationSmsAssignment,
     TemplateSchedule,
     RoomBizItemLink,
     NaverBizItem,
 )
-from app.db.tenant_context import get_session_tenant_id
 from app.diag_logger import diag
 
 logger = logging.getLogger(__name__)
@@ -189,58 +186,48 @@ def reconcile_surcharge(
 def _ensure_chip(db: Session, reservation_id: int, date: str, custom_type: str) -> None:
     """해당 custom_type 의 스케줄에 대한 칩이 없으면 생성.
 
-    template 비활성화 상태면 칩 생성하지 않음 (chip_reconciler/template_scheduler 와 동일 규약).
+    chip_store.ensure_chip 위임 (PR5 이주). race 처리 + idempotent 보장은
+    chip_store 내부 SAVEPOINT 가 담당. template 비활성화 상태면 skip.
     """
     schedule = _find_schedule(db, custom_type)
     if not schedule or not schedule.template or not schedule.template.is_active:
         return
-    template_key = schedule.template.template_key
-    # uq_res_sms_template_date: (reservation_id, template_key, date) 와 동일 키로 검사.
-    # schedule_id 기준 검사는 manual 발송(schedule_id IS NULL)이나 동일 template_key 의
-    # 다른 schedule 행을 못 봐서 INSERT 충돌 → 외부 트랜잭션 오염을 유발.
-    existing = db.query(ReservationSmsAssignment).filter(
-        ReservationSmsAssignment.reservation_id == reservation_id,
-        ReservationSmsAssignment.date == date,
-        ReservationSmsAssignment.template_key == template_key,
-    ).first()
-    if existing:
-        return
-    tenant_id = get_session_tenant_id(db)
-    # SAVEPOINT 로 감싸 동시 reconcile race 시 IntegrityError 가
-    # 호출자(예: 메모/룸 PUT) 트랜잭션을 롤백시키지 않게 한다.
-    try:
-        with db.begin_nested():
-            db.add(ReservationSmsAssignment(
-                reservation_id=reservation_id,
-                template_key=template_key,
-                date=date,
-                assigned_by='auto',
-                schedule_id=schedule.id,
-                sent_at=None,
-                tenant_id=tenant_id,
-            ))
-    except IntegrityError:
-        diag("surcharge.chip_insert_race",
-             level="warn", res_id=reservation_id, date=date, custom_type=custom_type)
+    from app.services.chip_store import ensure_chip
+    ensure_chip(
+        db,
+        reservation_id=reservation_id,
+        template_key=schedule.template.template_key,
+        date=date,
+        assigned_by='auto',
+        schedule_id=schedule.id,
+    )
 
 
 def _remove_chip(db: Session, reservation_id: int, date: str, custom_type: str) -> None:
-    """해당 custom_type 의 미발송 칩 삭제."""
+    """해당 custom_type 의 미발송 칩 삭제.
+
+    chip_store.remove_chip 위임 (PR5 이주). 가드 강화 — 기존 sent_at NULL 만
+    가드 → PROTECTED_ASSIGNED_BY (manual/excluded/failed) 추가 보호 (OQ-1 fix).
+    """
     schedule = _find_schedule(db, custom_type)
     if not schedule:
         return
-    existing = db.query(ReservationSmsAssignment).filter(
-        ReservationSmsAssignment.reservation_id == reservation_id,
-        ReservationSmsAssignment.date == date,
-        ReservationSmsAssignment.schedule_id == schedule.id,
-        ReservationSmsAssignment.sent_at.is_(None),
-    ).first()
-    if existing:
-        db.delete(existing)
+    from app.services.chip_store import remove_chip
+    remove_chip(
+        db,
+        reservation_id=reservation_id,
+        template_key=schedule.template.template_key if schedule.template else "",
+        date=date,
+        schedule_id=schedule.id,
+    )
 
 
 def _delete_all_surcharge_chips(db: Session, reservation_id: int, date: str) -> None:
-    """해당 예약-날짜의 미발송 surcharge 칩을 모두 삭제."""
+    """해당 예약-날짜의 미발송 surcharge 칩을 모두 삭제.
+
+    chip_store.delete_chips_for_reservation 위임 (PR5 이주). 가드 강화 —
+    기존 sent_at NULL 만 가드 → manual/excluded/failed 추가 보호 (OQ-1 fix).
+    """
     surcharge_schedule_ids = [
         s.id for s in db.query(TemplateSchedule.id).filter(
             TemplateSchedule.schedule_category == 'custom_schedule',
@@ -249,14 +236,14 @@ def _delete_all_surcharge_chips(db: Session, reservation_id: int, date: str) -> 
     ]
     if not surcharge_schedule_ids:
         return
-    deleted = db.query(ReservationSmsAssignment).filter(
-        ReservationSmsAssignment.reservation_id == reservation_id,
-        ReservationSmsAssignment.date == date,
-        ReservationSmsAssignment.schedule_id.in_(surcharge_schedule_ids),
-        ReservationSmsAssignment.sent_at.is_(None),
-    ).delete(synchronize_session='fetch')
+    from app.services.chip_store import delete_chips_for_reservation
+    deleted = delete_chips_for_reservation(
+        db,
+        reservation_id=reservation_id,
+        dates=[date],
+        schedule_ids=surcharge_schedule_ids,
+    )
     if deleted:
-        db.flush()
         diag("surcharge.all_deleted", level="verbose",
              res_id=reservation_id, date=date, count=deleted)
 
