@@ -3,7 +3,10 @@ description: |
   RoomAssignment 페이지에서 게스트 카드 우클릭 → "연박 묶음 풀기" 컨텍스트 메뉴.
   DELETE /api/reservations/{res_id}/stay-group/unlink, action=ctx_menu:stay_group_unlink.
   unlink_from_group 으로 stay_group_id 제거 후 그룹의 모든 멤버에 대해
-  reconcile_chips_for_reservation 연쇄 실행 → SMS 칩 상태 갱신.
+  reconcile_all_chips 연쇄 실행 (sync-sms-tags PR1, 2026-05-15) → 5종 SMS 칩
+  (기본 / surcharge / party3 / room_upgrade_promise / _review) 통합 갱신.
+  이전엔 sync_sms_tags(1종) 만 호출했으나 surcharge 합산 변동 등 4종 누락
+  회귀 위험 해결.
 
 reference_session: 2026-05-06
 created_at: 2026-05-06
@@ -30,9 +33,17 @@ expected_trace:
       group_id: "*"   # 풀린 그룹의 UUID 또는 manual-* prefix
       action_prefix: ctx_menu
 
-  - event: reconcile_chips_for_reservation.enter
+  - event: reconcile_all_chips.enter
     category: VARIABLE_COUNT
     min: 1   # 그룹 멤버 수만큼 발화 (1+, 보통 2)
+    fields:
+      res_id: "*"
+      date_count: "*"
+      explicit_dates: "*"
+
+  - event: reconcile_chips_for_reservation.enter
+    category: VARIABLE_COUNT
+    min: 1   # 그룹 멤버 수만큼 발화 (reconcile_all_chips 가 sync_sms_tags 내부 호출)
     fields:
       res_id: "*"
 
@@ -63,6 +74,12 @@ expected_trace:
       expected: "*"
       existing: "*"
       created: "*"
+
+  - event: reconcile_all_chips.exit
+    category: VARIABLE_COUNT
+    min: 1   # 그룹 멤버 수만큼 발화 (각 res 의 5종 reconcile 완료 후)
+    fields:
+      res_id: "*"
 
   - event: stay_group.unlink_api.done
     category: MANDATORY

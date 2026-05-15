@@ -11,7 +11,7 @@ from app.api.deps import get_tenant_scoped_db
 from app.db.models import (
     Reservation, User,
     ReservationSmsAssignment, RoomAssignment,
-    ReservationDailyInfo, TemplateSchedule,
+    ReservationDailyInfo,
 )
 from app.auth.dependencies import get_current_user
 from app.api.shared_schemas import ActionResponse
@@ -95,10 +95,11 @@ async def link_stay_group(
         )
         raise HTTPException(status_code=400, detail=str(e))
 
-    from app.services.room_assignment import sync_sms_tags
-    schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
+    # 5종 칩 통합 reconcile — 연박 그룹 변경으로 인한 surcharge 합산 변동 등
+    # 4종 칩 정대 보장 (sync-sms-tags PR1).
+    from app.services.reconcile import reconcile_all_chips
     for res_id in linked_ids:
-        sync_sms_tags(db, res_id, schedules=schedules)
+        reconcile_all_chips(db, res_id)
 
     db.commit()
 
@@ -121,7 +122,6 @@ async def unlink_stay_group(
 ):
     """Remove a reservation from its consecutive stay group."""
     from app.services.consecutive_stay import unlink_from_group
-    from app.services.room_assignment import sync_sms_tags
 
     res = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     affected_ids = []
@@ -136,9 +136,11 @@ async def unlink_stay_group(
              reservation_id=reservation_id)
         raise HTTPException(status_code=404, detail="연박 그룹에 속하지 않은 예약입니다")
 
-    schedules = db.query(TemplateSchedule).filter(TemplateSchedule.is_active == True).all()
+    # 5종 칩 통합 reconcile — unlink 후 affected res 들의 4종 칩 stale 방지
+    # (sync-sms-tags PR1).
+    from app.services.reconcile import reconcile_all_chips
     for res_id in affected_ids:
-        sync_sms_tags(db, res_id, schedules=schedules)
+        reconcile_all_chips(db, res_id)
 
     db.commit()
 
