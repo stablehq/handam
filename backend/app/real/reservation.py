@@ -226,12 +226,22 @@ class RealReservationProvider:
             unique_user_ids = {str(item.get('userId', '')) for item in all_items if item.get('userId')}
             sem = asyncio.Semaphore(10)
 
-            async def _fetch_user(uid: str):
+            async def _fetch_user(uid: str, client: httpx.AsyncClient):
                 async with sem:
-                    return uid, await self.get_user_info(uid)
+                    return uid, await self._get_user_info_with_client(uid, client)
 
-            results = await asyncio.gather(*[_fetch_user(uid) for uid in unique_user_ids])
-            user_info_cache = {uid: info for uid, info in results if info}
+            async with httpx.AsyncClient() as shared_client:
+                results = await asyncio.gather(
+                    *[_fetch_user(uid, shared_client) for uid in unique_user_ids],
+                    return_exceptions=True,
+                )
+            user_info_cache = {}
+            for result in results:
+                if isinstance(result, BaseException):
+                    continue
+                uid, info = result
+                if info:
+                    user_info_cache[uid] = info
 
             logger.info(f"Fetched user info for {len(user_info_cache)}/{len(unique_user_ids)} users")
 
@@ -302,40 +312,47 @@ class RealReservationProvider:
             logger.error(f"Error fetching by check-in date {target_date}: {e}")
             return []
 
-    async def get_user_info(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Get user information (age, gender, visit count) from Naver API
-        """
+    def _parse_user_info_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        import re
+        age_group = data.get('ageGroup', '')
+        age_match = re.search(r'\d+', age_group)
+        age_str = ''
+        if age_match:
+            age_str = '20' if age_match.group() == '19' else age_match.group()
+        gender = '남' if data.get('sex') == 'MALE' else '여' if data.get('sex') == 'FEMALE' else ''
+        visit_count = data.get('completedCount', 0) + 1
+        return {
+            'age_group': age_str,
+            'gender': gender,
+            'visit_count': visit_count,
+            'summary': f"{visit_count}번/{age_str}{gender}",
+        }
+
+    async def _get_user_info_with_client(self, user_id: str, client: httpx.AsyncClient) -> Optional[Dict[str, Any]]:
+        """Get user info using a shared httpx client (called from _process_raw_data)."""
         url = (
             f"{self.base_url}/api/booking/v3.0/businesses/{self.business_id}/users/{user_id}"
             f"?revisitPeriod=%27%27&noCache={int(datetime.now().timestamp() * 1000)}"
         )
+        try:
+            response = await client.get(url, headers=self._get_headers(), timeout=10.0)
+            response.raise_for_status()
+            return self._parse_user_info_response(response.json())
+        except Exception as e:
+            logger.error(f"Error fetching user info for {user_id}: {e}")
+            return None
 
+    async def get_user_info(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get user information (age, gender, visit count) from Naver API."""
+        url = (
+            f"{self.base_url}/api/booking/v3.0/businesses/{self.business_id}/users/{user_id}"
+            f"?revisitPeriod=%27%27&noCache={int(datetime.now().timestamp() * 1000)}"
+        )
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, headers=self._get_headers(), timeout=10.0)
                 response.raise_for_status()
-
-                data = response.json()
-
-                age_group = data.get('ageGroup', '')
-                # Normalize "19세" to "20"
-                import re
-                age_match = re.search(r'\d+', age_group)
-                age_str = ''
-                if age_match:
-                    age_str = '20' if age_match.group() == '19' else age_match.group()
-
-                gender = '남' if data.get('sex') == 'MALE' else '여' if data.get('sex') == 'FEMALE' else ''
-                visit_count = data.get('completedCount', 0) + 1
-
-                return {
-                    'age_group': age_str,
-                    'gender': gender,
-                    'visit_count': visit_count,
-                    'summary': f"{visit_count}번/{age_str}{gender}",
-                }
-
+                return self._parse_user_info_response(response.json())
         except Exception as e:
             logger.error(f"Error fetching user info for {user_id}: {e}")
             return None

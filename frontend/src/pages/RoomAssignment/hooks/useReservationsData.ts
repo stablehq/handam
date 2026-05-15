@@ -66,10 +66,10 @@ export function useReservationsData(selectedDate: Dayjs) {
     staleTime: 30_000,
   });
 
-  // ===== useQuery: 객실 목록 =====
+  // ===== useQuery: 객실 목록 (비활성 포함 — 배정 페이지에서 오버레이로 표시) =====
   const roomsQuery = useQuery<any[]>({
     queryKey: queryKeys.rooms.list(),
-    queryFn: () => roomsAPI.getAll().then((res) => res.data),
+    queryFn: () => roomsAPI.getAll({ include_inactive: true }).then((res) => res.data),
     staleTime: 300_000,
   });
 
@@ -147,13 +147,14 @@ export function useReservationsData(selectedDate: Dayjs) {
   );
 
   const activeRoomEntries = useMemo(() => {
-    return rooms.filter((room) => room.active).map((room) => ({
+    return rooms.map((room) => ({
       room_id: room.id as number,
       room_number: room.room_number as string,
       isDormitory: room.dormitory || false,
       bed_capacity: room.bed_capacity || 1,
       building_id: room.building_id as number | null,
       building_name: room.building_name as string | null,
+      isActive: room.active !== false,
     }));
   }, [rooms]);
 

@@ -12,6 +12,7 @@ export interface RoomEntry {
   room_number: string;
   isDormitory: boolean;
   bed_capacity: number;
+  isActive?: boolean;
 }
 
 export interface RoomGroupInfo {
@@ -80,7 +81,7 @@ export function RoomRow({
   renderGuestRow,
   renderCompactCell,
 }: RoomRowProps) {
-  const { room_id, room_number, isDormitory, bed_capacity } = entry;
+  const { room_id, room_number, isDormitory, bed_capacity, isActive = true } = entry;
 
   // 도미토리는 bed_order 기준 정렬
   const guests = isDormitory
@@ -129,25 +130,28 @@ export function RoomRow({
   const main = useGuestDropTarget({
     zoneId: `room-${room_id}`,
     hover, setHover, clearHover,
-    enabled: selectionActive,
+    enabled: selectionActive && isActive,
   });
   const next = useGuestDropTarget({
     zoneId: `next-room-${room_id}`,
     hover, setHover, clearHover,
-    enabled: nextDayExpanded && selectionActive,
+    enabled: nextDayExpanded && selectionActive && isActive,
   });
 
   return (
     <div
-      className={`group flex select-none transition-colors
+      className={`group relative flex select-none transition-colors
         ${main.isDragOver
           ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/8 ring-1 ring-inset ring-[#3182F6]/30 dark:ring-[#3182F6]/30'
           : ''
-        } ${selectionActive ? 'cursor-pointer' : ''}`}
+        } ${selectionActive && isActive ? 'cursor-pointer' : ''}`}
       style={{ minHeight: `${totalRows * rowHeight}px`, ...(main.isDragOver ? {} : stripeBgStyle) }}
       {...main.dropZoneProps}
-      onClick={onDropZoneClick}
+      onClick={isActive ? onDropZoneClick : undefined}
     >
+      {!isActive && (
+        <div className="absolute inset-0 bg-black/30 dark:bg-black/50 pointer-events-none z-10" />
+      )}
       {/* Room label - vertically centered, spans all rows */}
       <div className="flex items-center gap-1.5 flex-shrink-0 w-38 pl-3 pr-2 py-2 border-r border-r-[#E5E8EB] dark:border-r-gray-700 border-b" style={{ ...borderStyle, ...stripeBgStyle }}>
         <span className="font-semibold text-[#191F28] dark:text-white text-body shrink-0">{room_number}</span>

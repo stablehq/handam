@@ -5,6 +5,7 @@ Ported from stable-clasp-main/03_trigger.js
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime, timezone, timedelta
+import asyncio
 import logging
 
 from app.db.database import SessionLocal, session_for_tenant, session_bypass
@@ -84,6 +85,10 @@ async def sync_naver_reservations_job():
             reservation_provider = get_reservation_provider_for_tenant(tenant)
             result = await sync_naver_to_db(reservation_provider, db)
             logger.info(f"[{tenant.slug}] Scheduler sync result: {result['message']}")
+        except asyncio.CancelledError:
+            logger.info(f"[{tenant.slug}] Naver sync cancelled (shutdown)")
+            db.rollback()
+            raise
         except Exception as e:
             logger.error(f"[{tenant.slug}] Error in reservation sync job: {e}")
             diag(
@@ -273,6 +278,10 @@ async def reconcile_today_reservations_job():
                     db.commit()
                     logger.info(f"[{tenant.slug}] Unstable reconciliation complete: {unstable_added} added")
 
+        except asyncio.CancelledError:
+            logger.info(f"[{tenant.slug}] Reconciliation cancelled (shutdown)")
+            db.rollback()
+            raise
         except Exception as e:
             logger.error(f"[{tenant.slug}] Reconciliation error: {e}")
             db.rollback()
@@ -332,6 +341,10 @@ async def sync_unstable_reservations_job():
                     created_by="scheduler",
                 )
                 db.commit()
+        except asyncio.CancelledError:
+            logger.info(f"[{tenant.slug}] Unstable sync cancelled (shutdown)")
+            db.rollback()
+            raise
         except Exception as e:
             logger.error(f"[{tenant.slug}] Error in unstable sync job: {e}")
             diag("job.sync_unstable_reservations.tenant_failed", level="critical",

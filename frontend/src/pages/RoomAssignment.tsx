@@ -1061,7 +1061,7 @@ const RoomAssignment = () => {
         onClose={() => setTableSettingsOpen(false)}
         customColors={customHighlightColors}
         onSaveCustomColors={applyCustomColors}
-        activeRoomEntries={activeRoomEntries}
+        activeRoomEntries={activeRoomEntries.filter(e => e.isActive !== false)}
         roomGroups={roomGroups}
         roomInfoMap={roomInfoMap}
         onSaveDividers={async (dividers, dividerColors) => {
@@ -1072,7 +1072,7 @@ const RoomAssignment = () => {
             }
 
             // Convert dividers → groups
-            const roomIds = activeRoomEntries.map(e => e.room_id);
+            const roomIds = activeRoomEntries.filter(e => e.isActive !== false).map(e => e.room_id);
             const groups: { name: string; room_ids: number[]; sort_order: number; color?: string }[] = [];
             let current: number[] = [];
             let groupIdx = 0;
