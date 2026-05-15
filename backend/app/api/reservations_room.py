@@ -65,8 +65,10 @@ async def assign_room(
             req_date,
             end_date,
         )
-        # Reconcile chips after unassign (building/room filter changes)
-        room_assignment.sync_sms_tags(db, reservation_id)
+        # Reconcile chips after unassign — RA 변경으로 surcharge 정원 재계산
+        # 필요 → 5종 칩 통합 reconcile (sync-sms-tags PR3).
+        from app.services.reconcile import reconcile_all_chips
+        reconcile_all_chips(db, reservation_id)
     else:
         # Manual assignment from UI
         from app.config import today_kst
