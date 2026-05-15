@@ -49,13 +49,14 @@ async def assign_sms_template(
              existing_sent=(existing.sent_at is not None))
         raise HTTPException(status_code=409, detail="이미 배정된 템플릿입니다")
 
-    assignment = ReservationSmsAssignment(
+    from app.services.chip_store import ensure_chip
+    assignment = ensure_chip(
+        db,
         reservation_id=reservation_id,
         template_key=request.template_key,
-        assigned_by=request.assigned_by,
         date=request.date or '',
+        assigned_by=request.assigned_by,
     )
-    db.add(assignment)
     db.commit()
     return {"success": True, "template_key": request.template_key}
 
@@ -112,16 +113,16 @@ async def toggle_sms_sent(
         query = query.filter(ReservationSmsAssignment.date == date)
     assignment = query.first()
     if not assignment:
-        # Upsert: 레코드가 없으면 생성 (UI에서 태그가 보이는데 DB에 없는 타이밍 이슈 대응)
-        assignment = ReservationSmsAssignment(
+        # Upsert: 레코드가 없으면 생성 (UI에서 태그가 보이는데 DB에 없는 타이밍 이슈 대응).
+        # chip_store.ensure_chip 위임 (PR8 이주).
+        from app.services.chip_store import ensure_chip
+        assignment = ensure_chip(
+            db,
             reservation_id=reservation_id,
             template_key=template_key,
             date=date or '',
             assigned_by='manual',
-            sent_at=None,
         )
-        db.add(assignment)
-        db.flush()
 
     if assignment.sent_at:
         assignment.sent_at = None  # Mark as unsent
