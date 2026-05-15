@@ -47,7 +47,7 @@ FIELD_PERMISSIONS: dict[str, dict[ChangeSource, str]] = {
     "male_count":       {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
     "female_count":     {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
     "gender":           {ChangeSource.NAVER: "always",  ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
-    "status":           {ChangeSource.NAVER: "always",  ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
+    "status":           {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
     "section":          {ChangeSource.NAVER: "never",   ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "always"},
     "naver_room_type":  {ChangeSource.NAVER: "always",  ChangeSource.MANUAL: "never",  ChangeSource.SYSTEM: "never" },
     "booking_options":  {ChangeSource.NAVER: "always",  ChangeSource.MANUAL: "never",  ChangeSource.SYSTEM: "never" },
