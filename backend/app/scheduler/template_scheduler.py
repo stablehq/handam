@@ -13,7 +13,7 @@ from app.services.filters import (
     apply_structural_filters as _standalone_structural_filters,
 )
 from app.factory import get_sms_provider_for_tenant
-from app.services.sms_tracking import record_sms_sent
+from app.services.chip_store import record_sent
 from app.services.activity_logger import log_activity
 from app.services.event_bus import publish as publish_event
 from app.services.sms_sender import send_single_sms
@@ -199,13 +199,13 @@ class TemplateScheduleExecutor:
                     if result.get('success'):
                         sent_count += 1
 
-                        record_sms_sent(
+                        record_sent(
                             self.db,
-                            reservation.id,
-                            template_key,
-                            schedule.template.category,
+                            reservation_id=reservation.id,
+                            template_key=template_key,
                             assigned_by='schedule',
                             date=target_date or '',
+                            schedule_id=schedule.id,
                         )
 
                         self.db.commit()  # 성공 즉시 영구화 — 후속 hang 시 중복 발송 방지
@@ -224,10 +224,14 @@ class TemplateScheduleExecutor:
                         error_msg = result.get('error', 'unknown')
                         logger.error(f"Failed to send SMS to {reservation.phone}: {error_msg}")
 
-                        from app.services.sms_tracking import record_sms_failed
-                        record_sms_failed(
-                            self.db, reservation.id, template_key,
-                            error=error_msg, date=target_date or '',
+                        from app.services.chip_store import record_failed
+                        record_failed(
+                            self.db,
+                            reservation_id=reservation.id,
+                            template_key=template_key,
+                            error=error_msg,
+                            date=target_date or '',
+                            schedule_id=schedule.id,
                         )
                         self.db.commit()  # 실패 기록도 즉시 영구화
 

@@ -4,8 +4,10 @@ description: |
   예약에 대해 스케줄러 또는 수동 발송이 트리거되면, sms_sender 의 phone 정규화
   검증(9~15 자리 숫자) 이 실패하고 `sms_sender.blocked_invalid_phone` 가 발화.
 
-  발송은 차단되고 `sms.failed_recorded` 로 실패 추적이 기록됨. 사용자(운영자) 가
-  예약 phone 칸을 올바른 번호로 수정할 때까지 매 스케줄 실행마다 재발화.
+  발송은 차단되고 `chip_store.record_failed` 로 실패 추적이 기록됨 (chip_store
+  마이그레이션 PR4 이후 — 이전 키 `sms.failed_recorded` 는 폐기). 칩의
+  assigned_by 가 'failed' 로 마크되어 다음 reconcile 사이클의 PROTECTED 가드가
+  영구 보호 → 자동 재시도 발생 안 함. 운영자가 phone 수정 + 명시적 재발송 처리 필요.
 
 reference_commit: 12e92a6
 reference_case: |
@@ -35,11 +37,13 @@ expected_trace:
       template_key: "*"
       phone_preview: "*"  # 비숫자 phone 의 앞 20자 (PII 부분 마스킹)
 
-  - event: sms.failed_recorded
+  - event: chip_store.record_failed
     category: MANDATORY
     fields:
       template_key: "*"
-      error_pattern: "전화번호 형식 오류"
+      error: "*"  # "전화번호 형식 오류: '...'" 형태 (chip_store 는 error 필드명 사용, 100자 truncate)
+      new_record: "*"  # 기존 칩 있으면 False, 신규면 True
+      prior_assigned_by: "*"  # 기존 칩의 assigned_by — 'auto' 였다면 'failed' 로 승격됨
 
 forbidden_events:
   - event: template.render.enter
@@ -56,9 +60,9 @@ notes: |
     않음 (blocked_* 경로 전체에서 동일). 정답지에는 누락이 정상이지만,
     별도 PR 로 .exit emit 통일 시 정답지에 추가 필요.
 
-  - 같은 res_id+template 에 대해 sms.failed_recorded 가 2회 연속 발화하는
-    패턴이 관측됨 (sms_sender 내부 record + scheduler 의 else 분기 record).
-    중복 기록 가능성 — 별도 조사 후 정답지 갱신.
+  - PR4 (chip_store 이주) 이후 `chip_store.record_failed` 가 assigned_by 를
+    'failed' 로 승격 → 다음 reconcile 사이클의 PROTECTED 가드가 보호 →
+    "2회 연속 발화" 무한 재시도 패턴 종료 예상. 다음 검증 회차에서 확인.
 
   - 운영자에게 phone 칸을 수정하라고 알림을 띄우거나, 스케줄러 타겟 필터에서
     phone 정규식 검증을 미리 거르면 매번 발화하지 않음.

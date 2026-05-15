@@ -85,9 +85,11 @@ async def send_single_sms(
             template_key=template_key,
             phone_preview=reservation.phone[:20],
         )
-        from app.services.sms_tracking import record_sms_failed
-        record_sms_failed(
-            db, reservation.id, template_key,
+        from app.services.chip_store import record_failed
+        record_failed(
+            db,
+            reservation_id=reservation.id,
+            template_key=template_key,
             error=f"전화번호 형식 오류: {reservation.phone!r}",
             date=str(date) if date else "",
         )
@@ -130,9 +132,11 @@ async def send_single_sms(
             template_key=template_key,
             date=effective_date,
         )
-        from app.services.sms_tracking import record_sms_failed
-        record_sms_failed(
-            db, reservation.id, template_key,
+        from app.services.chip_store import record_failed
+        record_failed(
+            db,
+            reservation_id=reservation.id,
+            template_key=template_key,
             error=f"템플릿 없음: {template_key}",
             date=effective_date or "",
         )
@@ -156,9 +160,11 @@ async def send_single_sms(
             date=effective_date,
             missing_vars=missing_room_vars,
         )
-        from app.services.sms_tracking import record_sms_failed
-        record_sms_failed(
-            db, reservation.id, template_key,
+        from app.services.chip_store import record_failed
+        record_failed(
+            db,
+            reservation_id=reservation.id,
+            template_key=template_key,
             error=f"방 정보 누락: {', '.join(missing_room_vars)}",
             date=effective_date or "",
         )

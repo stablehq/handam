@@ -107,6 +107,18 @@
       "reason": "13회차 사전 추가 (사용자 승인) — ReservationMutator 가 silent gateway 가 되는 사고 vector 방지. reason=pinned (NAVER 가 수동수정 후 덮어쓰기 차단, 정책 핵심) / reason=never (권한 거부, 코드 결함 의심). 0건이 정상은 아님 — pinned 는 운영 패턴 따라 자연 발화 예상. never 발화 시 즉시 코드 검토",
       "added_session": "2026-05-15",
       "added_commit": "post-ded670f patch"
+    },
+    {
+      "event": "chip_store.record_sent | chip_store.record_failed | chip_store.cross_tenant_reservation",
+      "reason": "PR4 (chip-store) — sms_tracking.py 이주. 기존 sms.sent_recorded / sms.failed_recorded / sms_tracking.cross_tenant_reservation 의 후속 키. 배포 후 첫 발화 시 정답지 갱신 (_draft/sms-blocked-invalid-phone 등). OQ-5 silent fix 발효 — failed 칩 영구 보호 (assigned_by='failed' 승격) → 5/10 res=5099 같은 무한 재시도 패턴 종료 예상.",
+      "added_session": "2026-05-15",
+      "added_commit": "chip-store PR4"
+    },
+    {
+      "event": "sms.failed_recorded 중복 (종결 예정)",
+      "reason": "state.json:82 pending 의 종결 후보 — chip_store PR4 의 OQ-5 silent fix 가 자동 해결. failed 칩이 reconcile 사이클에서 영구 보호되므로 재시도 자체가 발생 안 함. 다음 검증 회차에서 발화 0 확인 후 정식 종결.",
+      "added_session": "2026-05-15",
+      "added_commit": "chip-store PR4"
     }
   ],
   "known_gaps": [
