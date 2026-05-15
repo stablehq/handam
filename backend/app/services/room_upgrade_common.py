@@ -16,7 +16,6 @@ stay 단위 1칩 가드 — schedule 별로 독립적 (약속 칩 1개 + 객후 
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -27,7 +26,6 @@ from app.db.models import (
     RoomAssignment,
     TemplateSchedule,
 )
-from app.db.tenant_context import get_session_tenant_id
 from app.diag_logger import diag
 from app.services.room_grade import grade_of_biz_item, grade_of_room
 
@@ -170,49 +168,37 @@ def ensure_chip(
     *,
     diag_prefix: str,
 ) -> None:
-    """schedule 의 template 으로 칩 생성 (없을 때만). SAVEPOINT race 처리.
+    """schedule 의 template 으로 칩 생성 (chip_store 위임, PR6 이주).
 
-    template 비활성화 상태면 생성 skip (template_scheduler 와 동일 규약).
+    template 비활성화 상태면 생성 skip. prefix diag (chip_applied) 보존 —
+    backward compat (정답지 영향 회피).
     """
     if not schedule.template or not schedule.template.is_active:
         return
     template_key = schedule.template.template_key
-    # uq_res_sms_template_date: (reservation_id, template_key, date)
-    existing = (
-        db.query(ReservationSmsAssignment)
+    # 신규 생성 여부 파악 — chip_store.ensure_chip 의 idempotent 가 흡수
+    from app.services.chip_store import ensure_chip as _ensure
+    pre_existing = (
+        db.query(ReservationSmsAssignment.id)
         .filter(
             ReservationSmsAssignment.reservation_id == reservation_id,
             ReservationSmsAssignment.date == date,
             ReservationSmsAssignment.template_key == template_key,
         )
-        .first()
+        .scalar()
     )
-    if existing:
-        return
-    tenant_id = get_session_tenant_id(db)
-    try:
-        with db.begin_nested():
-            db.add(
-                ReservationSmsAssignment(
-                    reservation_id=reservation_id,
-                    template_key=template_key,
-                    date=date,
-                    assigned_by="auto",
-                    schedule_id=schedule.id,
-                    sent_at=None,
-                    tenant_id=tenant_id,
-                )
-            )
+    _ensure(
+        db,
+        reservation_id=reservation_id,
+        template_key=template_key,
+        date=date,
+        assigned_by="auto",
+        schedule_id=schedule.id,
+    )
+    if not pre_existing:
         diag(
             f"{diag_prefix}.chip_applied",
             level="verbose",
-            res_id=reservation_id,
-            date=date,
-        )
-    except IntegrityError:
-        diag(
-            f"{diag_prefix}.chip_insert_race",
-            level="warn",
             res_id=reservation_id,
             date=date,
         )
@@ -226,19 +212,21 @@ def remove_chip(
     *,
     diag_prefix: str,
 ) -> None:
-    """해당 (res, date, schedule) 의 미발송 칩 삭제 (sent 칩은 보존)."""
-    existing = (
-        db.query(ReservationSmsAssignment)
-        .filter(
-            ReservationSmsAssignment.reservation_id == reservation_id,
-            ReservationSmsAssignment.date == date,
-            ReservationSmsAssignment.schedule_id == schedule.id,
-            ReservationSmsAssignment.sent_at.is_(None),
-        )
-        .first()
+    """해당 (res, date, schedule) 의 미발송 칩 삭제 (chip_store 위임, PR6 이주).
+
+    OQ-1 fix 발효 — sent_at 가드 + PROTECTED_ASSIGNED_BY 추가 보호.
+    prefix diag (chip_deleted) 보존.
+    """
+    template_key = schedule.template.template_key if schedule.template else ""
+    from app.services.chip_store import remove_chip as _remove
+    deleted = _remove(
+        db,
+        reservation_id=reservation_id,
+        template_key=template_key,
+        date=date,
+        schedule_id=schedule.id,
     )
-    if existing:
-        db.delete(existing)
+    if deleted:
         diag(
             f"{diag_prefix}.chip_deleted",
             level="verbose",
@@ -256,7 +244,10 @@ def delete_all_chips(
     *,
     diag_prefix: str,
 ) -> None:
-    """해당 custom_type 의 (res, date) 미발송 칩 일괄 삭제 (배정 해제 등)."""
+    """해당 custom_type 의 (res, date) 미발송 칩 일괄 삭제 (chip_store 위임, PR6 이주).
+
+    OQ-1 fix 발효 — manual/excluded/failed 보호. prefix diag (all_deleted) 보존.
+    """
     schedule_ids = [
         s.id
         for s in db.query(TemplateSchedule.id).filter(
@@ -266,18 +257,14 @@ def delete_all_chips(
     ]
     if not schedule_ids:
         return
-    deleted = (
-        db.query(ReservationSmsAssignment)
-        .filter(
-            ReservationSmsAssignment.reservation_id == reservation_id,
-            ReservationSmsAssignment.date == date,
-            ReservationSmsAssignment.schedule_id.in_(schedule_ids),
-            ReservationSmsAssignment.sent_at.is_(None),
-        )
-        .delete(synchronize_session="fetch")
+    from app.services.chip_store import delete_chips_for_reservation
+    deleted = delete_chips_for_reservation(
+        db,
+        reservation_id=reservation_id,
+        dates=[date],
+        schedule_ids=schedule_ids,
     )
     if deleted:
-        db.flush()
         diag(
             f"{diag_prefix}.all_deleted",
             level="verbose",

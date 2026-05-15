@@ -20,7 +20,6 @@ target_date 에 투숙 중인 CONFIRMED 예약을 스캔해서:
 """
 import logging
 from typing import Optional
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -30,7 +29,6 @@ from app.db.models import (
     ReservationSmsAssignment,
     TemplateSchedule,
 )
-from app.db.tenant_context import get_session_tenant_id
 from app.diag_logger import diag
 
 logger = logging.getLogger(__name__)
@@ -102,38 +100,37 @@ def reconcile_party3_mms(db: Session, date: str) -> None:
     ).all()
     existing_ids = {c.reservation_id for c in existing_chips}
 
-    # 5. 생성 (target - existing) — SAVEPOINT 로 감싸 race / stale 칩 충돌이
-    #    호출자 트랜잭션을 오염시키지 않게 한다.
-    tenant_id = get_session_tenant_id(db)
+    # 5. 생성 (target - existing) — chip_store.ensure_chip 위임 (PR6 이주).
+    #    race 처리는 chip_store 내부 SAVEPOINT 가 담당.
+    from app.services.chip_store import ensure_chip, remove_chip
     created = 0
     for rid in (target_ids - existing_ids):
-        try:
-            with db.begin_nested():
-                db.add(ReservationSmsAssignment(
-                    reservation_id=rid,
-                    template_key=template_key,
-                    date=date,
-                    assigned_by='auto',
-                    schedule_id=schedule.id,
-                    sent_at=None,
-                    tenant_id=tenant_id,
-                ))
-            created += 1
-        except IntegrityError:
-            diag("party3_mms.chip_insert_race",
-                 level="warn", res_id=rid, date=date)
+        ensure_chip(
+            db,
+            reservation_id=rid,
+            template_key=template_key,
+            date=date,
+            assigned_by='auto',
+            schedule_id=schedule.id,
+        )
+        created += 1
 
-    # 6. 삭제 (existing - target, 미발송만 + 같은 schedule 소유 칩만).
-    #    manual 발송 행(schedule_id IS NULL)이나 다른 schedule 의 발송 이력은 보존.
+    # 6. 삭제 (existing - target, 미발송 + 같은 schedule 소유 + OQ-1 가드).
+    #    chip_store.remove_chip — manual/excluded/failed 추가 보호.
     deleted = 0
     for chip in existing_chips:
         if (
             chip.reservation_id not in target_ids
-            and chip.sent_at is None
             and chip.schedule_id == schedule.id
         ):
-            db.delete(chip)
-            deleted += 1
+            n = remove_chip(
+                db,
+                reservation_id=chip.reservation_id,
+                template_key=template_key,
+                date=date,
+                schedule_id=schedule.id,
+            )
+            deleted += n
 
     if created or deleted:
         db.flush()
@@ -194,32 +191,32 @@ def reconcile_party3_mms_for_reservation(
         ReservationSmsAssignment.template_key == template_key,
     ).first()
 
+    from app.services.chip_store import ensure_chip, remove_chip
     if is_target and not existing:
-        tenant_id = get_session_tenant_id(db)
-        try:
-            with db.begin_nested():
-                db.add(ReservationSmsAssignment(
-                    reservation_id=reservation_id,
-                    template_key=template_key,
-                    date=date,
-                    assigned_by='auto',
-                    schedule_id=schedule.id,
-                    sent_at=None,
-                    tenant_id=tenant_id,
-                ))
-            diag("party3_mms.single.created", level="verbose",
-                 res_id=reservation_id, date=date)
-        except IntegrityError:
-            diag("party3_mms.single.chip_insert_race",
-                 level="warn", res_id=reservation_id, date=date)
+        ensure_chip(
+            db,
+            reservation_id=reservation_id,
+            template_key=template_key,
+            date=date,
+            assigned_by='auto',
+            schedule_id=schedule.id,
+        )
+        diag("party3_mms.single.created", level="verbose",
+             res_id=reservation_id, date=date)
     elif (
         not is_target
         and existing
-        and existing.sent_at is None
         and existing.schedule_id == schedule.id
     ):
-        # manual 발송 / 다른 schedule 의 칩은 보존 — 같은 schedule 소유 미발송만 삭제.
-        db.delete(existing)
-        db.flush()
-        diag("party3_mms.single.deleted", level="verbose",
-             res_id=reservation_id, date=date)
+        # manual 발송 / 다른 schedule 의 칩은 보존. chip_store 가 sent_at +
+        # PROTECTED_ASSIGNED_BY 가드로 추가 보호 (OQ-1 fix).
+        n = remove_chip(
+            db,
+            reservation_id=reservation_id,
+            template_key=template_key,
+            date=date,
+            schedule_id=schedule.id,
+        )
+        if n:
+            diag("party3_mms.single.deleted", level="verbose",
+                 res_id=reservation_id, date=date)
