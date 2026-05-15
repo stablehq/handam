@@ -785,11 +785,14 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
             unlink_from_group(db, existing.id)
             if peer_ids:
                 db.flush()
+                # 5종 칩 통합 — naver 가 cancel 감지 후 unlink 시 peer 의 4종 칩
+                # stale 방지 (sync-sms-tags PR4).
+                from app.services.reconcile import reconcile_all_chips
                 for peer_id in peer_ids:
                     try:
-                        room_assignment.sync_sms_tags(db, peer_id)
+                        reconcile_all_chips(db, peer_id)
                     except Exception as e:
-                        logger.warning(f"naver_sync peer sync_sms_tags after unlink failed: res={peer_id} err={e}")
+                        logger.warning(f"naver_sync peer reconcile_all_chips after unlink failed: res={peer_id} err={e}")
 
     # Reconcile room assignments if dates changed (lifecycle 단계 #13)
     if existing.check_in_date != old_date or existing.check_out_date != old_end_date:
@@ -821,8 +824,8 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
             _changed_set.add("gender")
         on_constraints_changed(db, existing, _changed_set, actor="naver_sync")
 
-    # F1: SMS 필터 영향 필드 변경 시 칩 재동기화
-    #   reservations.py::PATCH 는 _SMS_TAG_FIELDS 변경 시 sync_sms_tags 를 호출하는데,
+    # F1: SMS 필터 영향 필드 변경 시 칩 재동기화 (sync-sms-tags PR4 후 5종 통합)
+    #   reservations.py::PATCH 는 _SMS_TAG_FIELDS 변경 시 reconcile_all_chips 를 호출하는데,
     #   naver_sync 경로에서는 `gender` / `naver_room_type` 만 실제로 변경 가능
     #   (section/party_type/notes 는 _update_reservation 이 만지지 않음).
     #   column_match 필터가 이 두 필드를 참조할 수 있어 stale 칩 방지용으로 동기화.
@@ -840,8 +843,11 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
         )
         try:
             db.flush()
-            room_assignment.sync_sms_tags(db, existing.id)
+            # 5종 칩 통합 — naver sms field (gender / room_type) 변경 시 party3
+            # / surcharge 등 영향 가능 (sync-sms-tags PR4).
+            from app.services.reconcile import reconcile_all_chips
+            reconcile_all_chips(db, existing.id)
         except Exception as e:
-            logger.warning(f"naver_sync sms field-change sync_sms_tags failed: {e}")
+            logger.warning(f"naver_sync sms field-change reconcile_all_chips failed: {e}")
 
     existing.updated_at = datetime.now(timezone.utc)
