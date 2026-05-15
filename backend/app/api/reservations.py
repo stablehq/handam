@@ -365,11 +365,14 @@ async def update_reservation(
         unlink_from_group(db, reservation_id)
         if peer_ids:
             db.flush()
+            # 5종 칩 통합 reconcile — unlink 후 peer 의 4종 칩 stale 방지
+            # (sync-sms-tags PR2).
+            from app.services.reconcile import reconcile_all_chips
             for peer_id in peer_ids:
                 try:
-                    room_assignment.sync_sms_tags(db, peer_id)
+                    reconcile_all_chips(db, peer_id)
                 except Exception as e:
-                    logger.warning(f"peer sync_sms_tags after unlink failed: res={peer_id} err={e}")
+                    logger.warning(f"peer reconcile_all_chips after unlink failed: res={peer_id} err={e}")
 
     # 날짜 변경 시 orphan RoomAssignment 정리 (네이버 동기화와 동일)
     new_dates = (db_reservation.check_in_date, db_reservation.check_out_date)
