@@ -94,6 +94,8 @@ class ReservationMutator:
             {필드명: (old, new)} 형태로 실제 적용된 변경만 반환. 권한 거부된
             필드 + 값 동일 필드는 포함하지 않음.
         """
+        from app.diag_logger import diag
+
         applied: dict[str, Any] = {}
 
         for field, new_value in fields.items():
@@ -106,12 +108,29 @@ class ReservationMutator:
                 permission = perm_row.get(source, "never")
 
             if permission == "never":
+                # silent skip 가시화 — 정책 위반 caller 추적
+                diag(
+                    "mutator.skipped",
+                    level="critical",
+                    res_id=reservation.id,
+                    source=source.value,
+                    field=field,
+                    reason="never",
+                )
                 continue
 
             if permission == "guarded":
                 pin_attr = _PIN_ATTR_FOR.get(field)
                 if pin_attr and getattr(reservation, pin_attr, False):
-                    # pin 발동 — 덮어쓰기 skip
+                    # pin 발동 — 덮어쓰기 skip. "수동수정 후 네이버 덮어쓰기 차단" 핵심 정책.
+                    diag(
+                        "mutator.skipped",
+                        level="critical",
+                        res_id=reservation.id,
+                        source=source.value,
+                        field=field,
+                        reason="pinned",
+                    )
                     continue
                 # pin_attr 없는 guarded 필드 (party_size, male_count 등):
                 # 기존 caller 보호 로직 (is_split_managed, gender_manual) 가 미리 처리.
