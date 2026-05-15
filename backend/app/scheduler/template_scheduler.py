@@ -697,10 +697,10 @@ class TemplateScheduleExecutor:
 
         today_str = today_kst()
 
-        # 1) 안전장치: 과거 체크인 (이미 체크아웃했거나 mid-stay) 무조건 제외.
-        #    max_checkin_days 가 비어있어도 항상 적용 — 운영자가 실수로 빈 값
-        #    저장해도 과거 예약자에게 발송되는 사고 방지.
-        query = query.filter(Reservation.check_in_date >= today_str)
+        # 1) 안전장치: 오늘 + 과거 체크인 (이미 체크아웃했거나 mid-stay, 당일은
+        #    안내 효과 없음) 무조건 제외. max_checkin_days 가 비어있어도 항상 적용
+        #    — 운영자가 실수로 빈 값 저장해도 무의미한 발송 사고 방지.
+        query = query.filter(Reservation.check_in_date > today_str)
 
         # 2) 옵션: 체크인 N일 이내 상한 (max_checkin_days 가 설정된 경우만)
         if schedule.max_checkin_days:
