@@ -143,7 +143,7 @@ def on_status_cancelled(
     Note: stay_group unlink + peer sync_sms_tags 는 caller 책임 (부모 계획 Q2).
     """
     from app.config import today_kst
-    from app.db.models import RoomAssignment, ReservationSmsAssignment
+    from app.db.models import RoomAssignment
     from app.db.tenant_context import get_session_tenant_id
     from app.services import room_assignment
     from app.diag_logger import diag
@@ -175,12 +175,13 @@ def on_status_cancelled(
         # cc2: 사전 취소 — 전체 배정 해제
         room_assignment.clear_all_for_reservation(db, reservation.id)
 
-    # 공통: 미발송 SMS 칩 삭제 (sent 보호)
-    _cancel_deleted = db.query(ReservationSmsAssignment).filter(
-        ReservationSmsAssignment.tenant_id == reservation.tenant_id,
-        ReservationSmsAssignment.reservation_id == reservation.id,
-        ReservationSmsAssignment.sent_at.is_(None),
-    ).delete(synchronize_session='fetch')
+    # 공통: 미발송 SMS 칩 삭제. OQ-2-a 정책 — 취소 시 manual/excluded/failed
+    # 칩도 cascade (force=True), 단 발송 완료 이력은 보존 (protect_sent=True).
+    # chip_store.delete_chips_for_reservation 위임.
+    from app.services.chip_store import delete_chips_for_reservation
+    _cancel_deleted = delete_chips_for_reservation(
+        db, reservation_id=reservation.id, force=True, protect_sent=True,
+    )
     diag(
         "naver_sync.cancel_chip_cleanup",
         level="verbose",
@@ -235,17 +236,19 @@ def on_reservation_deleted(
 
     Note: stay_group unlink 와 db.delete(reservation) + commit + diag 는 caller 책임.
     """
-    from app.db.models import ReservationSmsAssignment, ReservationDailyInfo, PartyCheckin
+    from app.db.models import ReservationDailyInfo, PartyCheckin
     from app.db.tenant_context import get_session_tenant_id
     from app.services.room_assignment import clear_all_for_reservation
 
     tid = get_session_tenant_id(db)
 
     clear_all_for_reservation(db, reservation_id)
-    db.query(ReservationSmsAssignment).filter(
-        ReservationSmsAssignment.reservation_id == reservation_id,
-        ReservationSmsAssignment.tenant_id == tid,
-    ).delete()
+    # OQ-2-b: 예약 row 삭제 = cascade 모두 삭제. row 자체가 사라지므로 sent
+    # 이력도 의미 없음 → force=True + protect_sent=False (sent 까지 cascade).
+    from app.services.chip_store import delete_chips_for_reservation
+    delete_chips_for_reservation(
+        db, reservation_id=reservation_id, force=True, protect_sent=False,
+    )
     db.query(ReservationDailyInfo).filter(
         ReservationDailyInfo.reservation_id == reservation_id,
         ReservationDailyInfo.tenant_id == tid,

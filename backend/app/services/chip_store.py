@@ -142,6 +142,7 @@ def remove_chip(
     date: str,
     schedule_id: Optional[int] = None,
     force: bool = False,
+    protect_sent: bool = True,
 ) -> int:
     """단건 칩 삭제 (보호 가드 포함).
 
@@ -184,6 +185,9 @@ def remove_chip(
             (ReservationSmsAssignment.send_status.is_(None))
             | (ReservationSmsAssignment.send_status != 'failed'),
         )
+    elif protect_sent:
+        # force=True 지만 sent 이력은 보존 (예: on_status_cancelled — 미발송만 cascade)
+        q = q.filter(ReservationSmsAssignment.sent_at.is_(None))
 
     deleted = q.delete(synchronize_session='fetch')
 
@@ -214,6 +218,7 @@ def delete_chips_for_reservation(
     template_keys: Optional[list[str]] = None,
     schedule_ids: Optional[list[int]] = None,
     force: bool = False,
+    protect_sent: bool = True,
 ) -> int:
     """범위 삭제 — 예약 단위 + 옵션 필터 AND 매칭.
 
@@ -248,6 +253,9 @@ def delete_chips_for_reservation(
             (ReservationSmsAssignment.send_status.is_(None))
             | (ReservationSmsAssignment.send_status != 'failed'),
         )
+    elif protect_sent:
+        # force=True 지만 sent 이력은 보존 (예: on_status_cancelled — 미발송만 cascade)
+        q = q.filter(ReservationSmsAssignment.sent_at.is_(None))
 
     deleted = q.delete(synchronize_session='fetch')
 
@@ -271,6 +279,7 @@ def delete_chips_for_schedule(
     *,
     schedule_id: int,
     force: bool = False,
+    protect_sent: bool = True,
 ) -> int:
     """스케줄 단위 일괄 삭제 (template_schedule 비활성·삭제 시).
 
@@ -291,6 +300,9 @@ def delete_chips_for_schedule(
             (ReservationSmsAssignment.send_status.is_(None))
             | (ReservationSmsAssignment.send_status != 'failed'),
         )
+    elif protect_sent:
+        # force=True 지만 sent 이력은 보존 (예: on_status_cancelled — 미발송만 cascade)
+        q = q.filter(ReservationSmsAssignment.sent_at.is_(None))
 
     deleted = q.delete(synchronize_session='fetch')
 

@@ -269,7 +269,8 @@ class TestRemoveChipForceTrue:
         )
         assert deleted == 1
 
-    def test_force_deletes_sent_chip(self, db):
+    def test_force_keeps_sent_by_default(self, db):
+        """⭐ PR9 — force=True 의 기본은 protect_sent=True (sent 보존)."""
         r = _make_reservation(db)
         chip = ensure_chip(
             db, reservation_id=r.id, template_key="k",
@@ -279,7 +280,22 @@ class TestRemoveChipForceTrue:
         db.flush()
         deleted = remove_chip(
             db, reservation_id=r.id, template_key="k", date="2026-04-20",
-            force=True,
+            force=True,  # protect_sent=True (default)
+        )
+        assert deleted == 0  # sent 보호
+
+    def test_force_with_protect_sent_false_deletes_sent(self, db):
+        """⭐ PR9 — protect_sent=False 명시 시만 sent cascade (on_reservation_deleted)."""
+        r = _make_reservation(db)
+        chip = ensure_chip(
+            db, reservation_id=r.id, template_key="k",
+            date="2026-04-20", assigned_by="auto",
+        )
+        chip.sent_at = datetime.now(timezone.utc)
+        db.flush()
+        deleted = remove_chip(
+            db, reservation_id=r.id, template_key="k", date="2026-04-20",
+            force=True, protect_sent=False,
         )
         assert deleted == 1
 
@@ -471,6 +487,43 @@ class TestDeleteChipsForReservationEdgeCases:
     def test_nonexistent_reservation_returns_zero(self, db):
         deleted = delete_chips_for_reservation(db, reservation_id=99999)
         assert deleted == 0
+
+
+class TestDeleteChipsForReservationProtectSent:
+    """⭐ PR9 — protect_sent 옵션 (OQ-2-a 정확 매핑)."""
+
+    def test_force_with_protect_sent_keeps_sent_chips(self, db):
+        """on_status_cancelled — force=True 라도 sent 보존."""
+        r = _make_reservation(db)
+        c1 = ensure_chip(db, reservation_id=r.id, template_key="manual_unsent",
+                         date="2026-04-20", assigned_by="manual")
+        c2 = ensure_chip(db, reservation_id=r.id, template_key="sent",
+                         date="2026-04-20", assigned_by="auto")
+        c2.sent_at = datetime.now(timezone.utc)
+        db.flush()
+        deleted = delete_chips_for_reservation(
+            db, reservation_id=r.id, force=True, protect_sent=True,
+        )
+        assert deleted == 1  # manual unsent 만
+        remaining = db.query(ReservationSmsAssignment).filter(
+            ReservationSmsAssignment.reservation_id == r.id,
+        ).all()
+        assert len(remaining) == 1
+        assert remaining[0].sent_at is not None  # sent 보존됨
+
+    def test_force_with_protect_sent_false_deletes_all(self, db):
+        """on_reservation_deleted — force=True + protect_sent=False cascade."""
+        r = _make_reservation(db)
+        ensure_chip(db, reservation_id=r.id, template_key="manual_unsent",
+                    date="2026-04-20", assigned_by="manual")
+        c2 = ensure_chip(db, reservation_id=r.id, template_key="sent",
+                         date="2026-04-20", assigned_by="auto")
+        c2.sent_at = datetime.now(timezone.utc)
+        db.flush()
+        deleted = delete_chips_for_reservation(
+            db, reservation_id=r.id, force=True, protect_sent=False,
+        )
+        assert deleted == 2  # 전부
 
 
 # ════════════════════════════════════════════════════════════════════
