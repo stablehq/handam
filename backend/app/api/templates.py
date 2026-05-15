@@ -341,14 +341,10 @@ def update_template(template_id: int, template: TemplateUpdate, db: Session = De
 
     db_template.updated_at = datetime.now(timezone.utc)
 
-    # 템플릿 비활성화 시 연관 칩 정리
+    # 템플릿 비활성화 시 연관 칩 정리 — chip_store 위임 (PR10 이주).
     if 'is_active' in update_data and not update_data['is_active']:
-        from app.db.models import ReservationSmsAssignment
-        db.query(ReservationSmsAssignment).filter(
-            ReservationSmsAssignment.template_key == db_template.template_key,
-            ReservationSmsAssignment.sent_at.is_(None),
-            ~ReservationSmsAssignment.assigned_by.in_(['manual', 'excluded']),
-        ).delete(synchronize_session='fetch')
+        from app.services.chip_store import delete_chips_for_template
+        delete_chips_for_template(db, template_key=db_template.template_key)
 
     db.commit()
     db.refresh(db_template)

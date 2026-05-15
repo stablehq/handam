@@ -362,33 +362,38 @@ def _do_reduce_extension(
     from app.services.room_assignment import unassign_dates
     room_assignments_deleted = unassign_dates(db, reservation_id, dates_to_remove)
 
-    # 2. Delete unsent SMS chips for removed dates (preserve sent chips)
-    chips_to_check = (
+    # 2. Delete unsent SMS chips for removed dates (preserve sent chips for audit).
+    # chip_store 위임 (PR10) — force=True (manual/excluded/failed 도 cascade,
+    # 사라진 날짜의 칩은 모두 obsolete) + protect_sent=True (이력 보존).
+    # protected_chip_preserved diag 는 pre-SELECT 로 보존.
+    sent_chips = (
         db.query(ReservationSmsAssignment)
         .filter(
             ReservationSmsAssignment.reservation_id == reservation_id,
             ReservationSmsAssignment.date.in_(dates_to_remove),
             ReservationSmsAssignment.tenant_id == tid,
+            ReservationSmsAssignment.sent_at.isnot(None),
         )
         .all()
     )
-    chips_deleted_unsent = 0
-    sent_chips_preserved = 0
-    for chip in chips_to_check:
-        if chip.sent_at is None:
-            db.delete(chip)
-            chips_deleted_unsent += 1
-        else:
-            # Preserve sent chips for audit
-            sent_chips_preserved += 1
-            diag(
-                "reduce_extension.protected_chip_preserved",
-                level="verbose",
-                reservation_id=reservation_id,
-                template_key=chip.template_key,
-                date=chip.date,
-                sent_at=str(chip.sent_at),
-            )
+    sent_chips_preserved = len(sent_chips)
+    for chip in sent_chips:
+        diag(
+            "reduce_extension.protected_chip_preserved",
+            level="verbose",
+            reservation_id=reservation_id,
+            template_key=chip.template_key,
+            date=chip.date,
+            sent_at=str(chip.sent_at),
+        )
+    from app.services.chip_store import delete_chips_for_reservation
+    chips_deleted_unsent = delete_chips_for_reservation(
+        db,
+        reservation_id=reservation_id,
+        dates=dates_to_remove,
+        force=True,
+        protect_sent=True,
+    )
 
     # 3. Delete ReservationDailyInfo for removed dates
     db.query(ReservationDailyInfo).filter(

@@ -507,15 +507,10 @@ def delete_schedule(schedule_id: int, db: Session = Depends(get_tenant_scoped_db
     except Exception as e:
         print(f"Warning: Failed to remove schedule from APScheduler: {e}")
 
-    # Delete chips owned by this schedule (other schedules' chips are preserved)
-    # Note: FK ondelete=SET NULL would clear schedule_id, but we want to
-    # actively remove unsent chips before the schedule row is deleted.
-    from app.db.models import ReservationSmsAssignment
-    db.query(ReservationSmsAssignment).filter(
-        ReservationSmsAssignment.schedule_id == schedule_id,
-        ReservationSmsAssignment.sent_at.is_(None),
-        ~ReservationSmsAssignment.assigned_by.in_(['manual', 'excluded']),
-    ).delete(synchronize_session='fetch')
+    # Delete chips owned by this schedule (other schedules' chips are preserved).
+    # chip_store 위임 (PR10 이주) — 기본 가드 (sent_at + manual/excluded/failed).
+    from app.services.chip_store import delete_chips_for_schedule
+    delete_chips_for_schedule(db, schedule_id=schedule_id)
 
     db.delete(schedule)
     db.flush()

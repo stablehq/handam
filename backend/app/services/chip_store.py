@@ -274,6 +274,46 @@ def delete_chips_for_reservation(
     return deleted
 
 
+def delete_chips_for_template(
+    db: 'Session',
+    *,
+    template_key: str,
+    force: bool = False,
+    protect_sent: bool = True,
+) -> int:
+    """템플릿 단위 일괄 삭제 (template 비활성화/삭제 시).
+
+    template_key 매칭. 모든 reservation 의 모든 schedule 의 해당 template 칩.
+    """
+    q = db.query(ReservationSmsAssignment).filter(
+        ReservationSmsAssignment.template_key == template_key,
+    )
+
+    if not force:
+        q = q.filter(
+            ReservationSmsAssignment.sent_at.is_(None),
+            ~ReservationSmsAssignment.assigned_by.in_(PROTECTED_ASSIGNED_BY),
+            (ReservationSmsAssignment.send_status.is_(None))
+            | (ReservationSmsAssignment.send_status != 'failed'),
+        )
+    elif protect_sent:
+        q = q.filter(ReservationSmsAssignment.sent_at.is_(None))
+
+    deleted = q.delete(synchronize_session='fetch')
+
+    if deleted:
+        diag(
+            "chip_store.delete_template.deleted",
+            level="verbose",
+            template_key=template_key,
+            force=force,
+            protect_sent=protect_sent,
+            count=deleted,
+        )
+
+    return deleted
+
+
 def delete_chips_for_schedule(
     db: 'Session',
     *,
