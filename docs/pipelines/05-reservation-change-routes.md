@@ -44,8 +44,10 @@ flowchart TB
     subgraph GATE1["1단계 · Mutator — 필드 변경 권한 게이트"]
         direction TB
         m_MUTATOR["⭐ ReservationMutator.apply_changes(source, fields)\n수정 시도를 권한표로 검사 → 통과한 필드만 적용\n📁 reservation_mutator.py:78"]:::gate
-        m_PERM["🛡 권한 평가 규칙 (15필드 × 3소스)\n• NAVER + pinned=True → 덮어쓰기 차단 (수동수정 보호)\n• MANUAL + 날짜변경 → pin 자동 ON\n• SYSTEM → name/phone 등 변경 불가 (never)"]:::shield
+        m_PERM["🛡 권한 평가 규칙 (15필드 × 3소스, 2-메커니즘 가드)\n• NAVER + (pin 컬럼 True OR manually_edited_fields dict 등록) → 차단\n• MANUAL + 가드대상 필드 → dict[field]=now() 자동 등록\n• MANUAL + 날짜변경 → pin 컬럼도 자동 ON (점진 호환)\n• SYSTEM → name/phone 등 변경 불가 (never)"]:::shield
+        m_RELEASE["🔓 ReservationMutator.release_manual_pin(field)\n수동 보호 해제 — dict + pin 컬럼 둘 다 클리어\ncancel·연박취소 경로가 호출 → naver_sync 정상 복귀\n📁 reservation_mutator.py (PR1-fix)"]:::shield
         m_MUTATOR --> m_PERM
+        m_MUTATOR -.->|"cancel/축소 시"| m_RELEASE
     end
 
     %% ═══════════════════════════════════════════════════════════════
@@ -193,9 +195,11 @@ flowchart TB
 
 | 영역 | 현재 구조 |
 |------|----------|
-| **네이버 덮어쓰기 보호** | Mutator pin (`check_in_pinned`, `check_out_pinned`) |
+| **네이버 덮어쓰기 보호** | Mutator 2-메커니즘 가드: pin 컬럼 (`check_in/out_pinned`) + 방명록 dict (`manually_edited_fields`) |
+| **운영자 편집 보호 필드** | 7개: `check_in_date`, `check_out_date` (pin 컬럼) + `customer_name`, `phone`, `visitor_name`, `visitor_phone`, `special_requests` (방명록 dict, PR1) |
+| **보호 해제** | `Mutator.release_manual_pin(field)` — cancel·연박취소 경로가 호출, dict + 컬럼 둘 다 클리어 (PR1-fix) |
 | **후처리 일관성** | Lifecycle 5장 매뉴얼 (`on_dates_changed` / `on_constraints_changed` / `on_status_cancelled` / `on_room_assigned` / `on_reservation_deleted`) |
-| **보호 방식** | `check_in/out_pinned` (동기화 보호) + `manually_extended_until` (UI "수동 연박" 표시) — 책임 분리 |
+| **보호 방식** | pin 컬럼 (날짜 동기화 보호) + 방명록 dict (5 필드 보호) + `manually_extended_until` (UI "수동 연박" 표시) — 책임 분리 |
 | **칩 재계산** | `reconcile_all_chips` 5종 단일 진입점 |
 | **RA 직접 조작** | 0건 — `unassign_dates` 단일 헬퍼로 통합 |
 | **`_shift_daily_records` / `_reconcile_dates`** | private (`_` prefix) + lifecycle 내부 호출만 |

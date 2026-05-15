@@ -346,7 +346,9 @@ async def update_reservation(
         and db_reservation.manually_extended_until
     ):
         db_reservation.manually_extended_until = None
-        db_reservation.check_out_pinned = False
+        # PR1-fix: pin 컬럼 + 방명록 dict 둘 다 클리어 (재활성 시 naver_sync 정상화)
+        from app.services.reservation_mutator import ReservationMutator as _RM
+        _RM.release_manual_pin(db_reservation, "check_out_date")
 
     if (
         "status" in update_data
@@ -512,3 +514,4 @@ async def sync_from_naver(request: Request, from_date: Optional[str] = None, rec
     if unstable_result:
         result["unstable"] = unstable_result
     return result
+

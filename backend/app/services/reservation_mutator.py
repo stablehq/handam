@@ -173,3 +173,41 @@ class ReservationMutator:
             reservation.manually_edited_fields = edits
 
         return applied
+
+    @staticmethod
+    def release_manual_pin(reservation: "Reservation", field: str) -> bool:
+        """Manual pin 해제 (방명록 dict + pin 컬럼 둘 다).
+
+        cancel / 연박취소 경로 등 "운영자 수정 → 자동 동기화로 복귀" 의도
+        호출자가 사용. 실제 해제 1건 이상 발생 시 mutator.pin_released diag 발화.
+
+        Returns:
+            True  — dict 또는 pin 컬럼 중 1건이라도 해제됨
+            False — 둘 다 비어있어 no-op
+        """
+        from app.diag_logger import diag
+
+        released_dict = False
+        released_column = False
+
+        edits = dict(reservation.manually_edited_fields or {})
+        if field in edits:
+            del edits[field]
+            reservation.manually_edited_fields = edits
+            released_dict = True
+
+        pin_attr = _PIN_ATTR_FOR.get(field)
+        if pin_attr and getattr(reservation, pin_attr, False):
+            setattr(reservation, pin_attr, False)
+            released_column = True
+
+        if released_dict or released_column:
+            diag(
+                "mutator.pin_released",
+                level="critical",
+                res_id=reservation.id,
+                field=field,
+                released_dict=released_dict,
+                released_column=released_column,
+            )
+        return released_dict or released_column

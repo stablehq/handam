@@ -210,3 +210,72 @@ class TestEdgeCases:
         )
         assert r.customer_name == "네이버응답"
         assert "customer_name" not in (r.manually_edited_fields or {})
+
+
+# ════════════════════════════════════════════════════════════════════
+# PR1-fix: release_manual_pin — 운영자 수정 → 자동 동기화로 복귀
+# ════════════════════════════════════════════════════════════════════
+
+class TestReleaseManualPin:
+    def test_release_clears_both_dict_and_column(self, db):
+        """check_out_date MANUAL 후 release → dict + pin 컬럼 둘 다 클리어."""
+        r = _make_reservation(db)
+        ReservationMutator.apply_changes(
+            db, r, ChangeSource.MANUAL,
+            {"check_out_date": "2026-06-01"},
+        )
+        assert r.check_out_pinned is True
+        assert "check_out_date" in r.manually_edited_fields
+
+        released = ReservationMutator.release_manual_pin(r, "check_out_date")
+        assert released is True
+        assert r.check_out_pinned is False
+        assert "check_out_date" not in r.manually_edited_fields
+
+    def test_release_phone_clears_dict_only(self, db):
+        """5 신규 필드 (phone 등) 는 pin 컬럼이 없으므로 dict 만 클리어."""
+        r = _make_reservation(db, phone="01012345678")
+        ReservationMutator.apply_changes(
+            db, r, ChangeSource.MANUAL,
+            {"phone": "01099999999"},
+        )
+        assert "phone" in r.manually_edited_fields
+
+        released = ReservationMutator.release_manual_pin(r, "phone")
+        assert released is True
+        assert "phone" not in r.manually_edited_fields
+
+    def test_release_noop_when_clean(self, db):
+        """이미 비어있을 때 호출 → False 반환, 부작용 없음."""
+        r = _make_reservation(db)
+        assert r.manually_edited_fields == {}
+        assert r.check_out_pinned is False
+
+        released = ReservationMutator.release_manual_pin(r, "check_out_date")
+        assert released is False
+        assert r.manually_edited_fields == {}
+        assert r.check_out_pinned is False
+
+    def test_naver_unblocked_after_release(self, db):
+        """⭐ release 후 NAVER 가 다시 정상 갱신 가능."""
+        r = _make_reservation(db)
+        # 1. 운영자 수정 → 차단됨
+        ReservationMutator.apply_changes(
+            db, r, ChangeSource.MANUAL,
+            {"check_out_date": "2026-06-01"},
+        )
+        ReservationMutator.apply_changes(
+            db, r, ChangeSource.NAVER,
+            {"check_out_date": "2026-07-01"},
+        )
+        assert r.check_out_date == "2026-06-01"  # 차단됨
+
+        # 2. release 호출
+        ReservationMutator.release_manual_pin(r, "check_out_date")
+
+        # 3. NAVER 다시 시도 → 통과
+        ReservationMutator.apply_changes(
+            db, r, ChangeSource.NAVER,
+            {"check_out_date": "2026-07-01"},
+        )
+        assert r.check_out_date == "2026-07-01"  # ✅ 정상 갱신

@@ -427,7 +427,8 @@ def _do_reduce_extension(
     # Clear flag when fully retracted to a 1-night (or shorter) stay — naver_sync resumes normal sync
     if days_remaining <= 1:
         original.manually_extended_until = None
-        original.check_out_pinned = False
+        # PR1-fix: pin 컬럼 + 방명록 dict 둘 다 클리어 (naver_sync 재차단 방지)
+        ReservationMutator.release_manual_pin(original, "check_out_date")
         diag(
             "reduce_extension.flag_cleared",
             level="critical",
