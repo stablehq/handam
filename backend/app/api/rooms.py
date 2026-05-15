@@ -341,6 +341,13 @@ def update_room_grades(
     _reconcile_room_upgrade_after_grade_change(db, room_ids=target_ids)
 
     db.commit()
+    diag(
+        "rooms.grades_updated",
+        level="critical",
+        count=len(rooms),
+        room_ids=sorted(target_ids),
+        grade_map={str(r.id): r.grade for r in rooms},
+    )
     return [_room_to_response(r) for r in rooms]
 
 
@@ -358,12 +365,11 @@ def _reconcile_room_upgrade_after_grade_change(
     각 모듈은 스케줄 비활성 시 즉시 return — grade 만 입력해두는 운영 단계
     (스케줄 활성화 전) 에서도 부담 0.
     """
-    from datetime import datetime
-    from app.config import KST
+    from app.config import today_kst
     from app.services.room_upgrade_promise import reconcile_room_upgrade_promise_batch
     from app.services.room_upgrade_review import reconcile_room_upgrade_review_batch
 
-    today_str = datetime.now(KST).strftime("%Y-%m-%d")
+    today_str = today_kst()
 
     # date → reservation_id 집합 으로 그룹핑 (batch 함수가 (ids, date) 시그니처)
     targets: Dict[str, set] = {}

@@ -8,12 +8,11 @@ FILL-ONLY 전환(Phase 2-4) 후 엣지 케이스 커버:
 관심사 분리: room_assignment.py (CRUD) 와 invariants.py (검증) 분리.
 """
 from collections import defaultdict
-from datetime import datetime
 from typing import List
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.models import RoomAssignment, Reservation
-from app.config import KST
+from app.config import today_kst
 from app.diag_logger import diag
 
 
@@ -33,7 +32,7 @@ def check_assignment_validity(db: Session, reservation: Reservation) -> List[str
     """
     diag("invariant.check.enter", level="verbose", res_id=reservation.id)
     invalid: List[str] = []
-    today_str = datetime.now(KST).strftime("%Y-%m-%d")
+    today_str = today_kst()
 
     # H-B: joinedload로 Room 미리 로드
     assignments = db.query(RoomAssignment).options(
@@ -128,7 +127,7 @@ def check_room_config_impact(db: Session, room_id: int) -> List[int]:
 
     Returns: 영향받는 unique reservation_id 리스트.
     """
-    today_str = datetime.now(KST).strftime("%Y-%m-%d")
+    today_str = today_kst()
     affected = db.query(RoomAssignment.reservation_id).filter(
         RoomAssignment.room_id == room_id,
         RoomAssignment.date >= today_str,

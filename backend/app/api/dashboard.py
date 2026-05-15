@@ -10,7 +10,7 @@ from app.db.tenant_context import get_session_tenant_id
 from app.diag_logger import diag
 from app.auth.dependencies import get_current_user
 from datetime import datetime
-from app.config import KST
+from app.config import KST, today_kst_date
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -52,7 +52,7 @@ async def get_dashboard_stats(db: Session = Depends(get_tenant_scoped_db), curre
     # Gender stats (7 days: today + 6 days forward) — 연박 중간일 + NULL/당일 모두 포함
     from datetime import timedelta
     from app.services.filters import stay_coverage_filter
-    today = datetime.now(KST).date()
+    today = today_kst_date()
     date_strs = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
     gender_daily = []
     for d in date_strs:

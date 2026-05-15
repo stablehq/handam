@@ -10,7 +10,7 @@ import json as _json
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.config import KST
+from app.config import today_kst_date
 from app.db.models import Reservation, ReservationStatus, ParticipantSnapshot
 from app.diag_logger import diag
 
@@ -393,9 +393,9 @@ def calculate_template_variables(
     # NOTE: get_or_create_snapshot은 check_in_date 기준 집계. 인원 통계는 항상 체크인 기준.
     from datetime import timedelta as _td
     try:
-        _base_date = datetime.strptime(target_date, '%Y-%m-%d').date() if isinstance(target_date, str) and target_date else datetime.now(KST).date()
+        _base_date = datetime.strptime(target_date, '%Y-%m-%d').date() if isinstance(target_date, str) and target_date else today_kst_date()
     except (ValueError, TypeError):
-        _base_date = datetime.now(KST).date()
+        _base_date = today_kst_date()
 
     for _prefix, _delta in [('tomorrow', 1), ('yesterday', -1)]:
         _d = (_base_date + _td(days=_delta)).strftime('%Y-%m-%d')

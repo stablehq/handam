@@ -13,7 +13,7 @@ from app.db.models import Tenant
 from app.diag_logger import diag
 from app.factory import get_reservation_provider_for_tenant
 from app.services.room_auto_assign import daily_assign_rooms
-from app.config import KST
+from app.config import KST, today_kst
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +206,7 @@ async def reconcile_today_reservations_job():
     from app.services.naver_sync import sync_naver_to_db
     from app.services.activity_logger import log_activity
 
-    today = datetime.now(KST).strftime("%Y-%m-%d")
+    today = today_kst()
     from datetime import timedelta as _td
     tomorrow = (datetime.now(KST) + _td(days=1)).strftime("%Y-%m-%d")
 

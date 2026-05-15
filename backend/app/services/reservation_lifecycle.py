@@ -72,7 +72,7 @@ def on_constraints_changed(
     """
     import logging
     from datetime import datetime, timedelta
-    from app.config import KST
+    from app.config import today_kst
     from app.services.room_assignment_invariants import check_assignment_validity
     from app.services.room_assignment import unassign_room
     from app.services.reconcile import reconcile_all_chips
@@ -88,7 +88,7 @@ def on_constraints_changed(
         invalid_dates = []
 
     if invalid_dates:
-        today_str = datetime.now(KST).strftime("%Y-%m-%d")
+        today_str = today_kst()
         future_invalid = sorted([d for d in invalid_dates if d > today_str])
         if future_invalid:
             end_d = (
@@ -142,8 +142,7 @@ def on_status_cancelled(
 
     Note: stay_group unlink + peer sync_sms_tags 는 caller 책임 (부모 계획 Q2).
     """
-    from datetime import datetime
-    from app.config import KST
+    from app.config import today_kst
     from app.db.models import RoomAssignment, ReservationSmsAssignment
     from app.db.tenant_context import get_session_tenant_id
     from app.services import room_assignment
@@ -153,7 +152,7 @@ def on_status_cancelled(
 
     if same_day:
         # cc1: 당일 취소 — 오늘 이후 affected_dates 수집
-        today_str = datetime.now(KST).strftime("%Y-%m-%d")
+        today_str = today_kst()
         affected_dates = [
             ra.date for ra in db.query(RoomAssignment).filter(
                 RoomAssignment.reservation_id == reservation.id,

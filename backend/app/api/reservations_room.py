@@ -69,8 +69,8 @@ async def assign_room(
         room_assignment.sync_sms_tags(db, reservation_id)
     else:
         # Manual assignment from UI
-        from app.config import KST
-        today_str = datetime.now(KST).strftime("%Y-%m-%d")
+        from app.config import today_kst
+        today_str = today_kst()
         from_date = req_date or db_reservation.check_in_date
 
         end_date = db_reservation.check_out_date if apply_subsequent else None

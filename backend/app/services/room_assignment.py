@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 import logging
 
-from app.config import KST
+from app.config import KST, today_kst
 from app.diag_logger import diag
 from app.db.models import RoomAssignment, Reservation, Room
 from app.db.tenant_context import get_session_tenant_id
@@ -255,7 +255,7 @@ def assign_room(
     )
 
     # H-A: today_str은 함수 진입 시 1회 계산 (루프 내 TZ 재계산 방지)
-    today_str = datetime.now(KST).strftime("%Y-%m-%d")
+    today_str = today_kst()
 
     # base 비밀번호: Room.door_password 단순 복사 (변형 없음)
     password = room_obj.door_password or ""
@@ -907,7 +907,7 @@ def _reconcile_dates(db: Session, reservation: Reservation):
         logger.warning(f"reconcile_dates: reservation {reservation.id} has no valid dates, skipping")
         return
 
-    today_str = datetime.now(KST).strftime("%Y-%m-%d")
+    today_str = today_kst()
     tid = get_session_tenant_id(db)
 
     diag(

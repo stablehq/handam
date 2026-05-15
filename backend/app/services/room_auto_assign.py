@@ -12,7 +12,7 @@ Unified assignment logic (biz_item_id mapping + capacity check + gender lock):
 """
 from datetime import datetime, timedelta
 from typing import List, Dict, Tuple
-from app.config import KST
+from app.config import KST, today_kst
 from sqlalchemy.orm import Session
 import logging
 
@@ -36,7 +36,7 @@ def auto_assign_rooms(db: Session, target_date: str = None, created_by: str = "s
     Never touches manual assignments.
     """
     if not target_date:
-        target_date = datetime.now(KST).strftime("%Y-%m-%d")
+        target_date = today_kst()
 
     logger.info(f"Starting room auto-assignment for {target_date}")
 
@@ -608,7 +608,7 @@ def daily_assign_rooms(db: Session):
       - update_reservation 성별/인원 변경 → check_assignment_validity
       - update_room 설정 변경 → UI 경고 배너
     """
-    today = datetime.now(KST).strftime("%Y-%m-%d")
+    today = today_kst()
     tomorrow = (datetime.now(KST) + timedelta(days=1)).strftime("%Y-%m-%d")
 
     logger.info(f"Running daily FILL-ONLY assignment for {today} and {tomorrow}")

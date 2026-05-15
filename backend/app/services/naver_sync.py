@@ -15,7 +15,7 @@ from app.diag_logger import diag
 from app.services import room_assignment
 from app.services.consecutive_stay import compute_is_long_stay
 from app.services.room_auto_assign import auto_assign_rooms
-from app.config import KST
+from app.config import KST, today_kst
 from app.db.tenant_context import get_session_tenant_id
 
 logger = logging.getLogger(__name__)
@@ -346,7 +346,7 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
         # Surcharge reconcile for synced reservations
         try:
             from app.services.surcharge import reconcile_surcharge_batch
-            today_str = datetime.now(KST).strftime("%Y-%m-%d")
+            today_str = today_kst()
             reconcile_surcharge_batch(db, chip_target_ids, today_str)
         except Exception as e:
             logger.warning(f"Surcharge batch reconcile after sync failed: {e}")
@@ -356,7 +356,7 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
         try:
             from app.services.room_upgrade_promise import reconcile_room_upgrade_promise_batch
             from app.services.room_upgrade_review import reconcile_room_upgrade_review_batch
-            today_str = datetime.now(KST).strftime("%Y-%m-%d")
+            today_str = today_kst()
             reconcile_room_upgrade_promise_batch(db, chip_target_ids, today_str)
             reconcile_room_upgrade_review_batch(db, chip_target_ids, today_str)
         except Exception as e:
@@ -766,7 +766,7 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
             pass
         # lifecycle 단계 #15: status 변화 처리 (CANCELLED 만 — 재활성 시 idempotent 라 skip 안전)
         if existing.status == ReservationStatus.CANCELLED:
-            today_str = datetime.now(KST).strftime("%Y-%m-%d")
+            today_str = today_kst()
             check_in_str = str(existing.check_in_date) if existing.check_in_date else ""
             is_same_day_cancel = (check_in_str == today_str)
             from app.services.reservation_lifecycle import on_status_cancelled
