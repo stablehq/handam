@@ -746,14 +746,9 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
             existing.female_count = female_count
 
     # Update status based on Naver status
-    # manually_edited_fields["status"] 가 있으면 운영자가 수동 취소한 행 — 싱크 덮어쓰기 차단.
     naver_status = res_data.get("status", "confirmed")
     _prev_status = existing.status
-    _mef = existing.manually_edited_fields or {}
-    _status_pinned = "status" in _mef
-    if _status_pinned:
-        pass  # 운영자 수동 취소 — 네이버 상태와 무관하게 유지
-    elif naver_status == "confirmed":
+    if naver_status == "confirmed":
         existing.status = ReservationStatus.CONFIRMED
     elif naver_status == "cancelled":
         existing.status = ReservationStatus.CANCELLED

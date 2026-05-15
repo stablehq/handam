@@ -434,36 +434,22 @@ async def update_reservation(
 
 @router.delete("/{reservation_id}", response_model=ActionResponse)
 async def delete_reservation(reservation_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
-    """Delete a reservation (soft-cancel for Naver reservations to prevent sync resurrection)"""
-    from datetime import datetime
-    from app.config import KST
-    from app.db.models import ReservationStatus
-
+    """Delete a reservation"""
     db_reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not db_reservation:
         raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다")
 
-    # 연박 그룹 정리 (unlink 먼저 — 남은 멤버의 is_long_stay 복원)
+    # 연박 그룹 정리 (삭제 전에 unlink해야 남은 멤버의 is_long_stay가 복원됨)
     if db_reservation.stay_group_id:
         from app.services.consecutive_stay import unlink_from_group
         unlink_from_group(db, reservation_id)
 
-    # 연관 레코드 정리 (RA 전체 해제, 칩 삭제, DailyInfo, PartyCheckin)
+    # 연관 레코드 정리 (lifecycle 단계 #12)
     from app.services.reservation_lifecycle import on_reservation_deleted
     on_reservation_deleted(db, reservation_id)
 
-    if db_reservation.naver_booking_id:
-        # 네이버 예약: 소프트 취소 + status 핀 — 5분 싱크가 되살리지 못하도록
-        mef = dict(db_reservation.manually_edited_fields or {})
-        mef["status"] = True
-        db_reservation.manually_edited_fields = mef
-        db_reservation.status = ReservationStatus.CANCELLED
-        db_reservation.cancelled_at = datetime.now(KST).replace(tzinfo=None)
-        db.commit()
-    else:
-        # 수동 예약: 하드 삭제
-        db.delete(db_reservation)
-        db.commit()
+    db.delete(db_reservation)
+    db.commit()
 
     diag(
         "reservation.deleted",
@@ -471,7 +457,6 @@ async def delete_reservation(reservation_id: int, db: Session = Depends(get_tena
         reservation_id=reservation_id,
         actor=current_user.username if current_user else None,
         customer_name=db_reservation.customer_name,
-        soft_cancel=bool(db_reservation.naver_booking_id),
     )
 
     return {"success": True, "message": "예약이 삭제되었습니다"}
