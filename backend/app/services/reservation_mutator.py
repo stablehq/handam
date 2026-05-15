@@ -37,9 +37,12 @@ class ChangeSource(str, Enum):
 FIELD_PERMISSIONS: dict[str, dict[ChangeSource, str]] = {
     "check_in_date":    {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "always"},
     "check_out_date":   {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "always"},
-    "customer_name":    {ChangeSource.NAVER: "always",  ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
-    "phone":            {ChangeSource.NAVER: "always",  ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
-    "visitor_name":     {ChangeSource.NAVER: "always",  ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
+    # PR1: 5 신규 보호 필드 — NAVER always → guarded 로 변경. manually_edited_fields dict 가드.
+    "customer_name":    {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
+    "phone":            {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
+    "visitor_name":     {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
+    "visitor_phone":    {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
+    "special_requests": {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
     "party_size":       {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
     "male_count":       {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
     "female_count":     {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
@@ -48,7 +51,6 @@ FIELD_PERMISSIONS: dict[str, dict[ChangeSource, str]] = {
     "section":          {ChangeSource.NAVER: "never",   ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "always"},
     "naver_room_type":  {ChangeSource.NAVER: "always",  ChangeSource.MANUAL: "never",  ChangeSource.SYSTEM: "never" },
     "booking_options":  {ChangeSource.NAVER: "always",  ChangeSource.MANUAL: "never",  ChangeSource.SYSTEM: "never" },
-    "special_requests": {ChangeSource.NAVER: "always",  ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
     "total_price":      {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
 }
 
@@ -94,9 +96,14 @@ class ReservationMutator:
             {필드명: (old, new)} 형태로 실제 적용된 변경만 반환. 권한 거부된
             필드 + 값 동일 필드는 포함하지 않음.
         """
+        from datetime import datetime, timezone
         from app.diag_logger import diag
 
         applied: dict[str, Any] = {}
+
+        # 운영자 수정 방명록 — PR1 신규 가드.
+        # 기존 dict 사본 (SQLAlchemy JSON mutation 감지 위해 dict() 복사 필수).
+        edits = dict(reservation.manually_edited_fields or {})
 
         for field, new_value in fields.items():
             # 1) 권한 평가
@@ -120,9 +127,15 @@ class ReservationMutator:
                 continue
 
             if permission == "guarded":
+                # 가드 평가 — 2 메커니즘 병행 (PR1 점진):
+                #   1) 기존 pin 컬럼 (check_in_pinned, check_out_pinned)
+                #   2) 신규 방명록 (manually_edited_fields dict)
+                # PR2 에서 1번을 2번으로 통합 예정.
                 pin_attr = _PIN_ATTR_FOR.get(field)
-                if pin_attr and getattr(reservation, pin_attr, False):
-                    # pin 발동 — 덮어쓰기 skip. "수동수정 후 네이버 덮어쓰기 차단" 핵심 정책.
+                is_pinned_column = pin_attr and getattr(reservation, pin_attr, False)
+                is_pinned_dict = field in edits
+
+                if is_pinned_column or is_pinned_dict:
                     diag(
                         "mutator.skipped",
                         level="critical",
@@ -130,9 +143,10 @@ class ReservationMutator:
                         source=source.value,
                         field=field,
                         reason="pinned",
+                        pin_source="column" if is_pinned_column else "dict",
                     )
                     continue
-                # pin_attr 없는 guarded 필드 (party_size, male_count 등):
+                # pin 없는 guarded 필드 (party_size, male_count 등):
                 # 기존 caller 보호 로직 (is_split_managed, gender_manual) 가 미리 처리.
                 # Mutator 단계에서는 always 처럼 통과.
 
@@ -142,11 +156,20 @@ class ReservationMutator:
                 setattr(reservation, field, new_value)
                 applied[field] = (old_value, new_value)
 
-        # 3) source=MANUAL 의 날짜 변경 시 pin 자동 세팅
-        if source == ChangeSource.MANUAL:
+        # 3) source=MANUAL 의 변경 자동 마크
+        if source == ChangeSource.MANUAL and applied:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            # 기존 pin 컬럼 자동 세팅 (점진 호환)
             if "check_in_date" in applied:
                 reservation.check_in_pinned = True
             if "check_out_date" in applied:
                 reservation.check_out_pinned = True
+            # 방명록에 모든 변경 필드 + timestamp 기록 (가드 대상 필드만)
+            for field in applied:
+                perm_row = FIELD_PERMISSIONS.get(field)
+                if perm_row and perm_row.get(ChangeSource.NAVER) == "guarded":
+                    edits[field] = now_iso
+            # SQLAlchemy 가 JSON 변경 감지하도록 새 dict 할당
+            reservation.manually_edited_fields = edits
 
         return applied

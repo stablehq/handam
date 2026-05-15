@@ -658,11 +658,19 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
     # 도미토리(booking_count=인원수 의미)와 매핑 없는 정체불명 상품은 네이버 원본 그대로.
     is_split_managed = (not res_data.get("_is_dormitory")) and res_data.get("_has_room_link")
 
-    # Only update fields that come from Naver (don't overwrite local edits like room_number)
-    existing.customer_name = res_data.get("customer_name", existing.customer_name)
-    existing.phone = res_data.get("phone", existing.phone)
-    existing.visitor_name = res_data.get("visitor_name", existing.visitor_name)
-    existing.visitor_phone = res_data.get("visitor_phone", existing.visitor_phone)
+    # PR1: 5 개 운영자 편집 가능 필드를 Mutator 통과 (manually_edited_fields 가드).
+    # naver_room_type 은 NAVER=always 유지 (운영자 편집 안 함).
+    from app.services.reservation_mutator import ReservationMutator, ChangeSource
+    ReservationMutator.apply_changes(
+        db, existing, ChangeSource.NAVER,
+        {
+            "customer_name":    res_data.get("customer_name",    existing.customer_name),
+            "phone":            res_data.get("phone",            existing.phone),
+            "visitor_name":     res_data.get("visitor_name",     existing.visitor_name),
+            "visitor_phone":    res_data.get("visitor_phone",    existing.visitor_phone),
+            "special_requests": res_data.get("custom_form_input", existing.special_requests),
+        },
+    )
     existing.naver_biz_item_id = res_data.get("naver_biz_item_id", existing.naver_biz_item_id)
     existing.naver_room_type = res_data.get("room_type", existing.naver_room_type)
     if not is_split_managed:
@@ -712,7 +720,7 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
     if not is_split_managed:
         existing.booking_count = res_data.get("booking_count", existing.booking_count)
     existing.booking_options = res_data.get("booking_options", existing.booking_options)
-    existing.special_requests = res_data.get("custom_form_input", existing.special_requests)
+    # special_requests 는 위 Mutator.apply_changes 가 처리 (PR1) — 중복 setattr 제거
     if not is_split_managed:
         existing.total_price = res_data.get("total_price", existing.total_price)
     existing.confirmed_at = _parse_datetime(res_data.get("confirmed_at")) if res_data.get("confirmed_at") is not None else existing.confirmed_at

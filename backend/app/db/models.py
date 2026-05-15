@@ -1,7 +1,7 @@
 """
 SQLAlchemy database models
 """
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Float, Enum, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, Float, Enum, ForeignKey, UniqueConstraint, Index, JSON
 from sqlalchemy.orm import relationship, declared_attr
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
@@ -95,6 +95,12 @@ class Reservation(TenantMixin, Base):
     # Mutator pin flags — set by manual paths, checked by naver_sync (단계 #4~#8 부터 활성)
     check_in_pinned = Column(Boolean, nullable=False, server_default='false', default=False)
     check_out_pinned = Column(Boolean, nullable=False, server_default='false', default=False)
+
+    # 운영자 수정 방명록 — Mutator MANUAL 시 수정 필드명 + timestamp 저장.
+    # naver_sync 가 다음 동기화 때 해당 필드는 덮어쓰기 차단.
+    # 예: {"phone": "2026-05-15T10:30:00Z", "customer_name": "..."}
+    # PR2 에서 check_in/out_pinned 도 이 dict 로 이주 예정.
+    manually_edited_fields = Column(JSON, nullable=False, server_default='{}', default=dict)
 
     # Extended Naver booking data
     check_out_date = Column("end_date", String(20), nullable=True)  # checkout date YYYY-MM-DD  # TODO: PostgreSQL 전환 시 Date 타입으로 변경
