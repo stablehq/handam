@@ -1,9 +1,9 @@
 {
   "_comment": "ooo-log-validation 스킬이 자동 갱신하는 체크포인트. 수동 수정 지양.",
-  "last_log_timestamp": "2026-05-13 08:35:04",
-  "last_commit_sha": "c513fef",
-  "last_coverage_scan_sha": "c513fef",
-  "validated_cases_count": 9223,
+  "last_log_timestamp": "2026-05-14 08:40:05",
+  "last_commit_sha": "f0fb261",
+  "last_coverage_scan_sha": "f0fb261",
+  "validated_cases_count": 12022,
   "pending_golden_updates": [
     {
       "event": "surcharge.reconcile_failed",
@@ -83,6 +83,30 @@
       "reason": "스케줄러 자동발송 + 가드 차단 시 sms_sender 와 template_scheduler 양쪽이 모두 record_sms_failed 호출 — 같은 res+template 에 2회 연속 발화 관찰 (5/10 5099). DB 레벨에서 중복 기록 가능성 별도 조사",
       "added_session": "2026-05-13",
       "first_observed": "2026-05-10 13:00:04"
+    },
+    {
+      "event": "onsite_female_invite.updated|onsite_female_invite.deleted",
+      "reason": "12회차 검증에서 누락 발견 — 61bac18 신규 PATCH/DELETE 엔드포인트에 diag 추가. 배포 후 첫 관측 시 정답지 작성",
+      "added_session": "2026-05-14",
+      "added_commit": "61bac18"
+    },
+    {
+      "event": "rooms.grades_updated",
+      "reason": "12회차 검증에서 누락 발견 — d3a2963 신규 PATCH /grades 엔드포인트에 diag 추가. 배포 후 첫 관측 시 정답지 작성",
+      "added_session": "2026-05-14",
+      "added_commit": "d3a2963"
+    },
+    {
+      "event": "unassign_dates.enter|unassign_dates.compact|unassign_dates.exit",
+      "reason": "ded670f 신규 헬퍼 (room_assignment.py:668~733). lifecycle 단계 #3·#4 caller (reduce_extension, cc1 same_day_cancel) 가 호출. 배포 후 첫 관측 시 정답지 작성 — 기존 _draft/unassign-room-drag-to-pool 과 다른 trace (drag 가 아닌 lifecycle 경유)",
+      "added_session": "2026-05-15",
+      "added_commit": "ded670f"
+    },
+    {
+      "event": "mutator.skipped",
+      "reason": "13회차 사전 추가 (사용자 승인) — ReservationMutator 가 silent gateway 가 되는 사고 vector 방지. reason=pinned (NAVER 가 수동수정 후 덮어쓰기 차단, 정책 핵심) / reason=never (권한 거부, 코드 결함 의심). 0건이 정상은 아님 — pinned 는 운영 패턴 따라 자연 발화 예상. never 발화 시 즉시 코드 검토",
+      "added_session": "2026-05-15",
+      "added_commit": "post-ded670f patch"
     }
   ],
   "known_gaps": [
@@ -214,33 +238,33 @@
     },
     {
       "file": "backend/app/api/rooms.py",
-      "line": 246,
+      "line": 251,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-29 (재snapshot)"
+      "note": "baseline 2026-05-14 라인 시프트 (d3a2963 room-grade 추가): PATCH /naver/biz-items"
     },
     {
       "file": "backend/app/api/rooms.py",
-      "line": 274,
+      "line": 431,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-29 (재snapshot)"
+      "note": "baseline 2026-05-14 라인 시프트: POST /naver/biz-items/sync"
     },
     {
       "file": "backend/app/api/rooms.py",
-      "line": 369,
+      "line": 530,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-29 (재snapshot)"
+      "note": "baseline 2026-05-14 라인 시프트: POST /groups"
     },
     {
       "file": "backend/app/api/rooms.py",
-      "line": 394,
+      "line": 555,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-29 (재snapshot)"
+      "note": "baseline 2026-05-14 라인 시프트: PUT /groups/{group_id}"
     },
     {
       "file": "backend/app/api/rooms.py",
-      "line": 433,
+      "line": 594,
       "kind": "backend_mutation_no_diag",
-      "note": "baseline 2026-04-29 (재snapshot)"
+      "note": "baseline 2026-05-14 라인 시프트: DELETE /groups/{group_id}"
     },
     {
       "file": "backend/app/api/onsite_sales.py",
@@ -547,11 +571,23 @@
     "sms-blocked-invalid-phone": {
       "confidence": "draft",
       "first_seen": "2026-05-13",
-      "instance_count": 2,
-      "note": "res=5099 phone=\"인스타\" — party_info+room_info 2회 발화"
+      "instance_count": 4,
+      "note": "12회차 res=5284 phone='010655<2887' 추가 발화 (스케줄러 13:10×2 + 운영자 토글 13:17/14:50). 누적 4건"
+    },
+    "_draft/room-upgrade-promise-batch": {
+      "confidence": "draft",
+      "first_seen": "2026-05-14",
+      "instance_count": 1,
+      "note": "ebf2a96 신규 — 12회차 첫 관측. 5/14 00:05 batch.enter 다수 + skipped_overcapacity res=5318"
+    },
+    "_draft/room-upgrade-review-batch": {
+      "confidence": "draft",
+      "first_seen": "2026-05-14",
+      "instance_count": 1,
+      "note": "8e96cbf 신규 — 12회차 첫 관측. 5/14 00:05/01:57 batch.enter 다수 + skipped_overcapacity res=5318"
     }
   },
-  "last_validation_run": "2026-05-13T18:00:00+09:00",
+  "last_validation_run": "2026-05-14T08:50:00+09:00",
   "notes": [
     "2026-04-24 두 번째 검증 실행. 새 에러 0건 (기존 3건만 — 2건은 이미 수정, 1건 race 는 작업 예정).",
     "baseline coverage scan 58건 일괄 suppress. 다음 스캔부터 증분으로만 잡음.",
@@ -613,6 +649,14 @@
     "신규 커밋 3건 (8eb5709..06c94d8): 661c567 chore(diag-golden 10회차 후속), 53b9ccb fix(diag retention TimedRotatingFileHandler), 06c94d8 feat(LMS 제목 커스텀 입력). diag() 신규 추가 0건 — 정답지 영향 없음.",
     "신규 coverage gap 1건 — backend/app/api/templates.py:421 POST /preview (read-only preview, mutation 아님, 영구 suppress).",
     "2026-05-06 11회차 후속 — pending 4건 정리 (A 옵션): stay_group.link_api.*|unlink_api.* 종결(ctx-menu-stay-group-unlink 정답지 작성됨), sms_assignment.duplicate 4/24 entry 제거(5/6 entry 와 중복), password_display.prefix_skipped 종결(9회차 의도된 동작 확정), stay_group.validate_failed 종결(9+11회차 합 5건 모두 정상 dates_not_consecutive 거부). pending 17→13건.",
-    "2026-05-13 검증: W-001(phase3 auth) 만료 — 발화 0건, archive 권장. INV 위반 0건. 97k 이벤트 / 9163 request 검증."
+    "2026-05-13 검증: W-001(phase3 auth) 만료 — 발화 0건, archive 권장. INV 위반 0건. 97k 이벤트 / 9163 request 검증.",
+    "2026-05-14 12회차 검증. 24h 5m 33675줄 (5/13 08:35 ~ 5/14 08:40). 신규 에러 0건. INV-1~7 ✅. Watch list 5종 모두 0건 ✅. chip.tenant_mismatch 0, fetch_miss 0.",
+    "🟡 dashboard 400 burst 3회차 누적 관측 (6회차 16건 → 11회차 4건 → 12회차 4건: 5/13 16:03 + 19:39 각 2건씩 stats+today-schedules). POST /auth/login 200 직후 즉시 400 (3-5ms). currentTenantId=null 윈도우 X-Tenant-Id 누락 — GitHub issue #1 fix 회귀 확정. 픽스 우선순위 격상 권고.",
+    "🟢 신규 코드 정상 동작: f0fb261 chip_eligibility_breakdown 첫 발화 (5/13 23:59 schedule_id=124 party3 chip=17 sent=17 blocked=0). 8e96cbf/ebf2a96 room_upgrade_promise/review batch.enter+reconcile.enter+skipped_overcapacity (res=5318 base=1 guest=3) 정상. 41a726f 15:00 KST cutoff: same_day_included True→False 전환 확인. 3503a0b stale_repair candidates=2 repaired=2.",
+    "sms.failed_recorded 5건 모두 알려진 패턴: res=5284 phone='010655<2887' 형식 오류 4건 (스케줄러 13:10×2 + 운영자 토글 13:17/14:50 — 후 2건 status=500 응답), res=5296 party_start_info '전화번호 없음' 1건. sms-blocked-invalid-phone draft instance_count 2→4.",
+    "auto_assign.failed 1건 (5/14 02:00 cron, target_date=5/15 객실 부족) — 의도된 운영 알림.",
+    "신규 정답지 draft 2건: _draft/room-upgrade-promise-batch.yaml, _draft/room-upgrade-review-batch.yaml. surcharge.reconcile 와 동일 컨벤션 (.enter only, .exit 없음).",
+    "신규 coverage gap 9건 — d3a2963/61bac18 라인 시프트 + 신규 엔드포인트. 사용자 승인하여 3개 엔드포인트에 diag 추가: onsite_female_invite.updated/deleted (61bac18), rooms.grades_updated (d3a2963). pending 등록 — 배포 후 첫 관측 시 정답지 작성.",
+    "room_upgrade_promise/review.batch — surcharge.reconcile 와 동일하게 .enter only / .exit 없음 컨벤션 (신규 회귀 아님)."
   ]
 }
