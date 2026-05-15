@@ -139,7 +139,12 @@ const sensors = useSensors(
 **activationConstraint: { distance: 8 }** — 8px 이상 이동 전에는 dragevent 미발동.
 단일클릭(8px 미만)은 dnd-kit이 무시 → InlineInput onClick으로 편집 진입 정상 동작.
 
-### 4-3. useDraggable (GuestRow 그립 div)
+### 4-3. useDraggable (GuestRow + CompactGuestCell 그립 div)
+
+**⚠️ 구조 차이 주의**: `GuestRow`는 행 전체 `onClick`에서 버블링으로 `onGripClick`을 호출하지만, `CompactGuestCell`(다음날 컬럼)은 grip div에 직접 `onClick={(e) => onGripClick(e, guest.id)}`가 바인딩되어 있음. 두 컴포넌트 모두 변경이 필요하지만 수정 위치가 다르다.
+
+- `GuestRow`: 행 `onClick`의 조건 블록 앞에 `if (isDesktop) return` 추가
+- `CompactGuestCell`: grip div의 `onClick` 핸들러 앞에 `if (isDesktop) return` 추가
 
 ```tsx
 // GuestRow.tsx
@@ -265,8 +270,9 @@ onClick={(e) => {
 | 파일 | 변경 내용 |
 |------|-----------|
 | `src/hooks/use-desktop.ts` (신규) | useIsDesktop 훅 |
-| `src/pages/RoomAssignment.tsx` | DndContext 래핑, sensors, onDragStart, onDragEnd, DragOverlay, isDesktop 전달 |
-| `src/pages/RoomAssignment/components/shared/GuestRow.tsx` | useDraggable 연결, isDesktop 가드, 행 onClick 수정, singleClick 전달 |
+| `src/pages/RoomAssignment.tsx` | DndContext 래핑, sensors, onDragStart, onDragEnd + setSelectedGuestIds 클리어, DragOverlay |
+| `src/pages/RoomAssignment/components/shared/GuestRow.tsx` | useDraggable 연결, 행 onClick isDesktop 가드, singleClick 전달 |
+| `src/pages/RoomAssignment/components/shared/CompactGuestCell.tsx` | useDraggable 연결 (grip div 직접), grip onClick isDesktop 가드 (GuestRow와 위치 다름) |
 | `src/pages/RoomAssignment/components/InlineInput.tsx` | focus-visible 수정, singleClick prop 추가 |
 | `src/pages/RoomAssignment/components/RoomRow.tsx` | useDroppable 연결 |
 | `src/pages/RoomAssignment/components/zones/GuestZone.tsx` | useDroppable 연결 (main + next) |
@@ -293,3 +299,5 @@ onClick={(e) => {
   - 권장: 최상위 JSX 직접 래핑 (중간 컴포넌트 불필요)
 - [ ] **키보드 드래그 (Accessibility)** — `activationConstraint: distance` 사용 시 Space/Enter 키보드 드래그 비활성됨. 현재 범위 외로 결정 필요
 - [ ] **연박 예약 드래그** — `handleDropOnRoom`에서 `isMultiNight` 감지 후 모달 표시. dnd-kit onDragEnd는 비동기 모달을 기다리지 않음. 현재 `setMultiNightConfirm` 패턴 그대로 동작하는지 확인 필요
+- [ ] **컨텍스트 메뉴 + 편집 모드 동시 활성 (기존 버그)** — `useContextMenu`의 `canOpen: !modalVisible && !stayGroup.show && !multiNightConfirm?.open` 조건이 InlineInput 편집 상태를 포함하지 않음. InlineInput의 input 요소에는 `onContextMenu stopPropagation`이 있지만, input 바깥 행 영역을 우클릭하면 편집 중에도 컨텍스트 메뉴가 열릴 수 있음. 단일클릭 편집 적용 후 편집 진입 빈도가 증가하므로 체감 빈도 증가 가능. 마이그레이션 범위 포함 여부 결정 필요
+- [ ] **드래그 완료 후 toast 잔존** — `onDragEnd`에서 `setSelectedGuestIds(new Set())` 호출로 해결. #8 완료 후에는 PC에서 selectionActive가 항상 false이므로 근본적으로 해결되나, #6~#7 단계(#8 이전)에서 안전망으로 반드시 포함

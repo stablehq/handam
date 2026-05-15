@@ -83,7 +83,7 @@ PC에서만 적용. 모바일은 전부 기존 동작 유지.
 | # | 작업 | 변경 파일 | 코드 변경량 |
 |---|---|---|---|
 | 3 | `DndContext` + `DragOverlay` 골격 + sensors 선언. `onDragStart`/`onDragEnd` noop. `activeResId` state 추가. 아직 useDraggable 연결 없으므로 드래그 미발생 | `RoomAssignment.tsx` | +30 lines |
-| 4 | Grip div에 `useDraggable` 연결 — `disabled: !isDesktop \|\| isCancelled`. `isDragging` 시 `opacity-50` 추가. `onDragEnd` 아직 noop → 드래그 해도 아무 이동 없음 | `GuestRow.tsx` | +20 lines |
+| 4 | Grip div에 `useDraggable` 연결 — `disabled: !isDesktop \|\| isCancelled`. `isDragging` 시 `opacity-50` 추가. `onDragEnd` 아직 noop → 드래그 해도 아무 이동 없음. **`CompactGuestCell.tsx` 도 동일하게 적용** (구조 주의: grip div에 직접 onClick 바인딩이라 useDraggable ref/listeners 연결 위치가 GuestRow와 다름) | `GuestRow.tsx`, `CompactGuestCell.tsx` | +25 lines |
 | 5 | 각 zone에 `useDroppable` 연결 — RoomRow: `disabled: !isDesktop \|\| !isActive`, GuestZone: `disabled: !isDesktop \|\| !accept`. `isOver` 시 배경 전환 추가. `onDragEnd` 아직 noop | `RoomRow.tsx`, `GuestZone.tsx` | +30 lines |
 
 **동작 동등성**:
@@ -101,7 +101,7 @@ PC에서만 적용. 모바일은 전부 기존 동작 유지.
 
 | # | 작업 | 변경 파일 | 코드 변경량 |
 |---|---|---|---|
-| 6 | `onDragEnd` 구현 — `over.id` (zoneId) 파싱 → `handleDropOnRoom`/`handleDropOnPool`/`handleDropOnParty` 라우팅. `next-room-N`/`next-pool`/`next-party` 분기 포함 | `RoomAssignment.tsx` | 수정 ~30 lines |
+| 6 | `onDragEnd` 구현 — `over.id` (zoneId) 파싱 → `handleDropOnRoom`/`handleDropOnPool`/`handleDropOnParty` 라우팅. `next-room-N`/`next-pool`/`next-party` 분기 포함. **`setSelectedGuestIds(new Set())` 호출 추가** — #8 이전 중간 상태에서 클릭 선택 후 드래그 시 toast 잔존 방지 | `RoomAssignment.tsx` | 수정 ~30 lines |
 | 7 | `onDragStart` 구현 — `setActiveResId(active.id)` + `document.activeElement.blur()` (열린 InlineInput 자동 저장). `DragOverlay` 게스트 이름 표시 활성화 | `RoomAssignment.tsx` | 수정 ~15 lines |
 
 **해결되는 변화 (#6, #7 이후)**:
@@ -119,16 +119,19 @@ PC에서만 적용. 모바일은 전부 기존 동작 유지.
 
 | # | 작업 | 변경 파일 | 코드 변경량 |
 |---|---|---|---|
-| 8 | `GuestRow.tsx` 행 `onClick` 수정 — `if (isDesktop) return` 추가 (PC에서 `onGripClick` 호출 차단). 이것만으로 cascade 비활성: `selectedGuestIds` 빈 Set → `selectionActive=false` → 호버/toast 자동 비활성 | `GuestRow.tsx` | 수정 ~3 lines |
+| 8 | `GuestRow.tsx` 행 `onClick` 수정 — `if (isDesktop) return` 추가 (PC에서 `onGripClick` 호출 차단). cascade 비활성: `selectedGuestIds` 빈 Set → `selectionActive=false` → 호버/toast 자동 비활성. **`CompactGuestCell.tsx` grip div onClick 도 별도 처리 필수** — GuestRow는 행 onClick 버블링 구조지만 CompactGuestCell은 grip div에 직접 `onClick={(e) => onGripClick(e, guest.id)}` 바인딩이므로 `if (isDesktop) return` 위치가 다름 | `GuestRow.tsx`, `CompactGuestCell.tsx` | 수정 ~5 lines |
 | 9 | `InlineInput.tsx` — `singleClick?: boolean` prop 신규. span에서 `onClick={singleClick ? activate : undefined}` + `onDoubleClick={!singleClick ? activate : undefined}` 분기. `GuestRow.tsx`에서 `singleClick={isDesktop}` 전달 | `InlineInput.tsx`, `GuestRow.tsx` | +10 lines, 수정 7 lines |
 
 **동작 동등성 검증 항목**:
 - #8: 모바일에서 `isDesktop=false` → `if (isDesktop) return` 미실행 → 기존 선택 동작 유지.
 - #8: PC에서 `selectionActive` 항상 false → `GuestZone`/`RoomRow`의 `useGuestDropTarget enabled` 자동 false → hover/cursor-pointer 자동 비활성.
 - #8: toast `useEffect`에서 `selectionActive=false` → `toast.dismiss` 자동 실행 → toast 없음.
+- #8: `#6`의 `setSelectedGuestIds(new Set())` 와 결합해 드래그 완료 후 toast 잔존 완전 차단.
 - #9: 모바일 `singleClick=false` → `onDoubleClick={activate}` 유지 — 기존과 동일.
 - #9: PC에서 단일클릭 → `activate()` → edit mode. `activationConstraint: { distance: 8 }` 덕분에 8px 미만 클릭은 dnd-kit 무시 → 편집 진입 정상.
 - #9: `onActivate` (cancelDeselect 호출) — PC에서 `selectionActive=false` 이므로 cancelDeselect 호출돼도 no-op (타이머 없음).
+
+**⚠️ #8 → #9 순서 필수**: #9(단일클릭 편집) 적용 전 #8(선택 시스템 비활성)이 완료되지 않으면, `selectionActive=true` 상태에서 선택되지 않은 게스트의 InlineInput 단일클릭 시 편집 모드와 선택 모드가 동시에 활성화된다. #8 없이 #9만 적용하면 이 상태가 발생하므로 반드시 순서를 지킨다.
 
 ---
 
@@ -159,7 +162,7 @@ PC에서만 적용. 모바일은 전부 기존 동작 유지.
 - **1,2는 독립** — 어느 순서든 가능. 다른 단계와 병렬 진행 가능.
 - **3→4→5 순차** — DndContext 없이 useDraggable 불가. useDraggable 없이 useDroppable 연결 의미 없음.
 - **6이 핵심 분기점** — #6 완료 시 PC에서 드래그 이동이 동작. #7~#10은 UX 개선.
-- **8→9 순서 권장** — #8 (선택 시스템 비활성) 완료 후 #9 (단일클릭 편집) 로 넘어가야 충돌 없음.
+- **8→9 순서 필수** — #8 (선택 시스템 비활성) 완료 후 #9 (단일클릭 편집). 순서 어기면 선택 모드 + 편집 모드 동시 활성 충돌 발생.
 - **롤백 안전성**: #N 롤백 시 #N-1 상태로 회귀. B 단계(골격) 롤백 시 클릭-선택 시스템이 그대로 동작.
 
 ---
@@ -172,6 +175,7 @@ PC에서만 적용. 모바일은 전부 기존 동작 유지.
 | `InlineInput.tsx` | #2, #9 | focus-visible 수정, singleClick prop 추가 |
 | `RoomAssignment.tsx` | #3, #6, #7 | DndContext 골격, onDragEnd 구현, onDragStart+blur |
 | `GuestRow.tsx` | #4, #8, #9 | useDraggable 연결, onClick 가드, singleClick 전달 |
+| `CompactGuestCell.tsx` | #4, #8 | useDraggable 연결 (grip div 직접), isDesktop 가드 (grip onClick 직접) |
 | `RoomRow.tsx` | #5 | useDroppable 연결 |
 | `GuestZone.tsx` | #5 | useDroppable 연결 (main + next) |
 
@@ -234,6 +238,7 @@ PC에서만 적용. 모바일은 전부 기존 동작 유지.
 - [ ] **다음날 컬럼 zoneId** — `next-room-N`/`next-pool`/`next-party` 형식 확정. onDragEnd 분기에서 처리.
 - [ ] **연박 모달과 dnd-kit 비동기 충돌** — `onDragEnd`는 동기 콜백. `handleDropOnRoom` 내부의 `setMultiNightConfirm`이 dnd-kit 이벤트 사이클 완료 후 정상 실행되는지 #6 사전조사에서 확인 필요.
 - [ ] **#5 ref 충돌 확인** — `GuestZone.tsx`의 현재 드롭 div가 `useGuestDropTarget`의 `data-drop-zone`과 `useDroppable`의 `setNodeRef`를 동시에 받아야 함. ref callback 합성 패턴 필요 여부 확인.
+- [ ] **컨텍스트 메뉴 + 편집 모드 동시 활성 (기존 버그)** — `useContextMenu`의 `canOpen` 조건이 InlineInput 편집 상태를 체크하지 않음. InlineInput input 요소 바깥 행 영역을 우클릭하면 편집 중에도 컨텍스트 메뉴가 열림. 본 마이그레이션이 도입한 버그가 아니므로 범위에 포함하지 않으나, #8 이후 단일클릭 편집이 활성화되면 편집 진입 빈도가 높아져 체감 빈도 증가 가능. 별도 수정 여부 결정 필요.
 
 ---
 
