@@ -31,6 +31,7 @@ export const InlineInput = ({
   const [editing, setEditing] = useState(false);
   const [localValue, setLocalValue] = useState(value);
   const lastTapRef = useRef(0);
+  const committedRef = useRef(false);
 
   // 외부 value 변경 동기화 (편집 중이 아닐 때만)
   useEffect(() => {
@@ -41,6 +42,7 @@ export const InlineInput = ({
   // 마운트 1회만 동작; 이후 prop 변경 무시.
   useEffect(() => {
     if (autoFocus && !disabled) {
+      committedRef.current = false;
       setEditing(true);
       onActivate?.();
     }
@@ -49,6 +51,7 @@ export const InlineInput = ({
 
   const activate = () => {
     if (disabled) return;
+    committedRef.current = false;
     setEditing(true);
     onActivate?.();
   };
@@ -64,6 +67,8 @@ export const InlineInput = ({
   };
 
   const commit = () => {
+    if (committedRef.current) return;
+    committedRef.current = true;
     if (localValue !== value) onSave(resId, field, localValue);
     setEditing(false);
   };
@@ -85,6 +90,8 @@ export const InlineInput = ({
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
+            e.stopPropagation();
+            commit();
             (e.target as HTMLInputElement).blur();
           } else if (e.key === 'Escape') {
             cancel();
