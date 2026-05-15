@@ -207,16 +207,52 @@ def delete_chips_for_reservation(
     schedule_ids: Optional[list[int]] = None,
     force: bool = False,
 ) -> int:
-    """범위 삭제 — 예약 단위. PR2 (#4) 에서 구현.
+    """범위 삭제 — 예약 단위 + 옵션 필터 AND 매칭.
 
     옵션 조합:
-      - dates 만: 해당 날짜의 모든 칩
-      - template_keys 만: 해당 템플릿의 모든 칩
-      - schedule_ids 만: 해당 스케줄의 모든 칩
-      - 다중 조합: AND 매칭
       - 옵션 전부 None: 예약의 모든 칩
+      - dates 만: 해당 날짜의 칩만
+      - template_keys 만: 해당 템플릿의 칩만
+      - schedule_ids 만: 해당 스케줄의 칩만
+      - 다중 조합: AND 매칭
+
+    force=False (자동 reconcile): sent_at IS NULL + assigned_by NOT IN PROTECTED.
+    force=True (cancel/delete cascade): 가드 우회.
+
+    Returns:
+        실제 삭제된 row 수.
     """
-    raise NotImplementedError("PR2 (#4) 에서 구현")
+    q = db.query(ReservationSmsAssignment).filter(
+        ReservationSmsAssignment.reservation_id == reservation_id,
+    )
+    if dates:
+        q = q.filter(ReservationSmsAssignment.date.in_(dates))
+    if template_keys:
+        q = q.filter(ReservationSmsAssignment.template_key.in_(template_keys))
+    if schedule_ids:
+        q = q.filter(ReservationSmsAssignment.schedule_id.in_(schedule_ids))
+
+    if not force:
+        q = q.filter(
+            ReservationSmsAssignment.sent_at.is_(None),
+            ~ReservationSmsAssignment.assigned_by.in_(PROTECTED_ASSIGNED_BY),
+        )
+
+    deleted = q.delete(synchronize_session='fetch')
+
+    if deleted:
+        diag(
+            "chip_store.delete_reservation.deleted",
+            level="verbose",
+            res_id=reservation_id,
+            dates_count=len(dates) if dates else None,
+            template_keys_count=len(template_keys) if template_keys else None,
+            schedule_ids_count=len(schedule_ids) if schedule_ids else None,
+            force=force,
+            count=deleted,
+        )
+
+    return deleted
 
 
 def delete_chips_for_schedule(
@@ -225,8 +261,35 @@ def delete_chips_for_schedule(
     schedule_id: int,
     force: bool = False,
 ) -> int:
-    """스케줄 단위 일괄 삭제 (템플릿/스케줄 삭제·비활성 시). PR2 (#5) 에서 구현."""
-    raise NotImplementedError("PR2 (#5) 에서 구현")
+    """스케줄 단위 일괄 삭제 (template_schedule 비활성·삭제 시).
+
+    tenant_id 는 ContextVar 가 자동 필터 (cross-tenant 우회는 caller 책임).
+
+    Returns:
+        실제 삭제된 row 수.
+    """
+    q = db.query(ReservationSmsAssignment).filter(
+        ReservationSmsAssignment.schedule_id == schedule_id,
+    )
+
+    if not force:
+        q = q.filter(
+            ReservationSmsAssignment.sent_at.is_(None),
+            ~ReservationSmsAssignment.assigned_by.in_(PROTECTED_ASSIGNED_BY),
+        )
+
+    deleted = q.delete(synchronize_session='fetch')
+
+    if deleted:
+        diag(
+            "chip_store.delete_schedule.deleted",
+            level="verbose",
+            schedule_id=schedule_id,
+            force=force,
+            count=deleted,
+        )
+
+    return deleted
 
 
 def record_sent(

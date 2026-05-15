@@ -18,7 +18,13 @@ from app.db.models import (
     ReservationStatus,
     TemplateSchedule,
 )
-from app.services.chip_store import ensure_chip, remove_chip, PROTECTED_ASSIGNED_BY
+from app.services.chip_store import (
+    ensure_chip,
+    remove_chip,
+    delete_chips_for_reservation,
+    delete_chips_for_schedule,
+    PROTECTED_ASSIGNED_BY,
+)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -331,3 +337,184 @@ class TestProtectedAssignedBy:
     def test_constant_value(self):
         """OQ-1 + OQ-5 정책 반영."""
         assert PROTECTED_ASSIGNED_BY == ('manual', 'excluded', 'failed')
+
+
+# ════════════════════════════════════════════════════════════════════
+# delete_chips_for_reservation — PR2 단계 #4
+# ════════════════════════════════════════════════════════════════════
+
+class TestDeleteChipsForReservationAllOptions:
+    """옵션 전부 None — 예약의 모든 칩 정리 (가드만 적용)."""
+
+    def test_force_false_protects_manual_chips(self, db):
+        """⭐ OQ-1 — 자동 reconcile 사이클에서 manual 칩 보호."""
+        r = _make_reservation(db)
+        ensure_chip(db, reservation_id=r.id, template_key="auto1", date="2026-04-20", assigned_by="auto")
+        ensure_chip(db, reservation_id=r.id, template_key="manual1", date="2026-04-20", assigned_by="manual")
+        ensure_chip(db, reservation_id=r.id, template_key="excluded1", date="2026-04-20", assigned_by="excluded")
+        ensure_chip(db, reservation_id=r.id, template_key="failed1", date="2026-04-20", assigned_by="failed")
+        # 자동 reconcile — auto 만 삭제
+        deleted = delete_chips_for_reservation(db, reservation_id=r.id)
+        assert deleted == 1
+        # 나머지 3개 보존
+        remaining = db.query(ReservationSmsAssignment).filter(
+            ReservationSmsAssignment.reservation_id == r.id,
+        ).count()
+        assert remaining == 3
+
+    def test_force_true_cascade_deletes_all(self, db):
+        """⭐ OQ-2-a/2-b — cancel/delete cascade 시 manual 도 삭제."""
+        r = _make_reservation(db)
+        ensure_chip(db, reservation_id=r.id, template_key="auto1", date="2026-04-20", assigned_by="auto")
+        ensure_chip(db, reservation_id=r.id, template_key="manual1", date="2026-04-20", assigned_by="manual")
+        ensure_chip(db, reservation_id=r.id, template_key="failed1", date="2026-04-20", assigned_by="failed")
+        deleted = delete_chips_for_reservation(db, reservation_id=r.id, force=True)
+        assert deleted == 3
+        remaining = db.query(ReservationSmsAssignment).filter(
+            ReservationSmsAssignment.reservation_id == r.id,
+        ).count()
+        assert remaining == 0
+
+
+class TestDeleteChipsForReservationByDates:
+    def test_dates_filter_matches_only_specified(self, db):
+        r = _make_reservation(db)
+        ensure_chip(db, reservation_id=r.id, template_key="k", date="2026-04-20", assigned_by="auto")
+        ensure_chip(db, reservation_id=r.id, template_key="k", date="2026-04-21", assigned_by="auto")
+        ensure_chip(db, reservation_id=r.id, template_key="k", date="2026-04-22", assigned_by="auto")
+        # 20, 22 만 삭제 (21 은 보존)
+        deleted = delete_chips_for_reservation(
+            db, reservation_id=r.id, dates=["2026-04-20", "2026-04-22"],
+        )
+        assert deleted == 2
+        remaining_dates = [
+            c.date for c in db.query(ReservationSmsAssignment).filter(
+                ReservationSmsAssignment.reservation_id == r.id,
+            ).all()
+        ]
+        assert remaining_dates == ["2026-04-21"]
+
+    def test_empty_dates_list_treated_as_no_filter(self, db):
+        """빈 리스트는 옵션 미적용 — 모든 날짜 매칭."""
+        r = _make_reservation(db)
+        ensure_chip(db, reservation_id=r.id, template_key="k", date="2026-04-20", assigned_by="auto")
+        ensure_chip(db, reservation_id=r.id, template_key="k", date="2026-04-21", assigned_by="auto")
+        deleted = delete_chips_for_reservation(db, reservation_id=r.id, dates=[])
+        assert deleted == 2  # 빈 list → falsy → 필터 미적용
+
+
+class TestDeleteChipsForReservationByScheduleIds:
+    def test_schedule_ids_filter(self, db):
+        r = _make_reservation(db)
+        t = _make_template(db)
+        s1 = _make_schedule(db, t)
+        s2 = _make_schedule(db, t)
+        ensure_chip(db, reservation_id=r.id, template_key="k1", date="2026-04-20", schedule_id=s1.id, assigned_by="auto")
+        ensure_chip(db, reservation_id=r.id, template_key="k2", date="2026-04-20", schedule_id=s2.id, assigned_by="auto")
+        # s1 만 삭제
+        deleted = delete_chips_for_reservation(
+            db, reservation_id=r.id, schedule_ids=[s1.id],
+        )
+        assert deleted == 1
+        remaining = db.query(ReservationSmsAssignment).filter(
+            ReservationSmsAssignment.reservation_id == r.id,
+        ).all()
+        assert len(remaining) == 1
+        assert remaining[0].schedule_id == s2.id
+
+
+class TestDeleteChipsForReservationCombined:
+    def test_dates_and_schedule_ids_and_match(self, db):
+        """dates AND schedule_ids 교집합 매칭."""
+        r = _make_reservation(db)
+        t = _make_template(db)
+        s1 = _make_schedule(db, t)
+        s2 = _make_schedule(db, t)
+        # (D1, s1), (D1, s2), (D2, s1), (D2, s2) — 4개
+        ensure_chip(db, reservation_id=r.id, template_key="k1", date="2026-04-20", schedule_id=s1.id, assigned_by="auto")
+        ensure_chip(db, reservation_id=r.id, template_key="k2", date="2026-04-20", schedule_id=s2.id, assigned_by="auto")
+        ensure_chip(db, reservation_id=r.id, template_key="k3", date="2026-04-21", schedule_id=s1.id, assigned_by="auto")
+        ensure_chip(db, reservation_id=r.id, template_key="k4", date="2026-04-21", schedule_id=s2.id, assigned_by="auto")
+        # (D1, s1) 만 삭제 (교집합)
+        deleted = delete_chips_for_reservation(
+            db, reservation_id=r.id, dates=["2026-04-20"], schedule_ids=[s1.id],
+        )
+        assert deleted == 1
+        remaining = db.query(ReservationSmsAssignment).filter(
+            ReservationSmsAssignment.reservation_id == r.id,
+        ).count()
+        assert remaining == 3
+
+
+class TestDeleteChipsForReservationEdgeCases:
+    def test_nonexistent_reservation_returns_zero(self, db):
+        deleted = delete_chips_for_reservation(db, reservation_id=99999)
+        assert deleted == 0
+
+
+# ════════════════════════════════════════════════════════════════════
+# delete_chips_for_schedule — PR2 단계 #5
+# ════════════════════════════════════════════════════════════════════
+
+class TestDeleteChipsForSchedule:
+    def test_deletes_all_chips_for_schedule(self, db):
+        r1 = _make_reservation(db)
+        r2 = _make_reservation(db)
+        t = _make_template(db)
+        s = _make_schedule(db, t)
+        ensure_chip(db, reservation_id=r1.id, template_key="k", date="2026-04-20", schedule_id=s.id, assigned_by="auto")
+        ensure_chip(db, reservation_id=r2.id, template_key="k", date="2026-04-20", schedule_id=s.id, assigned_by="auto")
+        deleted = delete_chips_for_schedule(db, schedule_id=s.id)
+        assert deleted == 2
+
+    def test_force_false_protects_manual(self, db):
+        """⭐ template_schedules.py:518 와 동일 가드 (manual/excluded/failed 보호)."""
+        r = _make_reservation(db)
+        t = _make_template(db)
+        s = _make_schedule(db, t)
+        ensure_chip(db, reservation_id=r.id, template_key="k1", date="2026-04-20", schedule_id=s.id, assigned_by="auto")
+        ensure_chip(db, reservation_id=r.id, template_key="k2", date="2026-04-20", schedule_id=s.id, assigned_by="manual")
+        ensure_chip(db, reservation_id=r.id, template_key="k3", date="2026-04-20", schedule_id=s.id, assigned_by="failed")
+        deleted = delete_chips_for_schedule(db, schedule_id=s.id)
+        assert deleted == 1  # auto 만
+
+    def test_force_true_deletes_all(self, db):
+        r = _make_reservation(db)
+        t = _make_template(db)
+        s = _make_schedule(db, t)
+        ensure_chip(db, reservation_id=r.id, template_key="k1", date="2026-04-20", schedule_id=s.id, assigned_by="auto")
+        ensure_chip(db, reservation_id=r.id, template_key="k2", date="2026-04-20", schedule_id=s.id, assigned_by="manual")
+        deleted = delete_chips_for_schedule(db, schedule_id=s.id, force=True)
+        assert deleted == 2
+
+    def test_does_not_match_other_schedules(self, db):
+        r = _make_reservation(db)
+        t = _make_template(db)
+        s1 = _make_schedule(db, t)
+        s2 = _make_schedule(db, t)
+        ensure_chip(db, reservation_id=r.id, template_key="k1", date="2026-04-20", schedule_id=s1.id, assigned_by="auto")
+        ensure_chip(db, reservation_id=r.id, template_key="k2", date="2026-04-20", schedule_id=s2.id, assigned_by="auto")
+        deleted = delete_chips_for_schedule(db, schedule_id=s1.id)
+        assert deleted == 1
+        remaining = db.query(ReservationSmsAssignment).all()
+        assert len(remaining) == 1
+        assert remaining[0].schedule_id == s2.id
+
+    def test_nonexistent_schedule_returns_zero(self, db):
+        deleted = delete_chips_for_schedule(db, schedule_id=99999)
+        assert deleted == 0
+
+    def test_does_not_match_schedule_id_null_chips(self, db):
+        """schedule_id=NULL 인 칩 (운영자 수동) 은 delete_chips_for_schedule 매칭 안 됨."""
+        r = _make_reservation(db)
+        t = _make_template(db)
+        s = _make_schedule(db, t)
+        # schedule_id 있는 칩
+        ensure_chip(db, reservation_id=r.id, template_key="auto", date="2026-04-20", schedule_id=s.id, assigned_by="auto")
+        # schedule_id NULL 칩 (운영자 수동)
+        ensure_chip(db, reservation_id=r.id, template_key="manual_no_sched", date="2026-04-20", schedule_id=None, assigned_by="auto")
+        deleted = delete_chips_for_schedule(db, schedule_id=s.id)
+        assert deleted == 1  # schedule_id 있는 것만
+        remaining = db.query(ReservationSmsAssignment).all()
+        assert len(remaining) == 1
+        assert remaining[0].schedule_id is None
