@@ -90,15 +90,23 @@ dnd-kit은 routing 방식만 대체하고 API 호출은 그대로 유지한다.
 
 ---
 
-## 3. 추가 조건 5개 (확정)
+## 3. 추가 조건 7개 (확정)
 
 | # | 조건 | 영향 범위 |
 |---|------|-----------|
-| 1 | **그립 전용 드래그** — `useDraggable.listeners` 를 그립 div에만 연결. 행 나머지 부분 클릭은 드래그 미발동 | `GuestRow.tsx` |
+| 1 | **그립 전용 드래그** — `useDraggable.listeners` 를 그립 div에만 연결. 행 나머지 부분 클릭은 드래그 미발동 | `GuestRow.tsx`, `CompactGuestCell.tsx` |
 | 2 | **PC 단일클릭 편집** — `InlineInput.onDoubleClick` → `onClick` 전환 (PC 한정). `singleClick` prop으로 분기 | `InlineInput.tsx`, `GuestRow.tsx` |
 | 3 | **편집→드래그 자동저장** — `onDragStart` 에서 `document.activeElement.blur()` → `commit()` 자동 호출 | `RoomAssignment.tsx` |
 | 4 | **모바일 변경 없음** — `useIsDesktop()` (1024px breakpoint) 으로 전체 gate. 모바일은 클릭-선택 시스템 유지 | 전체 |
 | 5 | **우클릭 배경 방어** — `InlineInput` span의 `focus:` → `focus-visible:` | `InlineInput.tsx` |
+| 6 | **그립 영역 분리** — 그립 div(`Circle` span)는 PC에서 드래그 트리거 전용. `onClick` 핸들러 미설치. `activationConstraint: { distance: 4 }` 로 그립 단순 클릭만으로는 drag start/end 사이클 미발동 + DragOverlay 깜빡임 차단 | `GuestRow.tsx`, `CompactGuestCell.tsx`, `RoomAssignment.tsx` |
+| 7 | **편집 중 우클릭 컨텍스트 메뉴 차단** — `useContextMenu.canOpen` 조건에 InlineInput 편집 상태 추가. #9 단일클릭 편집 활성화로 인한 편집 진입 빈도 증가 → 편집 중 우클릭 시 컨텍스트 메뉴가 열리는 기존 버그를 사전 차단 | `useContextMenu.ts`, `InlineInput.tsx`, `RoomAssignment.tsx` |
+
+**추가 구조 조건 (Phase F)**:
+
+| # | 조건 | 영향 범위 |
+|---|------|-----------|
+| 8 | **선택 시스템 진입점 일원화** — `useGuestSelection` + `useHoverZone` 호출을 `useSelectionSystem` 래퍼로 통합. PC에서는 `EMPTY_SELECTION_PROPS` fixture 반환 → 미래 모바일 자체 레이아웃 도입 시 import 한 줄로 선택 시스템 전체 제거 가능 | `useSelectionSystem.ts` (신규), `RoomAssignment.tsx` |
 
 ---
 
@@ -124,11 +132,16 @@ dnd-kit은 routing 방식만 대체하고 API 호출은 그대로 유지한다.
 // RoomAssignment.tsx 최상위 JSX 래핑
 const sensors = useSensors(
   useSensor(PointerSensor, {
-    activationConstraint: { distance: 8 },  // 8px 이동 전까지 클릭으로 인식
+    activationConstraint: { distance: 4 },  // 4px 이동 전까지 클릭으로 인식 (그립/입력 영역 분리되어 더 작은 임계 가능)
   })
 );
 
-<DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+<DndContext
+  sensors={sensors}
+  onDragStart={handleDragStart}
+  onDragEnd={handleDragEnd}
+  onDragCancel={handleDragCancel}  // ESC / 드롭 영역 밖에서 떼기 → activeResId 정리
+>
   {/* 전체 페이지 콘텐츠 */}
   <DragOverlay>
     {activeResId && <GuestDragCard resId={activeResId} reservations={reservations} />}
@@ -136,8 +149,11 @@ const sensors = useSensors(
 </DndContext>
 ```
 
-**activationConstraint: { distance: 8 }** — 8px 이상 이동 전에는 dragevent 미발동.
-단일클릭(8px 미만)은 dnd-kit이 무시 → InlineInput onClick으로 편집 진입 정상 동작.
+**activationConstraint: { distance: 4 }** — 4px 이상 이동 전에는 drag event 미발동.
+그립 단순 클릭만으로는 drag start/end 사이클 미발동 → DragOverlay 깜빡임 차단.
+그립 div와 입력 영역(이름~메모)이 완전히 분리되어 있으므로(조건 #6) 보수적으로 큰 distance를 둘 필요 없음.
+
+**`onDragCancel` 필수** — `setActiveResId(null)`. ESC/취소 시 DragOverlay 잔존 방지.
 
 ### 4-3. useDraggable (GuestRow + CompactGuestCell 그립 div)
 
@@ -267,20 +283,23 @@ onClick={(e) => {
 
 ## 6. 변경 대상 파일 전체 목록
 
-| 파일 | 변경 내용 |
-|------|-----------|
-| `src/hooks/use-desktop.ts` (신규) | useIsDesktop 훅 |
-| `src/pages/RoomAssignment.tsx` | DndContext 래핑, sensors, onDragStart, onDragEnd + setSelectedGuestIds 클리어, DragOverlay |
-| `src/pages/RoomAssignment/components/shared/GuestRow.tsx` | useDraggable 연결, 행 onClick isDesktop 가드, singleClick 전달 |
-| `src/pages/RoomAssignment/components/shared/CompactGuestCell.tsx` | useDraggable 연결 (grip div 직접), grip onClick isDesktop 가드 (GuestRow와 위치 다름) |
-| `src/pages/RoomAssignment/components/InlineInput.tsx` | focus-visible 수정, singleClick prop 추가 |
-| `src/pages/RoomAssignment/components/RoomRow.tsx` | useDroppable 연결 |
-| `src/pages/RoomAssignment/components/zones/GuestZone.tsx` | useDroppable 연결 (main + next) |
+| 파일 | 변경 내용 | 단계 |
+|------|-----------|------|
+| `src/hooks/use-desktop.ts` (신규) | useIsDesktop 훅 | #1 |
+| `src/pages/RoomAssignment/components/InlineInput.tsx` | focus-visible 수정, singleClick prop 추가 | #2, #9 |
+| `src/pages/RoomAssignment.tsx` | DndContext 래핑, sensors(distance:4), onDragStart+blur, onDragEnd, **onDragCancel**, DragOverlay, setSelectedGuestIds 안전망, useContextMenu.canOpen에 편집상태 추가 | #3, #6, #7, #9 |
+| `src/pages/RoomAssignment/components/shared/GuestRow.tsx` | useDraggable 연결, 행 onClick isDesktop 가드, singleClick 전달 | #4, #8, #9 |
+| `src/pages/RoomAssignment/components/shared/CompactGuestCell.tsx` | useDraggable 연결 (grip div 직접), grip onClick isDesktop 가드 (GuestRow와 위치 다름) | #4, #8 |
+| `src/pages/RoomAssignment/components/RoomRow.tsx` | useDroppable 연결 | #5 |
+| `src/pages/RoomAssignment/components/zones/GuestZone.tsx` | useDroppable 연결 (main + next) | #5 |
+| `src/pages/RoomAssignment/components/shared/GuestDragCard.tsx` (신규) | DragOverlay 내용물 — 컴팩트 카드 (이름 + 파티/성별 인원) | #10 |
+| `src/pages/RoomAssignment/hooks/useSelectionSystem.ts` (신규) | useGuestSelection + useHoverZone 통합 래퍼. PC에서 EMPTY_SELECTION_PROPS fixture 반환 | #11 |
+| `src/pages/RoomAssignment/hooks/useContextMenu.ts` | canOpen 조건에 InlineInput 편집 상태 포함 | #9 |
 
 **변경하지 않는 파일**:
-- `useGuestMove.ts` — handleDropOnRoom/Pool/Party API 로직 전부 유지
-- `useGuestSelection.ts` — 모바일에서 그대로 사용
-- `useGuestDropTarget.ts` — 모바일에서 그대로 사용
+- `useGuestMove.ts` — handleDropOnRoom/Pool/Party API 로직 전부 유지 (단, onDropZoneClick은 PC에서 dead path)
+- `useGuestSelection.ts` — 모바일에서 그대로 사용 (PC는 useSelectionSystem fixture로 분리)
+- `useGuestDropTarget.ts` — 모바일에서 그대로 사용 (PC는 enabled=false 자동 비활성)
 - `useHoverZone.ts` — 모바일에서 그대로 사용
 - `useReservationsData.ts` — 변경 없음
 - `zones/UnassignedZone.tsx`, `PartyZone.tsx`, `UnstableZone.tsx`, `CancelledZone.tsx` — GuestZone props 변경 없음
@@ -288,16 +307,23 @@ onClick={(e) => {
 
 ---
 
-## 7. 미결 검토 항목
+## 7. 결정 사항 (2026-05-16 사용자 합의)
 
-- [ ] **`DragOverlay` 내용물** — 게스트 이름 텍스트만? 컴팩트 카드? 현재 GuestRow 복제?
-  - 권장: 이름 + 파티인원만 표시하는 경량 카드 (30px 높이)
-- [ ] **다음날 컬럼 드롭 zoneId 네이밍** — `next-room-5`, `next-pool`, `next-party`. onDragEnd 라우팅 분기 확인 필요
-- [ ] **activationConstraint 값** — `distance: 8`이 터치패드 환경에서도 적절한지
-  - 터치패드: 스크롤 제스처와 혼동 가능성 → `delay: 200` 또는 `distance: 5` 검토
-- [ ] **DndContext 위치** — RoomAssignment.tsx 최상위 JSX vs. 별도 wrapper 컴포넌트
-  - 권장: 최상위 JSX 직접 래핑 (중간 컴포넌트 불필요)
-- [ ] **키보드 드래그 (Accessibility)** — `activationConstraint: distance` 사용 시 Space/Enter 키보드 드래그 비활성됨. 현재 범위 외로 결정 필요
-- [ ] **연박 예약 드래그** — `handleDropOnRoom`에서 `isMultiNight` 감지 후 모달 표시. dnd-kit onDragEnd는 비동기 모달을 기다리지 않음. 현재 `setMultiNightConfirm` 패턴 그대로 동작하는지 확인 필요
-- [ ] **컨텍스트 메뉴 + 편집 모드 동시 활성 (기존 버그)** — `useContextMenu`의 `canOpen: !modalVisible && !stayGroup.show && !multiNightConfirm?.open` 조건이 InlineInput 편집 상태를 포함하지 않음. InlineInput의 input 요소에는 `onContextMenu stopPropagation`이 있지만, input 바깥 행 영역을 우클릭하면 편집 중에도 컨텍스트 메뉴가 열릴 수 있음. 단일클릭 편집 적용 후 편집 진입 빈도가 증가하므로 체감 빈도 증가 가능. 마이그레이션 범위 포함 여부 결정 필요
-- [ ] **드래그 완료 후 toast 잔존** — `onDragEnd`에서 `setSelectedGuestIds(new Set())` 호출로 해결. #8 완료 후에는 PC에서 selectionActive가 항상 false이므로 근본적으로 해결되나, #6~#7 단계(#8 이전)에서 안전망으로 반드시 포함
+- **`DragOverlay` 내용물** — 컴팩트 카드. 이름 + 파티/성별 인원만 표시하는 30~40px 경량 카드. `GuestDragCard` 신규 컴포넌트 (#10).
+- **다음날 컬럼 드롭 zoneId 네이밍** — `next-room-N` / `next-pool` / `next-party`. onDragEnd 분기에서 `startsWith` 매칭으로 처리.
+- **activationConstraint 값** — `distance: 4`. 그립과 입력 영역이 완전히 분리되어 보수적으로 큰 distance가 불필요. 그립 단순 클릭만으로 drag start/end 사이클이 발동되어 DragOverlay 깜빡임이 생기는 것을 차단.
+- **DndContext 위치** — RoomAssignment.tsx 최상위 JSX 직접 래핑. 중간 wrapper 컴포넌트 불필요.
+- **`onDragCancel`** — `setActiveResId(null)` 호출. ESC, 드롭 영역 밖에서 떼기 등에서 DragOverlay 잔존 방지. #7에 포함.
+- **키보드 드래그 (Accessibility)** — 본 마이그레이션 범위 외. distance 활성 제약 사용 시 Space/Enter 키보드 드래그 비활성. 후속 별도 트랙.
+- **연박 예약 드래그** — `setMultiNightConfirm` 패턴 그대로. `onDragEnd`는 동기 콜백이고 `setState`로 모달 표시. dnd-kit active 상태는 onDragEnd 직후 자동 클리어 → 다음 드래그 정상. #6 사전조사에서 실제 동작 검증.
+- **컨텍스트 메뉴 + 편집 모드 동시 활성 (기존 버그)** — 본 마이그레이션 범위 포함. #9에서 `useContextMenu.canOpen` 조건에 InlineInput 편집 상태 추가. 단일클릭 편집 활성화로 편집 진입 빈도 증가 → 사전 차단.
+- **드래그 완료 후 toast 잔존** — #6에서 `setSelectedGuestIds(new Set())` 안전망 포함. #8 이후 PC에서 selectionActive 항상 false라 근본 해결.
+
+## 8. 별도 트랙으로 분리된 항목
+
+다음 항목은 본 마이그레이션 범위 외로 결정됨:
+
+- **DELETE.md B-4 (멀티선택 dead code, ~30곳)** — 단계 #11 머지 후 PC에서 영구 dead 확정 시점에 별도 PR로 일괄 정리.
+- **DELETE.md C (노재원 undo 회귀 5케이스)** — 본 마이그레이션과 무관한 별개 이슈. 5케이스 재현 + diag 로그 + API 응답 확인 후 별도 트랙.
+- **room-assignment-cleanup-plan.md (백엔드 정리 PR1~PR4)** — dnd-kit과 독립. 수시 진행 가능 (PR1 sync_denormalized_field 제거, PR2 reconcile_dates 이름 공개화는 테스트 ImportError 즉시 해결 권장).
+- **키보드 드래그 접근성** — Space/Enter 키보드 드래그. distance 제약과 상충하므로 별도 설계 필요.

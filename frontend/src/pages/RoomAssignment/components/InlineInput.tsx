@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { recentlyDragEnded } from '../utils/dragState';
 
 interface InlineInputProps {
   value: string;
@@ -14,6 +15,8 @@ interface InlineInputProps {
   compact?: boolean;
   // 편집 모드 진입 직후 호출. 행의 deselect 250ms 타이머 취소 등에 사용.
   onActivate?: () => void;
+  /** PC에서 단일클릭으로 편집 진입 (true). false면 더블클릭 (모바일 기존 동작). */
+  singleClick?: boolean;
 }
 
 export const InlineInput = ({
@@ -27,6 +30,7 @@ export const InlineInput = ({
   disabled,
   compact,
   onActivate,
+  singleClick,
 }: InlineInputProps) => {
   const [editing, setEditing] = useState(false);
   const [localValue, setLocalValue] = useState(value);
@@ -110,7 +114,12 @@ export const InlineInput = ({
 
   return (
     <span
-      onDoubleClick={activate}
+      onClick={singleClick ? () => {
+        // dnd-kit drag 종료 직후 합성 click 무시 (드래그 후 의도치 않은 편집 진입 방지)
+        if (recentlyDragEnded()) return;
+        activate();
+      } : undefined}
+      onDoubleClick={!singleClick ? activate : undefined}
       onTouchEnd={handleTouchEnd}
       // 키보드 Tab 흐름: span 자체를 focusable 로 만들고 키보드 focus 시 자동 activate.
       // 활성 input 에서 Tab → blur(commit) → 다음 InlineInput span 으로 focus 이동
@@ -121,14 +130,14 @@ export const InlineInput = ({
       onFocus={(e) => {
         if (e.currentTarget.matches(':focus-visible')) activate();
       }}
-      title={disabled ? undefined : '더블클릭하여 수정'}
+      title={disabled ? undefined : (singleClick ? '클릭하여 수정' : '더블클릭하여 수정')}
       // touchAction: 'manipulation' 제거 — iOS에서 long-press → contextmenu 도 같이
       // 차단해 컨텍스트 메뉴가 안 뜸. 더블탭 줌은 handleTouchEnd 의 preventDefault 로
       // 충분히 막힘 (RoomMemoEditor 도 동일 방식).
       // non-compact 모드: block + 세로 padding 으로 셀 전체를 더블클릭 영역으로 확장
       // (값 비어있을 때 클릭 범위가 좁아 수정 활성화 어렵던 문제 해결)
       // compact 모드 (이름): 컨텐츠 너비 유지로 inline span 그대로
-      className={`${compact ? '' : 'w-full block py-1.5'} text-body truncate select-none ${disabled ? '' : 'cursor-text'} outline-none focus:bg-[#F2F4F6] dark:focus:bg-[#2C2C34] focus:rounded ${className || ''}`}
+      className={`${compact ? '' : 'w-full block py-1.5'} text-body truncate select-none ${disabled ? '' : 'cursor-text'} outline-none focus-visible:bg-[#F2F4F6] dark:focus-visible:bg-[#2C2C34] focus-visible:rounded ${className || ''}`}
     >
       {value || (
         <span className="text-[#B0B8C1] dark:text-[#4E5968]">

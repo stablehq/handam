@@ -1,8 +1,10 @@
 import React from 'react';
+import { useDroppable } from '@dnd-kit/core';
 import type { Reservation } from '../../types';
 import type { HoverZoneState } from '../../hooks/useHoverZone';
 import { useGuestDropTarget } from '../../hooks/useGuestDropTarget';
 import { ZONE_ROW_HEIGHT } from '../../utils/layoutConstants';
+import { useIsDesktop } from '../../../../hooks/use-desktop';
 
 export interface GuestZoneProps {
   // 좌측 라벨
@@ -85,6 +87,7 @@ export function GuestZone({
     return null;
   }
 
+  const isDesktop = useIsDesktop();
   // 메인 zone 의 드롭존 동작 — 게스트 선택 시에만 활성.
   const main = useGuestDropTarget({
     zoneId: zoneId ?? '',
@@ -99,10 +102,22 @@ export function GuestZone({
     enabled: accept && !!nextZoneId && nextDayExpanded && selectionActive,
   });
 
+  // dnd-kit useDroppable — PC 드래그용. id는 항상 unique 필요 → zoneId 없으면 noop fallback.
+  const dropMain = useDroppable({
+    id: zoneId || `__noop-zone-${title}-main`,
+    disabled: !isDesktop || !accept || !zoneId,
+  });
+  const dropNext = useDroppable({
+    id: nextZoneId || `__noop-zone-${title}-next`,
+    disabled: !isDesktop || !accept || !nextZoneId || !nextDayExpanded,
+  });
+  const isMainOver = main.isDragOver || dropMain.isOver;
+  const isNextOver = next.isDragOver || dropNext.isOver;
+
   return (
     <div
       className={`group flex select-none transition-colors ${
-        accept && main.isDragOver
+        accept && isMainOver
           ? hoverBgClass ?? ''
           : guests.length > 0 ? 'bg-white dark:bg-[#1E1E24]' : 'bg-[#F2F4F6]/50 dark:bg-[#17171C]/30'
       } ${selectionActive && accept ? 'cursor-pointer' : ''} ${zoneClassName ?? ''}`}
@@ -110,33 +125,37 @@ export function GuestZone({
       {...main.dropZoneProps}
       onClick={accept ? onDropZoneClick : undefined}
     >
-      {/* 좌측 라벨 */}
-      <div className="flex items-center gap-1.5 flex-shrink-0 w-38 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
-        <span className={`font-semibold ${titleColorClass} text-body`}>{title}</span>
-        {typeof count === 'number' && (
-          <span className="text-caption text-[#B0B8C1]">{count}</span>
-        )}
-      </div>
+      {/* main droppable wrapper — 라벨 + 게스트 리스트만 포함 (next 영역 분리로 collision detection 우선순위 충돌 회피) */}
+      <div ref={dropMain.setNodeRef} className="flex flex-1 min-w-0">
+        {/* 좌측 라벨 */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 w-38 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
+          <span className={`font-semibold ${titleColorClass} text-body`}>{title}</span>
+          {typeof count === 'number' && (
+            <span className="text-caption text-[#B0B8C1]">{count}</span>
+          )}
+        </div>
 
-      {/* 게스트 리스트 (오늘) */}
-      <div className="flex-1 divide-y divide-[#F2F4F6] dark:divide-[#2C2C34] border-b border-[#E5E8EB] dark:border-[#2C2C34]">
-        {guests.length > 0 ? (
-          guests.map((res) => renderGuestRow(res, true, rowZone))
-        ) : (
-          <div className="flex items-center h-10 cursor-default">
-            <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: GUEST_COLS }}>
-              <div className={`overflow-hidden truncate col-span-full text-body ${emptyMessageColorClass ?? 'text-[#B0B8C1]'} italic px-1.5`}>
-                {accept && main.isDragOver ? (emptyMessage ?? '') : ''}
+        {/* 게스트 리스트 (오늘) */}
+        <div className="flex-1 divide-y divide-[#F2F4F6] dark:divide-[#2C2C34] border-b border-[#E5E8EB] dark:border-[#2C2C34]">
+          {guests.length > 0 ? (
+            guests.map((res) => renderGuestRow(res, true, rowZone))
+          ) : (
+            <div className="flex items-center h-10 cursor-default">
+              <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: GUEST_COLS }}>
+                <div className={`overflow-hidden truncate col-span-full text-body ${emptyMessageColorClass ?? 'text-[#B0B8C1]'} italic px-1.5`}>
+                  {accept && isMainOver ? (emptyMessage ?? '') : ''}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* 다음날 컬럼 */}
       <div
+        ref={dropNext.setNodeRef}
         className={`relative flex-shrink-0 z-[2] before:content-[''] before:absolute before:inset-y-0 before:left-0 before:w-px before:bg-[#E5E8EB] dark:before:bg-gray-700 before:z-10 before:pointer-events-none bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700 transition-all duration-200 ${
-          next.isDragOver ? hoverBgClass ?? '' : ''
+          isNextOver ? hoverBgClass ?? '' : ''
         } ${selectionActive && accept && nextDayExpanded ? 'cursor-pointer' : ''}`}
         style={{ width: nextDayExpanded ? NEXT_DAY_EXPANDED_WIDTH : nextDayColWidth, minHeight: `${Math.max(1, nextDayGuests.length) * ZONE_ROW_HEIGHT}px` }}
         {...next.dropZoneProps}
@@ -155,7 +174,7 @@ export function GuestZone({
           ) : (
             <div className="flex items-center h-10 px-1">
               <span className={`text-caption ${emptyMessageColorClass ?? 'text-[#B0B8C1]'} italic`}>
-                {accept && next.isDragOver ? (emptyMessage ?? '') : ''}
+                {accept && isNextOver ? (emptyMessage ?? '') : ''}
               </span>
             </div>
           )}

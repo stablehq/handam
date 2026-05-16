@@ -27,13 +27,22 @@ import {
   Phone,
   Undo2,
 } from 'lucide-react';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+} from '@dnd-kit/core';
 import { useIsMobile } from '../hooks/use-mobile';
 import GuestContextMenu from '../components/GuestContextMenu';
 import TableSettingsModal from '../components/TableSettingsModal';
 import type { SmsAssignment, Reservation } from './RoomAssignment/types';
 import { formatGenderPeople, formatGuestSuffix } from './RoomAssignment/utils/reservationFormat';
 import { useConfirmDialog } from './RoomAssignment/hooks/useConfirmDialog';
-import { useHoverZone } from './RoomAssignment/hooks/useHoverZone';
+import { useSelectionSystem } from './RoomAssignment/hooks/useSelectionSystem';
 import { useCollapsibleBuildings } from './RoomAssignment/hooks/useCollapsibleBuildings';
 import { useAutoAssign } from './RoomAssignment/hooks/useAutoAssign';
 import { useCampaignSend } from './RoomAssignment/hooks/useCampaignSend';
@@ -41,11 +50,12 @@ import { useHighlightColors } from './RoomAssignment/hooks/useHighlightColors';
 import { useStayGroup } from './RoomAssignment/hooks/useStayGroup';
 import { useReservationsData, filterActive } from './RoomAssignment/hooks/useReservationsData';
 import { useColumnResize } from './RoomAssignment/hooks/useColumnResize';
-import { useGuestSelection } from './RoomAssignment/hooks/useGuestSelection';
 import { useContextMenu } from './RoomAssignment/hooks/useContextMenu';
 import { useSmsAssignment } from './RoomAssignment/hooks/useSmsAssignment';
 import { GuestRow } from './RoomAssignment/components/shared/GuestRow';
 import { CompactGuestCell } from './RoomAssignment/components/shared/CompactGuestCell';
+import { GuestDragCard } from './RoomAssignment/components/shared/GuestDragCard';
+import { markDragEnded } from './RoomAssignment/utils/dragState';
 import { UnassignedZone } from './RoomAssignment/components/zones/UnassignedZone';
 import { PartyZone } from './RoomAssignment/components/zones/PartyZone';
 import { UnstableZone } from './RoomAssignment/components/zones/UnstableZone';
@@ -185,14 +195,23 @@ const RoomAssignment = () => {
     return typeof window !== 'undefined' && window.innerWidth >= 1536;
   });
   const [animDirection, setAnimDirection] = useState<'none' | 'left' | 'right'>('none');
-  const { hover, setHover, clearHover } = useHoverZone();
+
+  // dnd-kit (PC 전용 드래그) — sensors + state. handleDragStart/End/Cancel은 useGuestMove 직후에 정의 (클로저 의존성).
+  const [activeResId, setActiveResId] = useState<number | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 4 },
+    }),
+  );
 
   const isMobile = useIsMobile();
 
+  // useGuestSelection + useHoverZone 통합 — PC는 fixture(noop), 모바일은 실제 훅
   const {
     selectedGuestIds, setSelectedGuestIds, selectionActive,
     cancelDeselect, onGripClick,
-  } = useGuestSelection({ selectedDate, reservations, nextDayReservations });
+    hover, setHover, clearHover,
+  } = useSelectionSystem({ selectedDate, reservations, nextDayReservations });
 
   // nextDayExpanded localStorage 저장
   useEffect(() => {
@@ -232,6 +251,7 @@ const RoomAssignment = () => {
   const {
     recentlyMovedId,
     handleDropOnRoom, handleDropOnPool, handleDropOnParty,
+    handleDropOnZoneCrossDay,
     onDropZoneClick,
   } = useGuestMove({
     reservations,
@@ -249,6 +269,127 @@ const RoomAssignment = () => {
     setSelectedGuestIds,
     showConfirm,
   });
+
+  // dnd-kit handlers — useGuestMove 결과(handleDropOnRoom 등)에 의존.
+  const handleDragStart = (event: DragStartEvent) => {
+    const activeStr = String(event.active.id);
+    let resId: number;
+    if (activeStr.startsWith('guest-next-')) {
+      resId = Number(activeStr.replace('guest-next-', ''));
+    } else if (activeStr.startsWith('guest-')) {
+      resId = Number(activeStr.replace('guest-', ''));
+    } else {
+      return;
+    }
+    if (!Number.isFinite(resId)) return;
+    setActiveResId(resId);
+    // 편집 중인 InlineInput 자동 저장 — onBlur → commit() → mutation
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  };
+  const handleDragCancel = () => {
+    setActiveResId(null);
+    // drag 직후 마우스 release 위치의 합성 click 차단
+    markDragEnded();
+  };
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    // drag 종료 시 DragOverlay 즉시 unmount
+    setActiveResId(null);
+    // drag 직후 마우스 release 위치의 합성 click 차단 (InlineInput onClick → 의도치 않은 편집 모드 방지)
+    markDragEnded();
+    // PC #8 전 중간 상태: 클릭 선택 후 드래그 시 toast 잔존 방지 안전망
+    setSelectedGuestIds(new Set());
+    if (!over) return;
+
+    const activeStr = String(active.id);
+    const overStr = String(over.id);
+
+    // active.id prefix로 출발지 판별 — 'guest-N' (오늘) / 'guest-next-N' (다음날)
+    let resId: number;
+    let sourceIsNextDay: boolean;
+    if (activeStr.startsWith('guest-next-')) {
+      resId = Number(activeStr.replace('guest-next-', ''));
+      sourceIsNextDay = true;
+    } else if (activeStr.startsWith('guest-')) {
+      resId = Number(activeStr.replace('guest-', ''));
+      sourceIsNextDay = false;
+    } else {
+      return;
+    }
+    if (!Number.isFinite(resId)) return;
+
+    // over.id 분기 — 기존 onDropZoneClick과 동일 cross-day 모달 패턴
+    if (overStr.startsWith('next-room-')) {
+      const roomId = Number(overStr.replace('next-room-', ''));
+      const targetDate = selectedDate.add(1, 'day');
+      if (!sourceIsNextDay) {
+        showConfirm(
+          '날짜 이동 확인',
+          '오늘 체크인 게스트를 내일 방에 배정하시겠습니까?\n예약 날짜가 내일로 변경됩니다.',
+          () => handleDropOnRoom(resId, roomId, targetDate),
+        );
+        return;
+      }
+      handleDropOnRoom(resId, roomId, targetDate);
+    } else if (overStr.startsWith('room-')) {
+      const roomId = Number(overStr.replace('room-', ''));
+      if (sourceIsNextDay) {
+        showConfirm(
+          '날짜 이동 확인',
+          '내일 체크인 게스트를 오늘 방에 배정하시겠습니까?\n예약 날짜가 오늘로 변경됩니다.',
+          () => handleDropOnRoom(resId, roomId),
+        );
+        return;
+      }
+      handleDropOnRoom(resId, roomId);
+    } else if (overStr === 'next-pool') {
+      if (!sourceIsNextDay) {
+        // 오늘 → 내일 미배정 cross-day (체크인 날짜 + section 동시 변경)
+        showConfirm(
+          '날짜 + 섹션 이동 확인',
+          '오늘 체크인 게스트를 내일 미배정으로 이동하시겠습니까?\n예약 날짜가 내일로 변경됩니다.',
+          () => handleDropOnZoneCrossDay(resId, selectedDate.add(1, 'day'), 'unassigned'),
+        );
+        return;
+      }
+      handleDropOnPool(resId, selectedDate.add(1, 'day'));
+    } else if (overStr === 'next-party') {
+      if (!sourceIsNextDay) {
+        // 오늘 → 내일 파티만 cross-day
+        showConfirm(
+          '날짜 + 섹션 이동 확인',
+          '오늘 체크인 게스트를 내일 파티만으로 이동하시겠습니까?\n예약 날짜가 내일로 변경됩니다.',
+          () => handleDropOnZoneCrossDay(resId, selectedDate.add(1, 'day'), 'party'),
+        );
+        return;
+      }
+      handleDropOnParty(resId, selectedDate.add(1, 'day'));
+    } else if (overStr === 'pool') {
+      if (sourceIsNextDay) {
+        // 내일 → 오늘 미배정 cross-day
+        showConfirm(
+          '날짜 + 섹션 이동 확인',
+          '내일 체크인 게스트를 오늘 미배정으로 이동하시겠습니까?\n예약 날짜가 오늘로 변경됩니다.',
+          () => handleDropOnZoneCrossDay(resId, selectedDate, 'unassigned'),
+        );
+        return;
+      }
+      handleDropOnPool(resId);
+    } else if (overStr === 'party') {
+      if (sourceIsNextDay) {
+        // 내일 → 오늘 파티만 cross-day
+        showConfirm(
+          '날짜 + 섹션 이동 확인',
+          '내일 체크인 게스트를 오늘 파티만으로 이동하시겠습니까?\n예약 날짜가 오늘로 변경됩니다.',
+          () => handleDropOnZoneCrossDay(resId, selectedDate, 'party'),
+        );
+        return;
+      }
+      handleDropOnParty(resId);
+    }
+  };
 
   const [extendStayConflict, setExtendStayConflict] = useState<{
     open: boolean;
@@ -781,6 +922,12 @@ const RoomAssignment = () => {
   }, [reservations, unstableGuests]);
 
   return (
+    <DndContext
+      sensors={sensors}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
     <div className={`space-y-4 pb-14 min-w-0 ${processing ? 'opacity-60 pointer-events-none' : ''}`}>
 
       <PageHeader />
@@ -1220,6 +1367,17 @@ const RoomAssignment = () => {
         </>
       )}
     </div>
+      <DragOverlay>
+        {activeResId !== null
+          ? (() => {
+              const res =
+                reservations.find((r) => r.id === activeResId)
+                ?? nextDayReservations.find((r) => r.id === activeResId);
+              return res ? <GuestDragCard reservation={res} /> : null;
+            })()
+          : null}
+      </DragOverlay>
+    </DndContext>
   );
 };
 

@@ -340,6 +340,52 @@ export function useGuestMove({
     },
   });
 
+  // ── Flow B-2: date-cross drop to pool/party (no room target) ──────────────
+  // dnd-kit cross-day 시나리오: 오늘 객실 → 내일 미배정/파티만 (또는 그 반대).
+  // 1) reservation.update(check_in_date, check_out_date) → backend on_dates_changed
+  //    → _reconcile_dates 가 범위 밖 RA 자동 삭제 (assignRoom(null) 별도 불필요).
+  // 2) reservation.update(section)
+  const dateCrossPoolPartyMutation = useMutation({
+    mutationFn: async (vars: {
+      resId: number;
+      destDateStr: string;
+      destCheckout: string;
+      targetSection: 'unassigned' | 'party';
+      dateStr: string;
+      nextDateStr: string;
+    }) => {
+      window.__diagAction =
+        vars.targetSection === 'party'
+          ? 'drag_cross_day_to_party'
+          : 'drag_cross_day_to_pool';
+      // 1. 체크인/아웃 변경 — backend lifecycle 이 범위 밖 RA 자동 삭제
+      await reservationsAPI.update(vars.resId, {
+        check_in_date: vars.destDateStr,
+        check_out_date: vars.destCheckout,
+      });
+      // 2. section 변경
+      await reservationsAPI.update(vars.resId, { section: vars.targetSection });
+    },
+
+    onMutate: async (vars) => {
+      const { prevToday, prevNext } = await snapshotAndCancel(
+        qc,
+        vars.dateStr,
+        vars.nextDateStr,
+      );
+      return { prevToday, prevNext, dateStr: vars.dateStr, nextDateStr: vars.nextDateStr };
+    },
+
+    onError: (_err: any, _vars, ctx) => {
+      restoreSnapshots(qc, ctx);
+      toast.error(_err?.response?.data?.detail || '날짜 + 섹션 이동 실패');
+    },
+
+    onSettled: (_data, _err, vars) => {
+      invalidateBoth(qc, vars.dateStr, vars.nextDateStr);
+    },
+  });
+
   // ── Flow C+D: pool/party drop (with existing room assignment) ─────────────
 
   const unassignRoomMutation = useMutation({
@@ -542,6 +588,49 @@ export function useGuestMove({
       setMultiNightConfirm,
       doAssignRoom,
     ],
+  );
+
+  // ── handleDropOnZoneCrossDay ──────────────────────────────────────────────
+  // cross-day + zone 이동: 오늘 객실 → 내일 미배정/파티만 (또는 그 반대).
+  // 1) reservation.update(check_in_date, check_out_date) — backend가 범위 밖 RA 자동 삭제
+  // 2) reservation.update(section) — section 변경
+  const handleDropOnZoneCrossDay = useCallback(
+    (resId: number, destDate: Dayjs, targetSection: 'unassigned' | 'party') => {
+      const found = findReservation(resId);
+      if (!found) return;
+      if (isMultiNight(found.res)) {
+        toast.warning(
+          '연박 그룹에 속한 게스트는 날짜 이동이 불가합니다. 연박 해제 후 이동하세요.',
+        );
+        return;
+      }
+      const destDateStr = destDate.format('YYYY-MM-DD');
+      const destCheckout = destDate.add(1, 'day').format('YYYY-MM-DD');
+      const dateStr = selectedDate.format('YYYY-MM-DD');
+      const nextDateStr = selectedDate.add(1, 'day').format('YYYY-MM-DD');
+      setRecentlyMovedId(resId);
+
+      dateCrossPoolPartyMutation.mutate(
+        {
+          resId,
+          destDateStr,
+          destCheckout,
+          targetSection,
+          dateStr,
+          nextDateStr,
+        },
+        {
+          onSuccess: () => {
+            toast.success(
+              targetSection === 'party'
+                ? `${found.res.customer_name} → 파티만 (${destDateStr})`
+                : `${found.res.customer_name} → 미배정 (${destDateStr})`,
+            );
+          },
+        },
+      );
+    },
+    [findReservation, selectedDate, dateCrossPoolPartyMutation],
   );
 
   // ── handleDropOnPool ──────────────────────────────────────────────────────
@@ -812,6 +901,7 @@ export function useGuestMove({
     handleDropOnRoom,
     handleDropOnPool,
     handleDropOnParty,
+    handleDropOnZoneCrossDay,
     onDropZoneClick,
   };
 }

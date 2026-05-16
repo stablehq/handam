@@ -1,6 +1,8 @@
 import React from 'react';
 import type { Dayjs } from 'dayjs';
 import { Circle } from 'lucide-react';
+import { useDraggable } from '@dnd-kit/core';
+import { useIsDesktop } from '../../../../hooks/use-desktop';
 import { formatGenderPeople, formatGuestSuffix } from '../../utils/reservationFormat';
 import { InlineInput } from '../InlineInput';
 import type { Reservation } from '../../types';
@@ -39,6 +41,11 @@ export function CompactGuestCell({
   cancelDeselect,
 }: CompactGuestCellProps) {
   const gp = formatGenderPeople(guest);
+  const isDesktop = useIsDesktop();
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `guest-next-${guest.id}`,
+    disabled: !isDesktop,
+  });
 
   // 다음날 데이터 저장 — selectedDate + 1일을 targetDate 로
   const saveNext = (id: number, field: string, value: string) =>
@@ -60,13 +67,22 @@ export function CompactGuestCell({
 
   return (
     <div
-      className="group/guest flex items-center h-10 w-full"
-      onContextMenu={(e) => onGuestContextMenu(e, guest.id)}
+      className={`group/guest flex items-center h-10 w-full ${isDragging ? 'opacity-40' : ''}`}
+      onContextMenu={(e) => {
+        if (document.activeElement instanceof HTMLInputElement) return;
+        onGuestContextMenu(e, guest.id);
+      }}
     >
       {/* Selection grip */}
       <div
-        onClick={(e: React.MouseEvent) => onGripClick(e, guest.id)}
-        className={`flex items-center justify-center w-8 px-0.5 flex-shrink-0 cursor-pointer text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${
+        ref={setNodeRef}
+        {...attributes}
+        {...listeners}
+        onClick={(e: React.MouseEvent) => {
+          if (isDesktop) return;
+          onGripClick(e, guest.id);
+        }}
+        className={`flex items-center justify-center w-8 px-0.5 flex-shrink-0 ${isDesktop ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${
           isSelected
             ? 'text-[#3182F6] dark:text-[#3182F6]'
             : 'group-hover/guest:text-[#3182F6] dark:group-hover/guest:text-[#3182F6]'
@@ -84,7 +100,7 @@ export function CompactGuestCell({
         <div className="overflow-hidden px-1 flex items-center gap-1 min-w-0">
           <InlineInput value={guest.customer_name} field="customer_name" resId={guest.id}
             onSave={saveNext}
-            className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" compact onActivate={cancelDeselect} />
+            className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" compact onActivate={cancelDeselect} singleClick={isDesktop} />
           {formatGuestSuffix(guest) && (
             <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{formatGuestSuffix(guest)}</span>
           )}
@@ -92,17 +108,17 @@ export function CompactGuestCell({
         <div className="overflow-hidden px-1">
           <InlineInput value={guest.phone || ''} field="phone" resId={guest.id}
             onSave={saveNext}
-            className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" onActivate={cancelDeselect} />
+            className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" onActivate={cancelDeselect} singleClick={isDesktop} />
         </div>
         <div className="overflow-hidden text-center px-1">
           <InlineInput value={guest.party_type || ''} field="party_type" resId={guest.id}
             onSave={saveNext}
-            className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" onActivate={cancelDeselect} />
+            className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" onActivate={cancelDeselect} singleClick={isDesktop} />
         </div>
         <div className="overflow-hidden text-center px-1">
           <InlineInput value={gp} field="genderPeople" resId={guest.id}
             onSave={saveNext}
-            className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" onActivate={cancelDeselect} />
+            className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" onActivate={cancelDeselect} singleClick={isDesktop} />
         </div>
       </div>
     </div>

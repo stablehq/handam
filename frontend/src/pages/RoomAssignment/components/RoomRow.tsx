@@ -1,7 +1,9 @@
 import React from 'react';
+import { useDroppable } from '@dnd-kit/core';
 import type { Reservation } from '../types';
 import type { HoverZoneState } from '../hooks/useHoverZone';
 import { useGuestDropTarget } from '../hooks/useGuestDropTarget';
+import { useIsDesktop } from '../../../hooks/use-desktop';
 import { mapBedSlots } from '../utils/mapBedSlots';
 import { ROOM_ROW_HEIGHT, ROOM_ROW_HEIGHT_EMPTY } from '../utils/layoutConstants';
 import { RoomMemoEditor } from './RoomMemoEditor';
@@ -127,6 +129,7 @@ export function RoomRow({
     : { borderBottomColor: isDarkMode ? '#2C2C34' : '#E5E8EB' };
 
   // 드롭존 (오늘 / 내일) — 게스트 선택 시에만 활성. 비선택 시엔 일반 행 hover 만 동작.
+  const isDesktop = useIsDesktop();
   const main = useGuestDropTarget({
     zoneId: `room-${room_id}`,
     hover, setHover, clearHover,
@@ -137,67 +140,82 @@ export function RoomRow({
     hover, setHover, clearHover,
     enabled: nextDayExpanded && selectionActive && isActive,
   });
+  // dnd-kit useDroppable — PC 드래그용. 모바일은 disabled
+  const dropMain = useDroppable({
+    id: `room-${room_id}`,
+    disabled: !isDesktop || !isActive,
+  });
+  const dropNext = useDroppable({
+    id: `next-room-${room_id}`,
+    disabled: !isDesktop || !isActive || !nextDayExpanded,
+  });
+  const isMainOver = main.isDragOver || dropMain.isOver;
+  const isNextOver = next.isDragOver || dropNext.isOver;
 
   return (
     <div
       className={`group relative flex select-none transition-colors
-        ${main.isDragOver
+        ${isMainOver
           ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/8 ring-1 ring-inset ring-[#3182F6]/30 dark:ring-[#3182F6]/30'
           : ''
         } ${selectionActive && isActive ? 'cursor-pointer' : ''}`}
-      style={{ minHeight: `${totalRows * rowHeight}px`, ...(main.isDragOver ? {} : stripeBgStyle) }}
+      style={{ minHeight: `${totalRows * rowHeight}px`, ...(isMainOver ? {} : stripeBgStyle) }}
       {...main.dropZoneProps}
       onClick={isActive ? onDropZoneClick : undefined}
     >
       {!isActive && (
         <div className="absolute inset-0 bg-black/30 dark:bg-black/50 pointer-events-none z-10" />
       )}
-      {/* Room label - vertically centered, spans all rows */}
-      <div className="flex items-center gap-1.5 flex-shrink-0 w-38 pl-3 pr-2 py-2 border-r border-r-[#E5E8EB] dark:border-r-gray-700 border-b" style={{ ...borderStyle, ...stripeBgStyle }}>
-        <span className="font-semibold text-[#191F28] dark:text-white text-body shrink-0">{room_number}</span>
-        <RoomMemoEditor roomId={room_id} memo={roomMemo} onSave={onSaveRoomMemo} />
-      </div>
+      {/* main droppable wrapper — 라벨 + 게스트 리스트만 포함 (next 영역 분리로 IoU 기반 collision detection의 nested 우선순위 함정 회피) */}
+      <div ref={dropMain.setNodeRef} className="flex flex-1 min-w-0">
+        {/* Room label - vertically centered, spans all rows */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 w-38 pl-3 pr-2 py-2 border-r border-r-[#E5E8EB] dark:border-r-gray-700 border-b" style={{ ...borderStyle, ...stripeBgStyle }}>
+          <span className="font-semibold text-[#191F28] dark:text-white text-body shrink-0">{room_number}</span>
+          <RoomMemoEditor roomId={room_id} memo={roomMemo} onSave={onSaveRoomMemo} />
+        </div>
 
-      {/* Guest rows */}
-      <div className="flex-1 divide-y divide-[#F2F4F6] dark:divide-[#2C2C34] border-b" style={borderStyle}>
-        {isDormitory ? (
-          Array.from({ length: totalRows }).map((_, i) => {
-            const bedIdx = i + 1;
-            const guest = guestByBed.get(bedIdx);
-            if (guest) {
-              return renderGuestRow(guest, true);
-            }
-            return (
-              <div key={`empty-${i}`} className={`flex items-center ${hasGuests ? 'h-10' : 'h-9'} cursor-default`}>
-                <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: GUEST_COLS }}>
-                  <div className="overflow-hidden truncate col-span-full text-body text-[#B0B8C1] dark:text-[#4E5968] italic px-1.5">
-                    {main.isDragOver ? '여기에 놓으세요' : ''}
+        {/* Guest rows */}
+        <div className="flex-1 divide-y divide-[#F2F4F6] dark:divide-[#2C2C34] border-b" style={borderStyle}>
+          {isDormitory ? (
+            Array.from({ length: totalRows }).map((_, i) => {
+              const bedIdx = i + 1;
+              const guest = guestByBed.get(bedIdx);
+              if (guest) {
+                return renderGuestRow(guest, true);
+              }
+              return (
+                <div key={`empty-${i}`} className={`flex items-center ${hasGuests ? 'h-10' : 'h-9'} cursor-default`}>
+                  <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: GUEST_COLS }}>
+                    <div className="overflow-hidden truncate col-span-full text-body text-[#B0B8C1] dark:text-[#4E5968] italic px-1.5">
+                      {isMainOver ? '여기에 놓으세요' : ''}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })
-        ) : guests.length > 0 ? (
-          guests.map((res) => renderGuestRow(res, true))
-        ) : (
-          <div className="flex items-center h-9 cursor-default">
-            <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: GUEST_COLS }}>
-              <div className="overflow-hidden truncate col-span-full text-body text-[#3182F6] dark:text-[#3182F6] italic px-1.5">
-                {main.isDragOver ? '여기에 놓으세요' : ''}
+              );
+            })
+          ) : guests.length > 0 ? (
+            guests.map((res) => renderGuestRow(res, true))
+          ) : (
+            <div className="flex items-center h-9 cursor-default">
+              <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: GUEST_COLS }}>
+                <div className="overflow-hidden truncate col-span-full text-body text-[#3182F6] dark:text-[#3182F6] italic px-1.5">
+                  {isMainOver ? '여기에 놓으세요' : ''}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Next day column */}
       <div
+        ref={dropNext.setNodeRef}
         className={`relative flex-shrink-0 z-[2] before:content-[''] before:absolute before:inset-y-0 before:left-0 before:w-px before:bg-[#E5E8EB] dark:before:bg-gray-700 before:z-10 before:pointer-events-none border-b transition-all duration-200 ${
-          next.isDragOver
+          isNextOver
             ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/8 ring-1 ring-inset ring-[#3182F6]/30'
             : ''
         } ${selectionActive ? 'cursor-pointer' : ''}`}
-        style={{ width: nextDayExpanded ? NEXT_DAY_EXPANDED_WIDTH : nextDayColWidth, ...(next.isDragOver ? {} : { ...borderStyle, ...stripeBgStyle }) }}
+        style={{ width: nextDayExpanded ? NEXT_DAY_EXPANDED_WIDTH : nextDayColWidth, ...(isNextOver ? {} : { ...borderStyle, ...stripeBgStyle }) }}
         {...next.dropZoneProps}
         onClick={nextDayExpanded ? onDropZoneClick : undefined}
       >
