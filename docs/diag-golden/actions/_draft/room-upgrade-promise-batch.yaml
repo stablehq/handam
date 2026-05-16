@@ -1,0 +1,49 @@
+action: room_upgrade_promise_batch (객실 업그레이드 약속 칩 batch reconcile)
+description: |
+  ebf2a96/8e96cbf 신규 — 룸 배정/grade 변경/예약 sync 등 트리거 시 호출되는
+  batch reconcile. 첫박 안내(`room_upgrade_promise`) 칩을 idempotent 하게 동기화.
+  surcharge.reconcile 와 동일 컨벤션 — .enter 만 emit, .exit 없음.
+
+reference_commit: ebf2a96
+reference_session: 2026-05-14
+created_at: 2026-05-14
+confidence: draft
+promotion_threshold: 3
+
+preconditions:
+  trigger: hook (assignment 변경 / grade 변경 / sync) or 일일 cron
+  schedule_active: true   # find_single_schedule None 시 즉시 return — 비활성이면 batch.enter 도 안 찍힘
+
+expected_trace:
+  - event: room_upgrade_promise.batch.enter
+    category: MANDATORY
+    fields:
+      count: "*"   # 0 이상
+
+  # 각 reservation 마다 (matches_target_mode 통과 시):
+  - event: room_upgrade_promise.reconcile.enter
+    category: VARIABLE_COUNT
+    min: 0
+    fields:
+      res_id: "*"
+      date: "*"
+
+  # 정원 초과 객실 배정 시 — 도메인 룰 차단:
+  - event: room_upgrade_promise.skipped_overcapacity
+    category: CONDITIONAL
+    fields:
+      res_id: "*"
+      guest_count: "*"
+      base: "*"
+      date: "*"
+
+forbidden_events:
+  - event: room_upgrade_promise.reconcile_failed
+    reason: 정상 경로 — 예외 시 별도 정답지로 분기 (critical level)
+
+notes: |
+  - .exit 없음은 의도된 컨벤션 (surcharge.reconcile 와 동일).
+  - count=0 인 batch.enter 도 정상 (배치 요청은 들어왔으나 대상 없음).
+  - matches_target_mode 못 통과한 res_id 는 reconcile.enter 도 안 찍힘 (조용히 skip).
+  - 2026-05-14 첫 관측: 00:05:04~05 cron 혹은 sync hook 으로 batch.enter count=1 / count=0 다수 발화.
+    res=5318 (5/23) skipped_overcapacity guest=3 base=1 정상 차단.

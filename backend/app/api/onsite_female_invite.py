@@ -5,6 +5,7 @@ from typing import List, Optional
 from app.api.deps import get_tenant_scoped_db
 from app.auth.dependencies import require_admin_or_above
 from app.db.models import OnsiteFemaleInvite, User
+from app.diag_logger import diag
 
 router = APIRouter(prefix="/api/onsite-female-invites", tags=["onsite-female-invites"])
 
@@ -120,6 +121,14 @@ async def update_invite(
         row.count = req.count
     db.commit()
     db.refresh(row)
+    diag(
+        "onsite_female_invite.updated",
+        level="critical",
+        invite_id=row.id,
+        date=row.date,
+        host_username=row.host_username,
+        count=row.count,
+    )
     return {"id": row.id, "date": row.date, "host_username": row.host_username, "count": row.count}
 
 
@@ -133,5 +142,12 @@ async def delete_invite(
     row = db.query(OnsiteFemaleInvite).filter(OnsiteFemaleInvite.id == invite_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다")
+    snapshot = {"date": row.date, "host_username": row.host_username, "count": row.count}
     db.delete(row)
     db.commit()
+    diag(
+        "onsite_female_invite.deleted",
+        level="critical",
+        invite_id=invite_id,
+        **snapshot,
+    )

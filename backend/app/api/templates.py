@@ -492,3 +492,4 @@ def get_available_variables(current_user: User = Depends(get_current_user)):
         "variables": AVAILABLE_VARIABLES,
         "categories": get_variable_categories()
     }
+

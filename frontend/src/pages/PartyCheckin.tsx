@@ -14,6 +14,12 @@ import { partyCheckinAPI, onsiteSalesAPI, dailyHostAPI, onsiteAuctionAPI, partyH
 import { normalizeUtcString } from '@/lib/utils'
 import { toast } from 'sonner'
 
+declare global {
+  interface Window {
+    __diagAction?: string;
+  }
+}
+
 interface PartyGuest {
   id: number
   customer_name: string
@@ -147,6 +153,7 @@ export default function PartyCheckin() {
     setCheckInConfirm(false)
     setAddModal(prev => ({ ...prev, saving: true }))
     try {
+      window.__diagAction = `party_checkin:add_participant${checkIn ? ':immediate_checkin' : ''}`
       const res = await reservationsAPI.create({
         customer_name: trimmedName,
         phone: addModal.phone.trim(),
