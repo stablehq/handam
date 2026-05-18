@@ -6,14 +6,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from typing import Optional
 from app.api.deps import get_tenant_scoped_db, get_current_tenant
-from app.db.models import Reservation, ReservationStatus, User, Tenant, ReservationSmsAssignment, RoomAssignment, ReservationDailyInfo
+from app.db.models import Reservation, ReservationStatus, User, Tenant, RoomAssignment, ReservationDailyInfo
 from app.factory import get_reservation_provider_for_tenant
 from app.auth.dependencies import get_current_user
 from app.rate_limit import limiter
-from app.services import room_assignment
 from app.services.activity_logger import log_activity
 from app.api.shared_schemas import ActionResponse
-from datetime import datetime
 import logging
 from app.diag_logger import diag
 

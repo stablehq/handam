@@ -10,9 +10,8 @@ import logging
 
 import re
 
-from app.db.models import Reservation, ReservationStatus, ReservationSmsAssignment, NaverBizItem, RoomBizItemLink, Room
+from app.db.models import Reservation, ReservationStatus, NaverBizItem, RoomBizItemLink, Room
 from app.diag_logger import diag
-from app.services import room_assignment
 from app.services.consecutive_stay import compute_is_long_stay
 from app.services.room_auto_assign import auto_assign_rooms
 from app.config import KST, today_kst

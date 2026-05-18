@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 import asyncio
 import logging
 
-from app.db.database import SessionLocal, session_for_tenant, session_bypass
+from app.db.database import session_for_tenant, session_bypass
 from app.db.models import Tenant
 # 옵션 C (Phase 6): ContextVar 제거됨
 from app.diag_logger import diag

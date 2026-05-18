@@ -4,7 +4,7 @@ FastAPI dependencies for multi-tenant support.
 from typing import Optional
 from fastapi import Header, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from app.db.database import get_db, SessionLocal, session_for_tenant
+from app.db.database import get_db, session_for_tenant
 
 
 async def get_current_tenant_id(

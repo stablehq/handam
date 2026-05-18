@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.services.event_bus import subscribe, unsubscribe
 from app.auth.utils import decode_access_token
-from app.db.database import SessionLocal, session_unscoped
+from app.db.database import session_unscoped
 from app.db.models import User, UserRole, UserTenantRole
 from app.diag_logger import diag
 

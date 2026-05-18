@@ -389,7 +389,7 @@ def _reconcile_room_upgrade_after_grade_change(
     if biz_item_ids:
         # 진행 중 / 미래 예약: check_out_date >= today 또는 check_out_date IS NULL
         from app.db.models import Reservation, ReservationStatus
-        from sqlalchemy import and_, or_
+        from sqlalchemy import or_
 
         res_rows = (
             db.query(Reservation.id, Reservation.check_in_date, Reservation.check_out_date)

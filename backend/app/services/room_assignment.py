@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 import logging
 
-from app.config import KST, today_kst
+from app.config import today_kst
 from app.diag_logger import diag
 from app.db.models import RoomAssignment, Reservation, Room
 from app.db.tenant_context import get_session_tenant_id

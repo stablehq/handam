@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     # Demo mode flag — LLM mock/real, JWT/password auto-gen, CORS relaxation
     DEMO_MODE: bool = True
 
+    # 스케줄러 비활성화 (로컬 개발 시 운영 칩 덮어쓰기 방지용).
+    # True면 main.py 의 start_scheduler() 호출 안 함. 기본 False → 기존 동작 유지.
+    DISABLE_SCHEDULER: bool = False
+
     # Swagger UI — None이면 DEMO_MODE 따라감
     ENABLE_SWAGGER: bool | None = None
 
