@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Dayjs } from 'dayjs';
-import { Circle } from 'lucide-react';
+import { Circle, GripVertical } from 'lucide-react';
 import { useDraggable } from '@dnd-kit/core';
 import { useIsDesktop } from '../../../../hooks/use-desktop';
 import { normalizeUtcString } from '../../../../lib/utils';
@@ -15,6 +15,7 @@ import { formatGenderPeople, formatGuestSuffix } from '../../utils/reservationFo
 import { InlineInput } from '../InlineInput';
 import { SmsCell } from '../SmsCell';
 import type { Reservation } from '../../types';
+import { ROOM_ROW_HEIGHT } from '../../utils/layoutConstants';
 
 interface TemplateLabel {
   template_key: string;
@@ -98,7 +99,7 @@ export function GuestRow({
   return (
     <div
       key={res.id}
-      className={`group/guest flex items-center h-10 ${showGrip && !isCancelled ? '' : 'pl-10'} transition-colors duration-150 ${isDragging ? 'opacity-40' : ''} ${
+      className={`group/guest flex items-center ${showGrip && !isCancelled ? '' : 'pl-10'} transition-colors duration-150 ${isDragging ? 'opacity-40' : ''} ${
         isCancelled
           ? 'bg-[#FFEBEE] dark:bg-[#F04452]/10'
           : isSelected
@@ -109,7 +110,7 @@ export function GuestRow({
                 ? `${highlightStyle.bg} ${highlightStyle.hover} ${highlightStyle.text || ''}`
                 : longStay ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15 hover:bg-[#FFE4CC] dark:hover:bg-[#FF9500]/20' : 'hover:bg-[#E8F3FF] dark:hover:bg-[#3182F6]/8'
       } cursor-pointer`}
-      style={isCustomHex && !isSelected ? getCustomBgStyle(res.highlight_color!, isDarkMode) : undefined}
+      style={{ height: ROOM_ROW_HEIGHT, ...(isCustomHex && !isSelected ? getCustomBgStyle(res.highlight_color!, isDarkMode) : {}) }}
       onContextMenu={(e) => {
         if (isCancelled) return;
         // 편집 중 InlineInput input이 활성이면 컨텍스트 메뉴 차단
@@ -185,15 +186,19 @@ export function GuestRow({
               : longStay ? 'group-hover/guest:text-[#FFB366] dark:group-hover/guest:text-[#FFB366]' : 'group-hover/guest:text-[#3182F6] dark:group-hover/guest:text-[#3182F6]'
           }`}
         >
-          <span className="relative flex items-center justify-center w-[18px] h-[18px] group/circle">
-            <span className={`absolute inset-0 rounded-full bg-[#3182F6] transition-all duration-300 ease-out ${
-              isSelected ? 'scale-[0.55] opacity-80' : 'scale-0 opacity-0 group-hover/circle:scale-[0.55] group-hover/circle:opacity-30'
-            }`} />
-            <Circle size={18} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${isSelected ? 'text-[#3182F6]' : ''}`} />
-          </span>
+          {isDesktop ? (
+            <GripVertical size={18} strokeWidth={1.5} />
+          ) : (
+            <span className="relative flex items-center justify-center w-[18px] h-[18px] group/circle">
+              <span className={`absolute inset-0 rounded-full bg-[#3182F6] transition-all duration-300 ease-out ${
+                isSelected ? 'scale-[0.55] opacity-80' : 'scale-0 opacity-0 group-hover/circle:scale-[0.55] group-hover/circle:opacity-30'
+              }`} />
+              <Circle size={18} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${isSelected ? 'text-[#3182F6]' : ''}`} />
+            </span>
+          )}
         </div>
       )}
-      <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: GUEST_COLS }}>
+      <div className="flex-1 grid items-center" style={{ gridTemplateColumns: GUEST_COLS }}>
         <div className="overflow-hidden px-1.5 flex items-center gap-0.5">
           <span className="flex items-center gap-1 min-w-0">
             <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className={`font-medium ${cellText}`} placeholder="이름" autoFocus={res.id === quickAddedId} disabled={isCancelled} compact onActivate={cancelDeselect} singleClick={isDesktop} />

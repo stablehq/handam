@@ -330,7 +330,7 @@ export function useGuestMove({
       return { prevToday, prevNext, dateStr: vars.dateStr, nextDateStr: vars.nextDateStr };
     },
 
-    onError: (_err: any, vars, ctx) => {
+    onError: (_err: any, _vars, ctx) => {
       restoreSnapshots(qc, ctx);
       toast.error(_err?.response?.data?.detail || '날짜 이동 실패');
     },

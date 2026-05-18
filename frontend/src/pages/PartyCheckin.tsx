@@ -194,7 +194,7 @@ export default function PartyCheckin() {
   const [hostName, setHostName] = useState('')
 
   // ── Auction state ──
-  const [auction, setAuction] = useState<Auction | null>(null)
+  const [, setAuction] = useState<Auction | null>(null)
   const [auctionItemName, setAuctionItemName] = useState('')
   const [auctionAmount, setAuctionAmount] = useState('')
   const [auctionWinner, setAuctionWinner] = useState('')

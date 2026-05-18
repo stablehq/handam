@@ -1,11 +1,12 @@
 import React from 'react';
 import type { Dayjs } from 'dayjs';
-import { Circle } from 'lucide-react';
+import { Circle, GripVertical } from 'lucide-react';
 import { useDraggable } from '@dnd-kit/core';
 import { useIsDesktop } from '../../../../hooks/use-desktop';
 import { formatGenderPeople, formatGuestSuffix } from '../../utils/reservationFormat';
 import { InlineInput } from '../InlineInput';
 import type { Reservation } from '../../types';
+import { ROOM_ROW_HEIGHT } from '../../utils/layoutConstants';
 
 export interface CompactGuestCellProps {
   guest: Reservation;
@@ -67,7 +68,8 @@ export function CompactGuestCell({
 
   return (
     <div
-      className={`group/guest flex items-center h-10 w-full ${isDragging ? 'opacity-40' : ''}`}
+      className={`group/guest flex items-center w-full ${isDragging ? 'opacity-40' : ''}`}
+      style={{ height: ROOM_ROW_HEIGHT }}
       onContextMenu={(e) => {
         if (document.activeElement instanceof HTMLInputElement) return;
         onGuestContextMenu(e, guest.id);
@@ -88,15 +90,19 @@ export function CompactGuestCell({
             : 'group-hover/guest:text-[#3182F6] dark:group-hover/guest:text-[#3182F6]'
         }`}
       >
-        <span className="relative flex items-center justify-center w-[16px] h-[16px] group/circle">
-          <span className={`absolute inset-0 rounded-full bg-[#3182F6] transition-all duration-300 ease-out ${
-            isSelected ? 'scale-[0.55] opacity-80' : 'scale-0 opacity-0 group-hover/circle:scale-[0.55] group-hover/circle:opacity-30'
-          }`} />
-          <Circle size={16} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${isSelected ? 'text-[#3182F6]' : ''}`} />
-        </span>
+        {isDesktop ? (
+          <GripVertical size={16} strokeWidth={1.5} />
+        ) : (
+          <span className="relative flex items-center justify-center w-[16px] h-[16px] group/circle">
+            <span className={`absolute inset-0 rounded-full bg-[#3182F6] transition-all duration-300 ease-out ${
+              isSelected ? 'scale-[0.55] opacity-80' : 'scale-0 opacity-0 group-hover/circle:scale-[0.55] group-hover/circle:opacity-30'
+            }`} />
+            <Circle size={16} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${isSelected ? 'text-[#3182F6]' : ''}`} />
+          </span>
+        )}
       </div>
       {/* Editable fields */}
-      <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: NEXT_GUEST_COLS }}>
+      <div className="flex-1 grid items-center" style={{ gridTemplateColumns: NEXT_GUEST_COLS }}>
         <div className="overflow-hidden px-1 flex items-center gap-1 min-w-0">
           <InlineInput value={guest.customer_name} field="customer_name" resId={guest.id}
             onSave={saveNext}

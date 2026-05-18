@@ -6,11 +6,8 @@
  * 따로 변할 때 호출자만 자기 상수를 바꾸면 되도록 한다.
  */
 
-/** 객실 그리드 행: 게스트가 한 명 이상 있을 때의 한 행 높이 (px). */
-export const ROOM_ROW_HEIGHT = 40;
+/** 게스트가 있는 행 높이 (px). 객실/Zone/Guest 모두 공통. */
+export const ROOM_ROW_HEIGHT = 36;
 
-/** 객실 그리드 행: 빈 객실 (게스트 없음) 의 행 높이 (px). */
-export const ROOM_ROW_HEIGHT_EMPTY = 36;
-
-/** Zone(미배정/파티만/불안정/취소) 안 게스트 한 행의 높이 (px). 현재는 객실 행과 같지만 분리 보존. */
-export const ZONE_ROW_HEIGHT = 40;
+/** 빈 행 (게스트 없음 / 빈 도미토리 슬롯) 높이 (px). */
+export const ROOM_ROW_HEIGHT_EMPTY = 30;

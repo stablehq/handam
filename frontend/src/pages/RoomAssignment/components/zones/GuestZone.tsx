@@ -3,7 +3,7 @@ import { useDroppable } from '@dnd-kit/core';
 import type { Reservation } from '../../types';
 import type { HoverZoneState } from '../../hooks/useHoverZone';
 import { useGuestDropTarget } from '../../hooks/useGuestDropTarget';
-import { ZONE_ROW_HEIGHT } from '../../utils/layoutConstants';
+import { ROOM_ROW_HEIGHT, ROOM_ROW_HEIGHT_EMPTY } from '../../utils/layoutConstants';
 import { useIsDesktop } from '../../../../hooks/use-desktop';
 
 export interface GuestZoneProps {
@@ -121,14 +121,17 @@ export function GuestZone({
           ? hoverBgClass ?? ''
           : guests.length > 0 ? 'bg-white dark:bg-[#1E1E24]' : 'bg-[#F2F4F6]/50 dark:bg-[#17171C]/30'
       } ${selectionActive && accept ? 'cursor-pointer' : ''} ${zoneClassName ?? ''}`}
-      style={{ minHeight: `${Math.max(Math.max(1, guests.length), Math.max(1, nextDayGuests.length)) * ZONE_ROW_HEIGHT}px` }}
+      style={{ minHeight: `${guests.length === 0 && nextDayGuests.length === 0 ? ROOM_ROW_HEIGHT_EMPTY : Math.max(guests.length, nextDayGuests.length) * ROOM_ROW_HEIGHT}px` }}
       {...main.dropZoneProps}
       onClick={accept ? onDropZoneClick : undefined}
     >
       {/* main droppable wrapper — 라벨 + 게스트 리스트만 포함 (next 영역 분리로 collision detection 우선순위 충돌 회피) */}
-      <div ref={dropMain.setNodeRef} className="flex flex-1 min-w-0">
+      <div ref={dropMain.setNodeRef} className="relative flex flex-1 min-w-0">
+        {accept && isMainOver && (
+          <div className={`absolute inset-0 pointer-events-none z-[5] ${hoverBgClass ?? 'bg-[#3182F6]/15 dark:bg-[#3182F6]/20'}`} />
+        )}
         {/* 좌측 라벨 */}
-        <div className="flex items-center gap-1.5 flex-shrink-0 w-38 pl-3 pr-2 py-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
+        <div className="flex items-center gap-1.5 flex-shrink-0 w-38 pl-3 pr-2 border-r border-b border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24]">
           <span className={`font-semibold ${titleColorClass} text-body`}>{title}</span>
           {typeof count === 'number' && (
             <span className="text-caption text-[#B0B8C1]">{count}</span>
@@ -140,8 +143,8 @@ export function GuestZone({
           {guests.length > 0 ? (
             guests.map((res) => renderGuestRow(res, true, rowZone))
           ) : (
-            <div className="flex items-center h-10 cursor-default">
-              <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: GUEST_COLS }}>
+            <div className="flex items-center cursor-default" style={{ height: ROOM_ROW_HEIGHT_EMPTY }}>
+              <div className="flex-1 grid items-center" style={{ gridTemplateColumns: GUEST_COLS }}>
                 <div className={`overflow-hidden truncate col-span-full text-body ${emptyMessageColorClass ?? 'text-[#B0B8C1]'} italic px-1.5`}>
                   {accept && isMainOver ? (emptyMessage ?? '') : ''}
                 </div>
@@ -157,22 +160,26 @@ export function GuestZone({
         className={`relative flex-shrink-0 z-[2] before:content-[''] before:absolute before:inset-y-0 before:left-0 before:w-px before:bg-[#E5E8EB] dark:before:bg-gray-700 before:z-10 before:pointer-events-none bg-[#F8F9FA] dark:bg-[#17171C] border-b border-b-[#E5E8EB] dark:border-b-gray-700 transition-all duration-200 ${
           isNextOver ? hoverBgClass ?? '' : ''
         } ${selectionActive && accept && nextDayExpanded ? 'cursor-pointer' : ''}`}
-        style={{ width: nextDayExpanded ? NEXT_DAY_EXPANDED_WIDTH : nextDayColWidth, minHeight: `${Math.max(1, nextDayGuests.length) * ZONE_ROW_HEIGHT}px` }}
+        style={{ width: nextDayExpanded ? NEXT_DAY_EXPANDED_WIDTH : nextDayColWidth, minHeight: `${nextDayGuests.length === 0 ? ROOM_ROW_HEIGHT_EMPTY : nextDayGuests.length * ROOM_ROW_HEIGHT}px` }}
         {...next.dropZoneProps}
         onClick={accept && nextDayExpanded ? onDropZoneClick : undefined}
       >
+        {accept && isNextOver && (
+          <div className={`absolute inset-0 pointer-events-none z-[5] ${hoverBgClass ?? 'bg-[#3182F6]/15 dark:bg-[#3182F6]/20'}`} />
+        )}
         <div className="divide-y divide-[#F2F4F6] dark:divide-[#2C2C34]">
           {nextDayGuests.length > 0 ? (
             nextDayGuests.map((guest) => (
               <div
                 key={`next-zone-${guest.id}`}
-                className={`flex items-center h-10 px-1 ${!nextDayExpanded ? 'justify-center' : ''}`}
+                className={`flex items-center px-1 ${!nextDayExpanded ? 'justify-center' : ''}`}
+                style={{ height: ROOM_ROW_HEIGHT }}
               >
                 {renderCompactCell(guest)}
               </div>
             ))
           ) : (
-            <div className="flex items-center h-10 px-1">
+            <div className="flex items-center px-1" style={{ height: ROOM_ROW_HEIGHT_EMPTY }}>
               <span className={`text-caption ${emptyMessageColorClass ?? 'text-[#B0B8C1]'} italic`}>
                 {accept && isNextOver ? (emptyMessage ?? '') : ''}
               </span>

@@ -97,19 +97,8 @@ export function RoomRow({
   const guestByBed = isDormitory ? mapBedSlots(guests, bed_capacity) : new Map<number, Reservation>();
   const nextByBed = isDormitory ? mapBedSlots(nextGuests, bed_capacity) : new Map<number, Reservation>();
 
-  // 가시 행 수 — 빈 슬롯 보존
-  const highestBedOrder = isDormitory
-    ? Math.max(
-        0,
-        ...guests.map(g => g.bed_order || 0),
-        ...nextGuests.map(g => g.bed_order || 0),
-      )
-    : 0;
-  const maxOccupancy = Math.max(guests.length, nextGuests.length, highestBedOrder, 1);
-  const visibleRows = isDormitory
-    ? Math.min(bed_capacity, maxOccupancy)
-    : Math.max(1, guests.length);
-  const totalRows = visibleRows;
+  // 도미토리는 항상 bed_capacity 만큼 행 표시 (비활성 시 1행), 비도미토리는 게스트 수만큼 (최소 1)
+  const totalRows = isDormitory ? (isActive ? bed_capacity : 1) : Math.max(1, guests.length);
   const hasGuests = guests.length > 0;
   const rowHeight = hasGuests ? ROOM_ROW_HEIGHT : ROOM_ROW_HEIGHT_EMPTY;
   const stripeKey = groupInfo ? groupInfo.groupIndex : rowIndex;
@@ -167,9 +156,12 @@ export function RoomRow({
         <div className="absolute inset-0 bg-black/30 dark:bg-black/50 pointer-events-none z-10" />
       )}
       {/* main droppable wrapper — 라벨 + 게스트 리스트만 포함 (next 영역 분리로 IoU 기반 collision detection의 nested 우선순위 함정 회피) */}
-      <div ref={dropMain.setNodeRef} className="flex flex-1 min-w-0">
+      <div ref={dropMain.setNodeRef} className="relative flex flex-1 min-w-0">
+        {isMainOver && (
+          <div className="absolute inset-0 bg-[#3182F6]/15 dark:bg-[#3182F6]/20 pointer-events-none z-[5]" />
+        )}
         {/* Room label - vertically centered, spans all rows */}
-        <div className="flex items-center gap-1.5 flex-shrink-0 w-38 pl-3 pr-2 py-2 border-r border-r-[#E5E8EB] dark:border-r-gray-700 border-b" style={{ ...borderStyle, ...stripeBgStyle }}>
+        <div className="flex items-center gap-1.5 flex-shrink-0 w-38 pl-3 pr-2 border-r border-r-[#E5E8EB] dark:border-r-gray-700 border-b" style={{ ...borderStyle, ...stripeBgStyle }}>
           <span className="font-semibold text-[#191F28] dark:text-white text-body shrink-0">{room_number}</span>
           <RoomMemoEditor roomId={room_id} memo={roomMemo} onSave={onSaveRoomMemo} />
         </div>
@@ -184,11 +176,10 @@ export function RoomRow({
                 return renderGuestRow(guest, true);
               }
               return (
-                <div key={`empty-${i}`} className={`flex items-center ${hasGuests ? 'h-10' : 'h-9'} cursor-default`}>
-                  <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: GUEST_COLS }}>
+                <div key={`empty-${i}`} className="flex items-center cursor-default" style={{ height: hasGuests ? ROOM_ROW_HEIGHT : ROOM_ROW_HEIGHT_EMPTY }}>
+                  <div className="flex-1 grid items-center" style={{ gridTemplateColumns: GUEST_COLS }}>
                     <div className="overflow-hidden truncate col-span-full text-body text-[#B0B8C1] dark:text-[#4E5968] italic px-1.5">
-                      {isMainOver ? '여기에 놓으세요' : ''}
-                    </div>
+                                          </div>
                   </div>
                 </div>
               );
@@ -196,11 +187,10 @@ export function RoomRow({
           ) : guests.length > 0 ? (
             guests.map((res) => renderGuestRow(res, true))
           ) : (
-            <div className="flex items-center h-9 cursor-default">
-              <div className="flex-1 grid items-center py-1" style={{ gridTemplateColumns: GUEST_COLS }}>
+            <div className="flex items-center cursor-default" style={{ height: ROOM_ROW_HEIGHT_EMPTY }}>
+              <div className="flex-1 grid items-center" style={{ gridTemplateColumns: GUEST_COLS }}>
                 <div className="overflow-hidden truncate col-span-full text-body text-[#3182F6] dark:text-[#3182F6] italic px-1.5">
-                  {isMainOver ? '여기에 놓으세요' : ''}
-                </div>
+                                  </div>
               </div>
             </div>
           )}
@@ -219,13 +209,17 @@ export function RoomRow({
         {...next.dropZoneProps}
         onClick={nextDayExpanded ? onDropZoneClick : undefined}
       >
+        {isNextOver && (
+          <div className="absolute inset-0 bg-[#3182F6]/15 dark:bg-[#3182F6]/20 pointer-events-none z-[5]" />
+        )}
         <div className="divide-y divide-[#F2F4F6] dark:divide-[#2C2C34]">
           {Array.from({ length: totalRows }).map((_, i) => {
             const nextGuest = isDormitory ? nextByBed.get(i + 1) : nextGuests[i];
             return (
               <div
                 key={`next-${i}`}
-                className={`flex items-center ${nextDayExpanded ? 'justify-start' : 'justify-center'} ${hasGuests ? 'h-10' : 'h-9'} px-1 ${nextGuest?.is_long_stay ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15' : ''}`}
+                className={`flex items-center ${nextDayExpanded ? 'justify-start' : 'justify-center'} px-1 ${nextGuest?.is_long_stay ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15' : ''}`}
+                style={{ height: hasGuests ? ROOM_ROW_HEIGHT : ROOM_ROW_HEIGHT_EMPTY }}
               >
                 {nextGuest ? renderCompactCell(nextGuest) : null}
               </div>

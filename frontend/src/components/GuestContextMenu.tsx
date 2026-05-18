@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Undo2, Music, Trash2, Link2, X, Zap, XCircle, CalendarPlus, CalendarMinus, Palette, ChevronRight, Calendar, Phone } from 'lucide-react';
+import { Trash2, Link2, X, Zap, XCircle, CalendarPlus, CalendarMinus, Palette, ChevronRight, Calendar, Phone } from 'lucide-react';
 import { GOOGLE_SHEETS_PALETTE } from '../lib/highlight-colors';
 
 interface GuestContextMenuProps {
@@ -10,8 +10,6 @@ interface GuestContextMenuProps {
   hasStayGroup: boolean;
   isUnstableCopy?: boolean;
   customColors?: string[];
-  onMoveToPool: () => void;
-  onMoveToParty: () => void;
   onDelete: () => void;
   onLinkStayGroup?: () => void;
   onUnlinkStayGroup?: () => void;
@@ -33,8 +31,6 @@ export default function GuestContextMenu({
   hasStayGroup,
   isUnstableCopy,
   customColors = [],
-  onMoveToPool,
-  onMoveToParty,
   onDelete,
   onLinkStayGroup = undefined,
   onUnlinkStayGroup = undefined,

@@ -1,31 +1,16 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { createPortal } from 'react-dom';
-import api, { reservationsAPI, roomsAPI, templatesAPI, smsAssignmentsAPI, settingsAPI } from '../services/api';
-import { normalizeUtcString } from '../lib/utils';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import api, { reservationsAPI, roomsAPI } from '../services/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/queryKeys';
 import { useTenantStore } from '@/stores/tenant-store';
 import dayjs, { Dayjs } from 'dayjs';
 import { toast } from 'sonner';
-import { Tooltip } from '@/components/ui/tooltip';
-import { Modal, ModalHeader, ModalBody, ModalFooter } from '@/components/ui/modal';
 import { TextInput } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
 import {
-  Trash2,
   ChevronLeft,
   ChevronRight,
-  Plus,
-  UserRoundPlus,
-  Link2,
-  Circle,
-  Minus,
   ChevronsLeft,
   ChevronsRight,
-  Menu,
-  Phone,
-  Undo2,
 } from 'lucide-react';
 import {
   DndContext,
@@ -39,8 +24,7 @@ import {
 import { useIsMobile } from '../hooks/use-mobile';
 import GuestContextMenu from '../components/GuestContextMenu';
 import TableSettingsModal from '../components/TableSettingsModal';
-import type { SmsAssignment, Reservation } from './RoomAssignment/types';
-import { formatGenderPeople, formatGuestSuffix } from './RoomAssignment/utils/reservationFormat';
+import type { Reservation } from './RoomAssignment/types';
 import { useConfirmDialog } from './RoomAssignment/hooks/useConfirmDialog';
 import { useSelectionSystem } from './RoomAssignment/hooks/useSelectionSystem';
 import { useCollapsibleBuildings } from './RoomAssignment/hooks/useCollapsibleBuildings';
@@ -69,9 +53,6 @@ import { useGuestMove } from './RoomAssignment/hooks/useGuestMove';
 import { PageHeader } from './RoomAssignment/components/PageHeader';
 import { SummaryCards } from './RoomAssignment/components/SummaryCards';
 import { CampaignToolbar } from './RoomAssignment/components/CampaignToolbar';
-import { RoomMemoEditor } from './RoomAssignment/components/RoomMemoEditor';
-import { SmsCell } from './RoomAssignment/components/SmsCell';
-import { InlineInput } from './RoomAssignment/components/InlineInput';
 import { ConfirmDialog } from './RoomAssignment/modals/ConfirmDialog';
 import { MultiNightConfirmModal } from './RoomAssignment/modals/MultiNightConfirmModal';
 import { AutoAssignConfirmModal } from './RoomAssignment/modals/AutoAssignConfirmModal';
@@ -81,13 +62,6 @@ import { SendConfirmModal } from './RoomAssignment/modals/SendConfirmModal';
 import { ReservationFormModal } from './RoomAssignment/modals/ReservationFormModal';
 import { ExtendStayConflictModal } from './RoomAssignment/modals/ExtendStayConflictModal';
 import { QuickMenuBar } from './RoomAssignment/components/QuickMenuBar';
-
-import {
-  PRESET_HIGHLIGHT_STYLES,
-  isCustomHexColor,
-  getCustomBgStyle,
-  getCustomTextClass,
-} from '@/lib/highlight-colors';
 
 // RoomMemoEditor 는 RoomAssignment/components/RoomMemoEditor.tsx 로 분리 (Phase 2).
 
@@ -113,7 +87,6 @@ const RoomAssignment = () => {
     reservations,
     sectionOverrides, setSectionOverrides,
     nextDayReservations,
-    rooms,
     templateLabels,
     roomGroups,
     loading,
@@ -467,8 +440,6 @@ const RoomAssignment = () => {
     colWidths,
     resizeGuideX,
     dateHeaderH,
-    effectiveNameWidth,
-    effectiveNameWidthNext,
     GUEST_COLS,
     NEXT_GUEST_COLS,
     NEXT_DAY_EXPANDED_WIDTH,
@@ -564,20 +535,6 @@ const RoomAssignment = () => {
       isUnstableCopy: isCopied,
       isAlreadyCopiedToUnstable: !!firstRes.unstable_party,
       hasRealUnstableBooking: !!firstRes.has_unstable_booking,
-      onMoveToPool: () => {
-        // DIAG_BLOCK_START
-        window.__diagAction = 'ctx_menu:move_to_pool';
-        // DIAG_BLOCK_END
-        targetIds.forEach((id) => handleDropOnPool(id));
-        setContextMenu(null);
-      },
-      onMoveToParty: () => {
-        // DIAG_BLOCK_START
-        window.__diagAction = 'ctx_menu:move_to_party';
-        // DIAG_BLOCK_END
-        targetIds.forEach((id) => handleDropOnParty(id));
-        setContextMenu(null);
-      },
       onDelete: () => {
         if (targetIds.length > 1) {
           const names = targetIds.map((id) => findReservation(id)?.res.customer_name?.trim() || '?').slice(0, 5);
@@ -708,7 +665,6 @@ const RoomAssignment = () => {
         const found = findReservation(targetIds[0]);
         const res = found?.res;
         const phone = res?.phone?.trim();
-        const name = res?.customer_name || '게스트';
         if (!phone) {
           toast.warning('연락처가 등록되지 않은 게스트입니다');
           setContextMenu(null);
@@ -729,23 +685,6 @@ const RoomAssignment = () => {
     templateLabels,
     onToggleConfirmRequest: (params) => setSendConfirm({ type: 'toggle', ...params }),
   });
-
-  const onZoneHover = useCallback((zoneId: string) => {
-    // 모바일은 hover 가 실제 사용자 의도가 아님 — 터치 후 합성 mouseenter 가 발화해
-    // "여기에 놓으세요" 가 잘못 표시되는 문제 방지.
-    if (isMobile) return;
-    if (selectedGuestIds.size === 0) return;
-    if (zoneId.startsWith('next-room-')) setHover({ type: 'next-room', roomId: Number(zoneId.replace('next-room-', '')) });
-    else if (zoneId.startsWith('room-')) setHover({ type: 'room', roomId: Number(zoneId.replace('room-', '')) });
-    else if (zoneId === 'next-pool') setHover({ type: 'next-pool' });
-    else if (zoneId === 'next-party') setHover({ type: 'next-party' });
-    else if (zoneId === 'pool') setHover({ type: 'pool' });
-    else if (zoneId === 'party') setHover({ type: 'party' });
-  }, [selectedGuestIds.size, isMobile, setHover]);
-
-  const onZoneLeave = useCallback(() => {
-    clearHover();
-  }, [clearHover]);
 
   // GuestRow 가 공유하는 props 묶음 — 7곳 호출처에 spread 로 전달
   const sharedRowProps = {
@@ -1349,8 +1288,6 @@ const RoomAssignment = () => {
           hasStayGroup={contextMenuActions.hasStayGroup}
           isUnstableCopy={contextMenuActions.isUnstableCopy}
           customColors={customHighlightColors}
-          onMoveToPool={contextMenuActions.onMoveToPool}
-          onMoveToParty={contextMenuActions.onMoveToParty}
           onDelete={contextMenuActions.onDelete}
           onLinkStayGroup={contextMenuActions.onLinkStayGroup}
           onUnlinkStayGroup={contextMenuActions.onUnlinkStayGroup}
