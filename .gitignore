@@ -54,3 +54,6 @@ temp/
 
 # OMC plugin state
 .omc/
+
+# Claude Code session lock files
+.claude/*.lock
