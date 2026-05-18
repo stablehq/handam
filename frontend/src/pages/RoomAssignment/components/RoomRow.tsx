@@ -97,8 +97,11 @@ export function RoomRow({
   const guestByBed = isDormitory ? mapBedSlots(guests, bed_capacity) : new Map<number, Reservation>();
   const nextByBed = isDormitory ? mapBedSlots(nextGuests, bed_capacity) : new Map<number, Reservation>();
 
-  // 도미토리는 항상 bed_capacity 만큼 행 표시 (비활성 시 1행), 비도미토리는 게스트 수만큼 (최소 1)
-  const totalRows = isDormitory ? (isActive ? bed_capacity : 1) : Math.max(1, guests.length);
+  // 도미토리: 활성이면 4행 하한 + 예약자 수만큼 확장 + bed_capacity 상한, 비활성은 1행.
+  // 비도미토리는 게스트 수만큼 (최소 1).
+  const totalRows = isDormitory
+    ? (isActive ? Math.min(bed_capacity, Math.max(4, guests.length)) : 1)
+    : Math.max(1, guests.length);
   const hasGuests = guests.length > 0;
   const rowHeight = hasGuests ? ROOM_ROW_HEIGHT : ROOM_ROW_HEIGHT_EMPTY;
   const stripeKey = groupInfo ? groupInfo.groupIndex : rowIndex;
