@@ -13,6 +13,7 @@ interface TenantState {
   tenants: Tenant[]
   currentTenantId: string | null
   loadTenants: () => Promise<void>
+  setCurrentTenantId: (tenantId: string) => void
 }
 
 const TENANT_KEY = 'sms-tenant-id'
@@ -20,6 +21,12 @@ const TENANT_KEY = 'sms-tenant-id'
 export const useTenantStore = create<TenantState>((set) => ({
   tenants: [],
   currentTenantId: localStorage.getItem(TENANT_KEY),
+
+  // store + localStorage 동시 갱신 — axios 인터셉터/queryKeys 의 localStorage 읽기와 일관성 보장
+  setCurrentTenantId: (tenantId: string) => {
+    localStorage.setItem(TENANT_KEY, tenantId)
+    set({ currentTenantId: tenantId })
+  },
 
   loadTenants: async () => {
     try {

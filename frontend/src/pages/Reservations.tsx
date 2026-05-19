@@ -15,6 +15,7 @@ import dayjs from 'dayjs';
 import { reservationsAPI, type ReservationCreatePayload } from '@/services/api';
 import { queryKeys } from '@/lib/queryKeys';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useTenantStore } from '@/stores/tenant-store';
 import { normalizeUtcString } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 
@@ -159,6 +160,8 @@ function getPageNumbers(current: number, total: number, maxVisible: number): Pag
 }
 
 export default function Reservations() {
+  // 테넌트 전환 시 컴포넌트 리렌더 보장 → queryKey 재생성 → cross-tenant 캐시 오염 방지
+  useTenantStore(s => s.currentTenantId);
   const isMobile = useIsMobile();
   const qc = useQueryClient();
 

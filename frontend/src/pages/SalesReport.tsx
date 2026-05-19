@@ -13,6 +13,7 @@ import { Table, TableHead, TableBody, TableRow, TableHeadCell, TableCell } from 
 
 import { salesReportAPI, partyHostsAPI } from '@/services/api';
 import { queryKeys } from '@/lib/queryKeys';
+import { useTenantStore } from '@/stores/tenant-store';
 import { normalizeUtcString } from '@/lib/utils';
 
 // 펼침 상세 행의 배경색 — 다크 모드 분기 포함 (인라인 style 로는 dark variant 불가)
@@ -118,6 +119,8 @@ export default function SalesReport() {
   const [dateFrom, setDateFrom] = useState(dayjs().startOf('month').format('YYYY-MM-DD'));
   const [dateTo, setDateTo] = useState(dayjs().format('YYYY-MM-DD'));
 
+  // 테넌트 전환 시 컴포넌트 리렌더 보장 → queryKey 재생성 → cross-tenant 캐시 오염 방지
+  useTenantStore(s => s.currentTenantId);
   const qc = useQueryClient();
   const [viewMode, setViewMode] = useState<ViewMode>('total');
 

@@ -4,6 +4,7 @@ import { Home, Plus, Pencil, Trash2, GripVertical, RefreshCw, Building2, ArrowUp
 import { toast } from 'sonner';
 import { roomsAPI, buildingsAPI } from '@/services/api';
 import { queryKeys } from '@/lib/queryKeys';
+import { useTenantStore } from '@/stores/tenant-store';
 
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { Table, TableHead, TableBody, TableRow, TableHeadCell, TableCell } from '@/components/ui/table';
@@ -110,6 +111,8 @@ const EMPTY_ROOM_FORM: RoomForm = {
 // ── Component ─────────────────────────────────────────
 
 const RoomSettings = () => {
+  // 테넌트 전환 시 컴포넌트 리렌더 보장 → queryKey 재생성 → cross-tenant 캐시 오염 방지
+  useTenantStore(s => s.currentTenantId);
   const qc = useQueryClient();
   // ── Rooms state ──
   const [dialogOpen, setDialogOpen] = useState(false);

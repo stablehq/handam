@@ -15,6 +15,7 @@ import {
 import { dashboardAPI } from '@/services/api'
 import { normalizeUtcString } from '../lib/utils'
 import { queryKeys } from '@/lib/queryKeys'
+import { useTenantStore } from '@/stores/tenant-store'
 
 const STATUS_LABELS: Record<string, string> = {
   pending: '대기중',
@@ -117,6 +118,9 @@ function GenderWeekly({ daily }: { daily: { date: string; male: number; female: 
 
 
 const Dashboard = () => {
+  // 테넌트 전환 시 컴포넌트 리렌더 보장 → queryKey 재생성 → cross-tenant 캐시 오염 방지
+  useTenantStore(s => s.currentTenantId)
+
   const statsQuery = useQuery<any>({
     queryKey: queryKeys.dashboard.stats(),
     queryFn: () => dashboardAPI.getStats().then(res => res.data),

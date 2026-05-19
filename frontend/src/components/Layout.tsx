@@ -5,6 +5,7 @@ import { useIsMobile } from '@/hooks/use-mobile'
 import { useClickOutside } from '@/hooks/use-click-outside'
 import { useAuthStore } from '@/stores/auth-store'
 import { useTenantStore } from '@/stores/tenant-store'
+import { useQueryClient } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -145,7 +146,8 @@ const ROLE_LABELS: Record<string, string> = {
 
 // ── Tenant Switcher (superadmin only) ──
 function TenantSwitcher({ collapsed = false }: { collapsed?: boolean }) {
-  const { tenants, currentTenantId } = useTenantStore()
+  const { tenants, currentTenantId, setCurrentTenantId } = useTenantStore()
+  const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLElement | null>(null)
   useClickOutside(ref, () => setOpen(false), open)
@@ -155,10 +157,15 @@ function TenantSwitcher({ collapsed = false }: { collapsed?: boolean }) {
   const current = tenants.find(t => String(t.id) === currentTenantId)
   const currentLabel = current?.slug === 'stable' ? '스테이블' : current?.slug === 'handam' ? '한담누리' : (current?.name || '선택')
 
-  const handleSelect = (tenantId: number) => {
-    localStorage.setItem('sms-tenant-id', String(tenantId))
+  // reload 제거 — SPA 라우터/form/모달 보존하며 부드럽게 전환.
+  // 1) cancelQueries: 전환 직전 발송된 옛 tenant 요청의 응답이 새 cache 에 저장되는 race 차단
+  // 2) clear: 모든 cache 삭제 → 다음 useQuery 호출 시 새 queryKey (새 tenant 포함) 로 fresh fetch
+  // 3) setCurrentTenantId: store + localStorage 동시 → 구독 컴포넌트 리렌더 → queryKey 재생성
+  const handleSelect = async (tenantId: number) => {
+    await qc.cancelQueries()
+    qc.clear()
+    setCurrentTenantId(String(tenantId))
     setOpen(false)
-    window.location.reload()
   }
 
   if (collapsed) {

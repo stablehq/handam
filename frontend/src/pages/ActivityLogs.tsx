@@ -25,6 +25,7 @@ import { activityLogsAPI } from '@/services/api'
 import { normalizeUtcString } from '../lib/utils'
 import { queryKeys } from '@/lib/queryKeys'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
+import { useTenantStore } from '@/stores/tenant-store'
 
 // ── Type helpers ──────────────────────────────────────────────
 
@@ -125,6 +126,8 @@ const DEFAULT_STATS: ActivityStats = {
 }
 
 const ActivityLogs = () => {
+  // 테넌트 전환 시 컴포넌트 리렌더 보장 → queryKey 재생성 → cross-tenant 캐시 오염 방지
+  useTenantStore(s => s.currentTenantId)
   const qc = useQueryClient()
   const [expandedId, setExpandedId] = useState<number | null>(null)
 
