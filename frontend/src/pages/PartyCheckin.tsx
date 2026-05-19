@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/queryKeys'
 import dayjs from 'dayjs'
 import { useTenantStore } from '@/stores/tenant-store'
 import { useAuthStore } from '@/stores/auth-store'
@@ -107,10 +109,8 @@ export default function PartyCheckin() {
   const [activeTab, setActiveTab] = useState<'checkin' | 'sales'>('checkin')
 
   // ── Checkin state ──
-  const [guests, setGuests] = useState<PartyGuest[]>([])
-  const [unstableGuests, setUnstableGuests] = useState<PartyGuest[]>([])
-  const [loading, setLoading] = useState(false)
-  const [toggling, setToggling] = useState<number | null>(null)
+  // guests / unstableGuests / loading / toggling 은 useQuery / useMutation 으로 대체
+  const qc = useQueryClient()
   const [cancelModal, setCancelModal] = useState<{ open: boolean; guest: PartyGuest | null }>({
     open: false,
     guest: null,
@@ -174,7 +174,9 @@ export default function PartyCheckin() {
       }
 
       resetAddModal()
-      fetchGuests(selectedDate)
+      qc.invalidateQueries({ queryKey: queryKeys.partyCheckin.guests(selectedDate, 'stable') })
+      qc.invalidateQueries({ queryKey: queryKeys.partyCheckin.guests(selectedDate, 'unstable') })
+      qc.invalidateQueries({ queryKey: queryKeys.reservations.all() })
       toast.success(`${trimmedName}님 추가됨`)
     } catch {
       toast.error('추가에 실패했습니다')
@@ -183,14 +185,13 @@ export default function PartyCheckin() {
   }
 
   // ── Sales state ──
-  const [sales, setSales] = useState<Sale[]>([])
-  const [salesLoading, setSalesLoading] = useState(false)
+  // sales / salesLoading 은 useQuery 로 대체
   const [newItemName, setNewItemName] = useState('')
   const [newAmount, setNewAmount] = useState('')
   const [newPaymentMethod, setNewPaymentMethod] = useState<PaymentMethod>('카드')
 
   // ── Host state ──
-  const [hosts, setHosts] = useState<HostItem[]>([])
+  // hosts 는 useQuery (partyHosts.list) 로 대체
   const [hostName, setHostName] = useState('')
 
   // ── Auction state ──
@@ -205,102 +206,135 @@ export default function PartyCheckin() {
 
   // ── 진행자 카드 통합 저장/수정 모드 ──
   const [cardEditing, setCardEditing] = useState(true)
-  const [cardSaving, setCardSaving] = useState(false)
+  // cardSaving 은 cardSaveMutation.isPending 으로 대체
 
   // ── Female invite state ──
-  const [invites, setInvites] = useState<InviteRow[]>([])
+  // invites 는 useQuery (partyCheckin.invites) 로 대체
   const [pendingInvites, setPendingInvites] = useState<{ tempId: number; host: string; count: string }[]>([])
   // 저장된 invite 행에 대한 편집 오버라이드 (id → {host, count} 문자열).
   // 편집 모드 진입 시 비어있고, 셀을 변경하면 entry 가 채워짐. 저장 시 원본과 비교해
   // 변경된 항목만 PATCH 호출.
   const [editedInvites, setEditedInvites] = useState<Record<number, { host: string; count: string }>>({})
-  const [inviteSaving, setInviteSaving] = useState(false)
+  // inviteSaving 은 inviteSaveMutation.isPending 으로 대체
   const [inviteEditing, setInviteEditing] = useState(true)
 
   // ── Fetch checkin guests ──
-  const fetchGuests = useCallback(async (date: string) => {
-    setLoading(true)
-    try {
-      const [stableRes, unstableRes] = await Promise.all([
-        partyCheckinAPI.getList(date, 'stable'),
-        hasUnstable ? partyCheckinAPI.getList(date, 'unstable') : Promise.resolve({ data: [] }),
-      ])
-      setGuests(stableRes.data)
-      setUnstableGuests(unstableRes.data)
-    } catch {
+  const guestsStableQuery = useQuery<PartyGuest[]>({
+    queryKey: queryKeys.partyCheckin.guests(selectedDate, 'stable'),
+    queryFn: () => partyCheckinAPI.getList(selectedDate, 'stable').then(r => r.data),
+    staleTime: 30_000,
+  })
+  const guestsUnstableQuery = useQuery<PartyGuest[]>({
+    queryKey: queryKeys.partyCheckin.guests(selectedDate, 'unstable'),
+    queryFn: () => partyCheckinAPI.getList(selectedDate, 'unstable').then(r => r.data),
+    staleTime: 30_000,
+    enabled: hasUnstable,
+  })
+  const guests = guestsStableQuery.data ?? []
+  const unstableGuests = guestsUnstableQuery.data ?? []
+  const loading = guestsStableQuery.isFetching || guestsUnstableQuery.isFetching
+
+  useEffect(() => {
+    if (guestsStableQuery.error || guestsUnstableQuery.error) {
       toast.error('파티 예약자 목록을 불러오지 못했습니다')
-    } finally {
-      setLoading(false)
     }
-  }, [hasUnstable])
+  }, [guestsStableQuery.error, guestsUnstableQuery.error])
+
+  // ── Sales tab queries (enabled: activeTab === 'sales') ──
+  const salesActive = activeTab === 'sales'
+
+  const salesQuery = useQuery<Sale[]>({
+    queryKey: queryKeys.partyCheckin.sales(selectedDate),
+    queryFn: () => onsiteSalesAPI.getList(selectedDate).then(r => r.data ?? []),
+    staleTime: 30_000,
+    enabled: salesActive,
+  })
+  const sales = salesQuery.data ?? []
+  const salesLoading = salesQuery.isFetching
+
+  const hostQuery = useQuery<any>({
+    queryKey: queryKeys.partyCheckin.host(selectedDate),
+    queryFn: () => dailyHostAPI.get(selectedDate).then(r => r.data),
+    staleTime: 30_000,
+    enabled: salesActive && canManageHost,
+  })
+  const auctionQuery = useQuery<any>({
+    queryKey: queryKeys.partyCheckin.auction(selectedDate),
+    queryFn: () => onsiteAuctionAPI.get(selectedDate).then(r => r.data),
+    staleTime: 30_000,
+    enabled: salesActive && canManageHost,
+  })
+  const reviewQuery = useQuery<any>({
+    queryKey: queryKeys.partyCheckin.review(selectedDate),
+    queryFn: () => dailyReviewAPI.get(selectedDate).then(r => r.data),
+    staleTime: 30_000,
+    enabled: salesActive && canManageHost,
+  })
+  const invitesQuery = useQuery<InviteRow[]>({
+    queryKey: queryKeys.partyCheckin.invites(selectedDate),
+    queryFn: () => onsiteFemaleInviteAPI.list(selectedDate).then(r => r.data ?? []),
+    staleTime: 30_000,
+    enabled: salesActive && canManageHost,
+  })
+  const invites = invitesQuery.data ?? []
+
+  // 기존 fetchSalesData 의 동기화 부수효과 — useEffect 로 분리.
+  // cardEditing 가드: 편집 중이면 form state 덮어쓰기 안 함 (입력 보호).
+  useEffect(() => {
+    if (!salesActive || !canManageHost) return
+    if (cardEditing) return  // 편집 중 보호
+    if (hostQuery.isFetching || auctionQuery.isFetching || reviewQuery.isFetching || invitesQuery.isFetching) return
+
+    const host = hostQuery.data
+    const fetchedHost = host?.host_username ?? ''
+    setHostName(fetchedHost)
+
+    const auc = auctionQuery.data
+    setAuction(auc)
+    if (auc) {
+      setAuctionItemName(auc.item_name)
+      setAuctionAmount(String(auc.final_amount))
+      setAuctionWinner(auc.winner_name)
+      setAuctionPaymentMethod((auc.payment_method as PaymentMethod) ?? '카드')
+    } else {
+      setAuctionItemName('')
+      setAuctionAmount('')
+      setAuctionWinner('')
+      setAuctionPaymentMethod('카드')
+    }
+
+    const rev = reviewQuery.data
+    setReviewCount(rev ? String(rev.count) : '')
+
+    // cardEditing 상태는 데이터 로드 직후 한 번만 결정 (위 가드로 이후 덮어쓰기 안 함)
+    setCardEditing(!fetchedHost && !auc && !rev)
+
+    const fetchedInvites = invitesQuery.data ?? []
+    const editingMode = fetchedInvites.length === 0
+    setInviteEditing(editingMode)
+    setPendingInvites(editingMode ? [{ tempId: Date.now() + Math.random(), host: '', count: '' }] : [])
+    setEditedInvites({})
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cardEditing 은 가드 용도 (deps 포함 시 무한 toggle)
+  }, [
+    salesActive, canManageHost, selectedDate,
+    hostQuery.data, auctionQuery.data, reviewQuery.data, invitesQuery.data,
+    hostQuery.isFetching, auctionQuery.isFetching, reviewQuery.isFetching, invitesQuery.isFetching,
+  ])
 
   useEffect(() => {
-    fetchGuests(selectedDate)
-  }, [selectedDate, fetchGuests])
-
-  // ── Fetch sales/host/auction/review/invites when sales tab active ──
-  const fetchSalesData = useCallback(async (date: string) => {
-    setSalesLoading(true)
-    try {
-      const [salesRes, hostRes, auctionRes, reviewRes, invitesRes] = await Promise.all([
-        onsiteSalesAPI.getList(date),
-        canManageHost ? dailyHostAPI.get(date) : Promise.resolve({ data: null }),
-        canManageHost ? onsiteAuctionAPI.get(date) : Promise.resolve({ data: null }),
-        canManageHost ? dailyReviewAPI.get(date) : Promise.resolve({ data: null }),
-        canManageHost ? onsiteFemaleInviteAPI.list(date) : Promise.resolve({ data: [] }),
-      ])
-      setSales(salesRes.data ?? [])
-
-      const host = hostRes.data
-      const fetchedHost = host?.host_username ?? ''
-      setHostName(fetchedHost)
-
-      const auc = auctionRes.data
-      setAuction(auc)
-      if (auc) {
-        setAuctionItemName(auc.item_name)
-        setAuctionAmount(String(auc.final_amount))
-        setAuctionWinner(auc.winner_name)
-        setAuctionPaymentMethod((auc.payment_method as PaymentMethod) ?? '카드')
-      } else {
-        setAuctionItemName('')
-        setAuctionAmount('')
-        setAuctionWinner('')
-        setAuctionPaymentMethod('카드')
-      }
-
-      const rev = reviewRes.data
-      setReviewCount(rev ? String(rev.count) : '')
-
-      // 카드: 어떤 데이터든 있으면 잠금
-      setCardEditing(!fetchedHost && !auc && !rev)
-
-      const fetchedInvites = invitesRes.data ?? []
-      setInvites(fetchedInvites)
-      const editingMode = fetchedInvites.length === 0
-      setInviteEditing(editingMode)
-      setPendingInvites(editingMode ? [{ tempId: Date.now() + Math.random(), host: '', count: '' }] : [])
-      setEditedInvites({})
-    } catch {
+    if (salesQuery.error || hostQuery.error || auctionQuery.error || reviewQuery.error || invitesQuery.error) {
       toast.error('매출 데이터를 불러오지 못했습니다')
-    } finally {
-      setSalesLoading(false)
     }
-  }, [canManageHost])
-
-  useEffect(() => {
-    if (activeTab === 'sales') {
-      fetchSalesData(selectedDate)
-    }
-  }, [activeTab, selectedDate, fetchSalesData])
+  }, [salesQuery.error, hostQuery.error, auctionQuery.error, reviewQuery.error, invitesQuery.error])
 
   // Fetch party hosts (admin/superadmin 전용)
-  useEffect(() => {
-    if (!canManageHost) return
-    partyHostsAPI.list()
-      .then((res) => setHosts(res.data ?? []))
-      .catch(() => {})
-  }, [canManageHost])
+  const partyHostsQuery = useQuery<HostItem[]>({
+    queryKey: queryKeys.partyHosts.list(),
+    queryFn: () => partyHostsAPI.list().then(r => r.data ?? []),
+    staleTime: 300_000,
+    enabled: canManageHost,
+  })
+  const hosts = partyHostsQuery.data ?? []
 
   // ── Checkin handlers ──
   const handleRowClick = (guest: PartyGuest) => {
@@ -312,32 +346,52 @@ export default function PartyCheckin() {
     }
   }
 
-  const doToggle = async (guest: PartyGuest) => {
-    setToggling(guest.id)
-    try {
-      const res = await partyCheckinAPI.toggle(guest.id, selectedDate)
-      const { checked_in, checked_in_at } = res.data
-      setGuests((prev) =>
-        prev.map((g) =>
-          g.id === guest.id ? { ...g, checked_in, checked_in_at } : g
+  const toggleMutation = useMutation({
+    mutationFn: (guestId: number) => partyCheckinAPI.toggle(guestId, selectedDate),
+    onMutate: async (guestId) => {
+      await qc.cancelQueries({ queryKey: queryKeys.partyCheckin.guests(selectedDate, 'stable') })
+      await qc.cancelQueries({ queryKey: queryKeys.partyCheckin.guests(selectedDate, 'unstable') })
+      const previousStable = qc.getQueryData<PartyGuest[]>(queryKeys.partyCheckin.guests(selectedDate, 'stable'))
+      const previousUnstable = qc.getQueryData<PartyGuest[]>(queryKeys.partyCheckin.guests(selectedDate, 'unstable'))
+      const toggleIn = (arr: PartyGuest[] | undefined) =>
+        arr?.map(g => g.id === guestId
+          ? { ...g, checked_in: !g.checked_in, checked_in_at: g.checked_in ? null : new Date().toISOString() }
+          : g
         )
-      )
-      if (checked_in) {
-        toast.success(`${guest.customer_name}님 입장 완료`)
-      } else {
-        toast.success(`${guest.customer_name}님 입장 취소`)
-      }
-    } catch {
+      qc.setQueryData<PartyGuest[]>(queryKeys.partyCheckin.guests(selectedDate, 'stable'), (prev) => toggleIn(prev) ?? prev)
+      qc.setQueryData<PartyGuest[]>(queryKeys.partyCheckin.guests(selectedDate, 'unstable'), (prev) => toggleIn(prev) ?? prev)
+      return { previousStable, previousUnstable }
+    },
+    onError: (_err, _guestId, ctx) => {
+      if (ctx?.previousStable !== undefined) qc.setQueryData(queryKeys.partyCheckin.guests(selectedDate, 'stable'), ctx.previousStable)
+      if (ctx?.previousUnstable !== undefined) qc.setQueryData(queryKeys.partyCheckin.guests(selectedDate, 'unstable'), ctx.previousUnstable)
       toast.error('처리 중 오류가 발생했습니다')
-    } finally {
-      setToggling(null)
-    }
+    },
+    onSuccess: (res, guestId) => {
+      // 서버 응답으로 정확한 값 sync (optimistic 추정과 일치 보장)
+      const { checked_in, checked_in_at } = res.data
+      const sync = (arr: PartyGuest[] | undefined) =>
+        arr?.map(g => g.id === guestId ? { ...g, checked_in, checked_in_at } : g)
+      qc.setQueryData<PartyGuest[]>(queryKeys.partyCheckin.guests(selectedDate, 'stable'), (prev) => sync(prev) ?? prev)
+      qc.setQueryData<PartyGuest[]>(queryKeys.partyCheckin.guests(selectedDate, 'unstable'), (prev) => sync(prev) ?? prev)
+    },
+  })
+  const toggling = toggleMutation.isPending ? (toggleMutation.variables as number) : null
+
+  const doToggle = (guest: PartyGuest) => {
+    toggleMutation.mutate(guest.id, {
+      onSuccess: (res) => {
+        const { checked_in } = res.data
+        toast.success(`${guest.customer_name}님 입장 ${checked_in ? '완료' : '취소'}`)
+      },
+    })
   }
 
-  const handleCancelConfirm = async () => {
+  const handleCancelConfirm = () => {
     if (!cancelModal.guest) return
+    const g = cancelModal.guest
     setCancelModal({ open: false, guest: null })
-    await doToggle(cancelModal.guest)
+    doToggle(g)
   }
 
   const allGuests = [...guests, ...unstableGuests]
@@ -346,66 +400,78 @@ export default function PartyCheckin() {
   const notCheckedInPeople = totalPeople - checkedInPeople
 
   // ── Sales handlers ──
-  async function handleAddSale() {
+  const addSaleMutation = useMutation({
+    mutationFn: (vars: { item_name: string; amount: number; payment_method: PaymentMethod }) =>
+      onsiteSalesAPI.create({ date: selectedDate, ...vars }),
+    onSuccess: () => {
+      setNewItemName(''); setNewAmount(''); setNewPaymentMethod('카드')
+      toast.success('판매 기록이 추가되었습니다')
+      qc.invalidateQueries({ queryKey: queryKeys.partyCheckin.sales(selectedDate) })
+      qc.invalidateQueries({ queryKey: queryKeys.salesReport.all() })
+    },
+    onError: () => toast.error('판매 기록 추가에 실패했습니다'),
+  })
+
+  function handleAddSale() {
     if (!newItemName.trim()) { toast.error('품명을 입력해주세요'); return }
     if (!newAmount || Number(newAmount) <= 0) { toast.error('금액을 입력해주세요'); return }
-    try {
-      const res = await onsiteSalesAPI.create({ date: selectedDate, item_name: newItemName.trim(), amount: Number(newAmount), payment_method: newPaymentMethod })
-      setSales(prev => [res.data, ...prev])
-      setNewItemName('')
-      setNewAmount('')
-      setNewPaymentMethod('카드')
-      toast.success('판매 기록이 추가되었습니다')
-    } catch { toast.error('판매 기록 추가에 실패했습니다') }
+    addSaleMutation.mutate({ item_name: newItemName.trim(), amount: Number(newAmount), payment_method: newPaymentMethod })
   }
 
   const [deleteModal, setDeleteModal] = useState<{ open: boolean; id: number | null; name: string }>({ open: false, id: null, name: '' })
 
-  async function confirmDeleteSale() {
-    if (!deleteModal.id) return
-    try {
-      await onsiteSalesAPI.delete(deleteModal.id)
-      setSales(prev => prev.filter(s => s.id !== deleteModal.id))
+  const deleteSaleMutation = useMutation({
+    mutationFn: (id: number) => onsiteSalesAPI.delete(id),
+    onSuccess: () => {
       toast.success('판매 기록이 삭제되었습니다')
-    } catch { toast.error('삭제에 실패했습니다') }
-    finally { setDeleteModal({ open: false, id: null, name: '' }) }
+      qc.invalidateQueries({ queryKey: queryKeys.partyCheckin.sales(selectedDate) })
+      qc.invalidateQueries({ queryKey: queryKeys.salesReport.all() })
+    },
+    onError: () => toast.error('삭제에 실패했습니다'),
+    onSettled: () => setDeleteModal({ open: false, id: null, name: '' }),
+  })
+
+  function confirmDeleteSale() {
+    if (!deleteModal.id) return
+    deleteSaleMutation.mutate(deleteModal.id)
   }
 
   const salesTotalAmount = sales.reduce((sum, s) => sum + s.amount, 0)
 
   // ── 진행자 카드 통합 저장 (진행자 + 리뷰수 + 경매액) ──
-  async function handleCardSave() {
-    if (!hostName) { toast.error('진행자를 선택해주세요'); return }
-    setCardSaving(true)
-    try {
+  const cardSaveMutation = useMutation({
+    mutationFn: async () => {
       const promises: Promise<unknown>[] = []
-
       promises.push(dailyHostAPI.upsert({ date: selectedDate, host_username: hostName }))
-
       if (reviewCount !== '' && !isNaN(Number(reviewCount)) && Number(reviewCount) >= 0) {
         promises.push(dailyReviewAPI.upsert({ date: selectedDate, count: Number(reviewCount) }))
       }
-
       if (auctionAmount !== '' && !isNaN(Number(auctionAmount)) && Number(auctionAmount) >= 0) {
-        promises.push(
-          onsiteAuctionAPI.upsert({
-            date: selectedDate,
-            item_name: auctionItemName.trim() || '경매',
-            final_amount: Number(auctionAmount),
-            winner_name: auctionWinner.trim() || '-',
-            payment_method: auctionPaymentMethod,
-          }).then((res) => { setAuction(res.data) })
-        )
+        promises.push(onsiteAuctionAPI.upsert({
+          date: selectedDate,
+          item_name: auctionItemName.trim() || '경매',
+          final_amount: Number(auctionAmount),
+          winner_name: auctionWinner.trim() || '-',
+          payment_method: auctionPaymentMethod,
+        }))
       }
-
       await Promise.all(promises)
+    },
+    onSuccess: () => {
       setCardEditing(false)
       toast.success('저장되었습니다')
-    } catch {
-      toast.error('저장에 실패했습니다')
-    } finally {
-      setCardSaving(false)
-    }
+      qc.invalidateQueries({ queryKey: queryKeys.partyCheckin.host(selectedDate) })
+      qc.invalidateQueries({ queryKey: queryKeys.partyCheckin.auction(selectedDate) })
+      qc.invalidateQueries({ queryKey: queryKeys.partyCheckin.review(selectedDate) })
+      qc.invalidateQueries({ queryKey: queryKeys.salesReport.all() })
+    },
+    onError: () => toast.error('저장에 실패했습니다'),
+  })
+  const cardSaving = cardSaveMutation.isPending
+
+  function handleCardSave() {
+    if (!hostName) { toast.error('진행자를 선택해주세요'); return }
+    cardSaveMutation.mutate()
   }
 
   // ── Female invite handlers ──
@@ -463,32 +529,35 @@ export default function PartyCheckin() {
       return
     }
 
-    setInviteSaving(true)
-    try {
+    inviteSaveMutation.mutate({ pendingToSave, edits })
+  }
+
+  const inviteSaveMutation = useMutation({
+    mutationFn: async (vars: { pendingToSave: { host: string; count: string }[]; edits: { id: number; host: string; count: string }[] }) => {
       await Promise.all([
-        ...pendingToSave.map(p =>
+        ...vars.pendingToSave.map(p =>
           onsiteFemaleInviteAPI.add({ date: selectedDate, host_username: p.host, count: Number(p.count) })
         ),
-        ...edits.map(e =>
+        ...vars.edits.map(e =>
           onsiteFemaleInviteAPI.update(e.id, { host_username: e.host, count: Number(e.count) })
         ),
       ])
-      const res = await onsiteFemaleInviteAPI.list(selectedDate)
-      setInvites(res.data ?? [])
+    },
+    onSuccess: () => {
       setPendingInvites([])
       setEditedInvites({})
       setInviteEditing(false)
       toast.success('저장되었습니다')
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail ?? '저장에 실패했습니다')
-    }
-    finally { setInviteSaving(false) }
-  }
+      qc.invalidateQueries({ queryKey: queryKeys.partyCheckin.invites(selectedDate) })
+      qc.invalidateQueries({ queryKey: queryKeys.salesReport.all() })
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.detail ?? '저장에 실패했습니다'),
+  })
+  const inviteSaving = inviteSaveMutation.isPending
 
-  async function handleInviteDelete(id: number) {
-    try {
-      await onsiteFemaleInviteAPI.delete(id)
-      setInvites(prev => prev.filter(i => i.id !== id))
+  const inviteDeleteMutation = useMutation({
+    mutationFn: (id: number) => onsiteFemaleInviteAPI.delete(id),
+    onSuccess: (_, id) => {
       setEditedInvites(prev => {
         if (!(id in prev)) return prev
         const next = { ...prev }
@@ -496,7 +565,14 @@ export default function PartyCheckin() {
         return next
       })
       toast.success('삭제되었습니다')
-    } catch { toast.error('삭제에 실패했습니다') }
+      qc.invalidateQueries({ queryKey: queryKeys.partyCheckin.invites(selectedDate) })
+      qc.invalidateQueries({ queryKey: queryKeys.salesReport.all() })
+    },
+    onError: () => toast.error('삭제에 실패했습니다'),
+  })
+
+  function handleInviteDelete(id: number) {
+    inviteDeleteMutation.mutate(id)
   }
 
 
