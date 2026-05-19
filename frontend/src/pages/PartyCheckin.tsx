@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryKeys'
 import dayjs from 'dayjs'
@@ -279,11 +279,19 @@ export default function PartyCheckin() {
   const invites = invitesQuery.data ?? []
 
   // 기존 fetchSalesData 의 동기화 부수효과 — useEffect 로 분리.
-  // cardEditing 가드: 편집 중이면 form state 덮어쓰기 안 함 (입력 보호).
+  // initializedDateRef: "현재 selectedDate 에 대해 form 을 초기화한 적 있는가" 추적.
+  //   - 같은 날짜 + 편집 중이면 보호 (입력 손실 방지)
+  //   - 날짜 변경 또는 첫 진입이면 무조건 sync (cardEditing/inviteEditing 가드 무시)
+  // cardEditing/inviteEditing 초기값 true 라도 ref 가 null 이면 첫 sync 실행됨.
+  const initializedDateRef = useRef<string | null>(null)
+
   useEffect(() => {
     if (!salesActive || !canManageHost) return
-    if (cardEditing) return  // 편집 중 보호
     if (hostQuery.isFetching || auctionQuery.isFetching || reviewQuery.isFetching || invitesQuery.isFetching) return
+
+    // 같은 날짜 + 편집 중이면 보호 (사용자 입력 손실 방지)
+    const sameDate = initializedDateRef.current === selectedDate
+    if (sameDate && (cardEditing || inviteEditing)) return
 
     const host = hostQuery.data
     const fetchedHost = host?.host_username ?? ''
@@ -306,7 +314,6 @@ export default function PartyCheckin() {
     const rev = reviewQuery.data
     setReviewCount(rev ? String(rev.count) : '')
 
-    // cardEditing 상태는 데이터 로드 직후 한 번만 결정 (위 가드로 이후 덮어쓰기 안 함)
     setCardEditing(!fetchedHost && !auc && !rev)
 
     const fetchedInvites = invitesQuery.data ?? []
@@ -314,7 +321,9 @@ export default function PartyCheckin() {
     setInviteEditing(editingMode)
     setPendingInvites(editingMode ? [{ tempId: Date.now() + Math.random(), host: '', count: '' }] : [])
     setEditedInvites({})
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- cardEditing 은 가드 용도 (deps 포함 시 무한 toggle)
+
+    initializedDateRef.current = selectedDate
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cardEditing/inviteEditing 은 ref 가드 용도 (deps 포함 시 무한 toggle)
   }, [
     salesActive, canManageHost, selectedDate,
     hostQuery.data, auctionQuery.data, reviewQuery.data, invitesQuery.data,
