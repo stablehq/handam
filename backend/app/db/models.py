@@ -611,5 +611,6 @@ for _model in [
     RoomBizItemLink, Building, RoomGroup, Room, RoomAssignment,
     NaverBizItem, TemplateSchedule, ActivityLog, PartyCheckin, ReservationDailyInfo,
     ParticipantSnapshot, OnsiteSale, DailyHost, OnsiteAuction, PartyHost,
+    DailyReviewCount, OnsiteFemaleInvite,
 ]:
     _register(_model)
