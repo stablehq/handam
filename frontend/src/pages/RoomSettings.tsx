@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback, DragEvent } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Home, Plus, Pencil, Trash2, GripVertical, RefreshCw, Building2, ArrowUpDown, Settings, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { roomsAPI, buildingsAPI } from '@/services/api';
+import { queryKeys } from '@/lib/queryKeys';
 
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { Table, TableHead, TableBody, TableRow, TableHeadCell, TableCell } from '@/components/ui/table';
@@ -108,19 +110,14 @@ const EMPTY_ROOM_FORM: RoomForm = {
 // ── Component ─────────────────────────────────────────
 
 const RoomSettings = () => {
+  const qc = useQueryClient();
   // ── Rooms state ──
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<RoomForm>(EMPTY_ROOM_FORM);
-  const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Room | null>(null);
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
-  const [bizItems, setBizItems] = useState<NaverBizItem[]>([]);
   // ── Buildings state ──
-  const [buildings, setBuildings] = useState<Building[]>([]);
-  const [buildingsLoading, setBuildingsLoading] = useState(false);
   const [buildingManageOpen, setBuildingManageOpen] = useState(false);
   const [buildingRows, setBuildingRows] = useState<BuildingEditRow[]>([]);
   const [buildingHistory, setBuildingHistory] = useState<BuildingEditRow[][]>([]);
@@ -154,46 +151,45 @@ const RoomSettings = () => {
   const [roomGradeEdits, setRoomGradeEdits] = useState<Record<number, number>>({});
   const [roomGradeSaving, setRoomGradeSaving] = useState(false);
 
-  // ── Init ──
+  // ── React Query: 3 데이터 로드 ──
+  const roomsQuery = useQuery<Room[]>({
+    queryKey: queryKeys.rooms.listWithInactive(),
+    queryFn: () => roomsAPI.getAll({ include_inactive: true }).then(r => r.data),
+    staleTime: 300_000,
+  });
+  const rooms = roomsQuery.data ?? [];
+  const loading = roomsQuery.isFetching;
+
+  const bizItemsQuery = useQuery<NaverBizItem[]>({
+    queryKey: queryKeys.rooms.bizItems(),
+    queryFn: () => roomsAPI.getBizItems().then(r => r.data),
+    staleTime: 300_000,
+  });
+  const bizItems = bizItemsQuery.data ?? [];
+
+  const buildingsQuery = useQuery<Building[]>({
+    queryKey: queryKeys.buildings.list(),
+    queryFn: () => buildingsAPI.getAll().then(r => r.data),
+    staleTime: 300_000,
+  });
+  const buildings = buildingsQuery.data ?? [];
+  const buildingsLoading = buildingsQuery.isFetching;
+
+  // ── Error logging — Step #2 패턴 ──
   useEffect(() => {
-    loadRooms();
-    loadBizItems();
-    loadBuildings();
-  }, []);
+    if (roomsQuery.error) { console.error('rooms load:', roomsQuery.error); toast.error('객실 목록 로드 실패'); }
+  }, [roomsQuery.error]);
+  useEffect(() => {
+    if (buildingsQuery.error) { console.error('buildings load:', buildingsQuery.error); toast.error('건물 목록 로드 실패'); }
+  }, [buildingsQuery.error]);
+  useEffect(() => {
+    if (bizItemsQuery.error) console.error('bizItems load:', bizItemsQuery.error);
+  }, [bizItemsQuery.error]);
 
-  // ── Loaders ──
-  const loadRooms = async () => {
-    setLoading(true);
-    try {
-      const res = await roomsAPI.getAll({ include_inactive: true });
-      setRooms(res.data);
-    } catch {
-      toast.error('객실 목록 로드 실패');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadBizItems = async () => {
-    try {
-      const res = await roomsAPI.getBizItems();
-      setBizItems(res.data);
-    } catch {
-      // silently fail - biz items are optional
-    }
-  };
-
-  const loadBuildings = async () => {
-    setBuildingsLoading(true);
-    try {
-      const res = await buildingsAPI.getAll();
-      setBuildings(res.data);
-    } catch {
-      toast.error('건물 목록 로드 실패');
-    } finally {
-      setBuildingsLoading(false);
-    }
-  };
+  // ── Step #6b 머지 시 제거할 helper (모달 함수의 loadRooms/loadBuildings/loadBizItems 호환) ──
+  const loadRooms = () => qc.invalidateQueries({ queryKey: queryKeys.rooms.all() });
+  const loadBuildings = () => qc.invalidateQueries({ queryKey: queryKeys.buildings.list() });
+  const loadBizItems = () => qc.invalidateQueries({ queryKey: queryKeys.rooms.bizItems() });
 
 
   // ── Biz item settings modal ──
@@ -360,55 +356,53 @@ const RoomSettings = () => {
   };
 
 
-  const handleSubmit = async () => {
+  const saveRoomMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number | null; payload: any }) =>
+      id != null ? roomsAPI.update(id, payload) : roomsAPI.create(payload),
+    onSuccess: (res, vars) => {
+      toast.success(vars.id != null ? '수정 완료' : '추가 완료');
+      if (vars.id != null && res?.data?.warning) toast.warning(res.data.warning, { duration: 10000 });
+      setDialogOpen(false);
+      qc.invalidateQueries({ queryKey: queryKeys.rooms.all() });
+      qc.invalidateQueries({ queryKey: queryKeys.buildings.list() });
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.detail || '저장 실패'),
+  });
+
+  const deleteRoomMutation = useMutation({
+    mutationFn: (id: number) => roomsAPI.delete(id),
+    onSuccess: () => {
+      toast.success('삭제 완료');
+      qc.invalidateQueries({ queryKey: queryKeys.rooms.all() });
+      qc.invalidateQueries({ queryKey: queryKeys.buildings.list() });
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.detail || '삭제 실패'),
+    onSettled: () => setDeleteTarget(null),
+  });
+
+  const saving = saveRoomMutation.isPending;
+
+  const handleSubmit = () => {
     if (!form.room_number.trim() || !form.room_type.trim()) {
       toast.error('객실 번호와 타입은 필수입니다');
       return;
     }
-    setSaving(true);
-    try {
-      // Build biz_item_links with priority for API
-      const { biz_item_ids, biz_item_priorities, ...rest } = form;
-      const payload = {
-        ...rest,
-        biz_item_links: biz_item_ids.map((id) => ({
-          biz_item_id: id,
-          male_priority: biz_item_priorities[id]?.male_priority ?? 0,
-          female_priority: biz_item_priorities[id]?.female_priority ?? 0,
-        })),
-      };
-      if (editingId !== null) {
-        const res = await roomsAPI.update(editingId, payload);
-        toast.success('수정 완료');
-        if (res?.data?.warning) {
-          toast.warning(res.data.warning, { duration: 10000 });
-        }
-      } else {
-        await roomsAPI.create(payload);
-        toast.success('추가 완료');
-      }
-      setDialogOpen(false);
-      loadRooms();
-      loadBuildings();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || '저장 실패');
-    } finally {
-      setSaving(false);
-    }
+    // Build biz_item_links with priority for API
+    const { biz_item_ids, biz_item_priorities, ...rest } = form;
+    const payload = {
+      ...rest,
+      biz_item_links: biz_item_ids.map((id) => ({
+        biz_item_id: id,
+        male_priority: biz_item_priorities[id]?.male_priority ?? 0,
+        female_priority: biz_item_priorities[id]?.female_priority ?? 0,
+      })),
+    };
+    saveRoomMutation.mutate({ id: editingId, payload });
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = () => {
     if (!deleteTarget) return;
-    try {
-      await roomsAPI.delete(deleteTarget.id);
-      toast.success('삭제 완료');
-      loadRooms();
-      loadBuildings();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || '삭제 실패');
-    } finally {
-      setDeleteTarget(null);
-    }
+    deleteRoomMutation.mutate(deleteTarget.id);
   };
 
   // ── Building manage modal helpers ──
@@ -591,7 +585,28 @@ const RoomSettings = () => {
     e.dataTransfer.dropEffect = 'move';
   };
 
-  const onDrop = async (e: DragEvent, targetIndex: number) => {
+  // Optimistic reorder mutation — RoomAssignment 의 모범사례 패턴
+  const reorderRoomsMutation = useMutation({
+    mutationFn: (newOrder: number[]) => roomsAPI.reorder(newOrder),
+    onMutate: async (newOrder) => {
+      await qc.cancelQueries({ queryKey: queryKeys.rooms.listWithInactive() });
+      const previous = qc.getQueryData<Room[]>(queryKeys.rooms.listWithInactive());
+      qc.setQueryData<Room[]>(queryKeys.rooms.listWithInactive(), (prev) => {
+        if (!prev) return prev;
+        const map = new Map(prev.map(r => [r.id, r]));
+        return newOrder.map(id => map.get(id)).filter(Boolean) as Room[];
+      });
+      return { previous };
+    },
+    onError: (err: any, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(queryKeys.rooms.listWithInactive(), ctx.previous);
+      toast.error(err?.response?.data?.detail || '정렬 순서 변경 실패');
+    },
+    onSuccess: () => toast.success('정렬 순서 변경 완료'),
+    onSettled: () => qc.invalidateQueries({ queryKey: queryKeys.rooms.all() }),
+  });
+
+  const onDrop = (e: DragEvent, targetIndex: number) => {
     e.preventDefault();
     setDraggingIndex(null);
 
@@ -601,17 +616,7 @@ const RoomSettings = () => {
     const newRooms = [...rooms];
     const [moved] = newRooms.splice(sourceIndex, 1);
     newRooms.splice(targetIndex, 0, moved);
-    setRooms(newRooms);
-
-    try {
-      // N개 PUT 병렬 → reorder 1회 호출 (트랜잭션 보장 + 동시 race 차단).
-      await roomsAPI.reorder(newRooms.map((room) => room.id));
-      toast.success('정렬 순서 변경 완료');
-      loadRooms();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || '정렬 순서 변경 실패');
-      loadRooms();  // 실패 시 서버 상태로 되돌림
-    }
+    reorderRoomsMutation.mutate(newRooms.map(r => r.id));
   };
 
   // ── Render ──
