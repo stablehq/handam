@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   RefreshCw,
   Plus,
@@ -12,6 +13,8 @@ import { toast } from 'sonner';
 import dayjs from 'dayjs';
 
 import { reservationsAPI, type ReservationCreatePayload } from '@/services/api';
+import { queryKeys } from '@/lib/queryKeys';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { normalizeUtcString } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 
@@ -157,15 +160,14 @@ function getPageNumbers(current: number, total: number, maxVisible: number): Pag
 
 export default function Reservations() {
   const isMobile = useIsMobile();
-  const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [loading, setLoading]           = useState(false);
-  const [syncing, setSyncing]           = useState(false);
+  const qc = useQueryClient();
 
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo,   setFilterDateTo]   = useState('');
   const [filterStatus, setFilterStatus] = useState<string[]>([]);
   const [filterSource, setFilterSource] = useState<string[]>([]);
   const [searchQuery,  setSearchQuery]  = useState('');
+  const debouncedSearch = useDebouncedValue(searchQuery, 300);
 
   function toggleFilter(current: string[], value: string, setter: (v: string[]) => void) {
     if (value === 'all') {
@@ -180,72 +182,77 @@ export default function Reservations() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [saving,    setSaving]    = useState(false);
   const [form,      setForm]      = useState<FormState>(EMPTY_FORM);
 
   const [deleteId,  setDeleteId]  = useState<number | null>(null);
-  const [deleting,  setDeleting]  = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
   const PAGE_SIZE = 50;
 
+  // 필터/검색 변경 시 page 1 reset (기존 prevFiltersRef 패턴 단순화 — React setState 동일값 가드로 동등)
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterDateFrom, filterDateTo, filterStatus, filterSource, debouncedSearch]);
 
-  async function fetchReservations(page = currentPage) {
-    setLoading(true);
-    try {
-      const params: { skip?: number; limit?: number; date?: string; status?: string; source?: string; search?: string } = {
-        skip: (page - 1) * PAGE_SIZE,
+  const reservationsQuery = useQuery({
+    queryKey: queryKeys.reservations.filtered({
+      page: currentPage,
+      pageSize: PAGE_SIZE,
+      status: filterStatus.length > 0 ? filterStatus.join(',') : undefined,
+      source: filterSource.length > 0 ? filterSource.join(',') : undefined,
+      search: debouncedSearch.trim() || undefined,
+      dateFrom: filterDateFrom || undefined,
+      dateTo: filterDateTo || undefined,
+    }),
+    queryFn: async () => {
+      const params: Record<string, any> = {
+        skip: (currentPage - 1) * PAGE_SIZE,
         limit: PAGE_SIZE,
       };
-      if (filterDateFrom) (params as any).date_from = filterDateFrom;
-      if (filterDateTo) (params as any).date_to = filterDateTo;
+      if (filterDateFrom) params.date_from = filterDateFrom;
+      if (filterDateTo) params.date_to = filterDateTo;
       if (filterStatus.length > 0) params.status = filterStatus.join(',');
       if (filterSource.length > 0) params.source = filterSource.join(',');
-      if (searchQuery.trim()) params.search = searchQuery.trim();
+      if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
       const res = await reservationsAPI.getAll(params);
       const data = res.data;
-      setReservations(data.items ?? data ?? []);
-      setTotalCount(data.total ?? 0);
-    } catch {
-      toast.error('예약 목록을 불러오지 못했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  }
+      return {
+        items: (data.items ?? data ?? []) as Reservation[],
+        total: data.total ?? 0,
+      };
+    },
+    staleTime: 30_000,
+  });
 
-
-  // Reset to page 1 when filters change (no fetch here — page effect handles it)
-  const prevFiltersRef = useRef({ filterDateFrom, filterDateTo, filterStatus, filterSource, searchQuery });
-  useEffect(() => {
-    const prev = prevFiltersRef.current;
-    const changed = prev.filterDateFrom !== filterDateFrom || prev.filterDateTo !== filterDateTo || prev.filterStatus !== filterStatus || prev.filterSource !== filterSource || prev.searchQuery !== searchQuery;
-    prevFiltersRef.current = { filterDateFrom, filterDateTo, filterStatus, filterSource, searchQuery };
-    if (changed) setCurrentPage(1);
-  }, [filterDateFrom, filterDateTo, filterStatus, filterSource, searchQuery]);
-
-  // Single fetch effect — fires on page or filter change
-  useEffect(() => {
-    fetchReservations(currentPage);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, filterDateFrom, filterDateTo, filterStatus, filterSource, searchQuery]);
-
+  const reservations = reservationsQuery.data?.items ?? [];
+  const totalCount = reservationsQuery.data?.total ?? 0;
+  const loading = reservationsQuery.isFetching;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  async function handleSync() {
-    setSyncing(true);
-    try {
-      const res = await reservationsAPI.syncNaver();
+  useEffect(() => {
+    if (reservationsQuery.error) {
+      console.error('Failed to load reservations:', reservationsQuery.error);
+      toast.error('예약 목록을 불러오지 못했습니다.');
+    }
+  }, [reservationsQuery.error]);
+
+  // 모든 mutation 후 reservations.all() invalidate → RoomAssignment 의 list(date) 도 prefix 매칭으로 같이 무효화
+  const invalidateAllReservations = () =>
+    qc.invalidateQueries({ queryKey: queryKeys.reservations.all() });
+
+  const syncMutation = useMutation({
+    mutationFn: () => reservationsAPI.syncNaver(),
+    onSuccess: (res) => {
       const added = res.data?.added ?? 0;
       const updated = res.data?.updated ?? 0;
       toast.success(`네이버 동기화 완료 — ${added}건 추가, ${updated}건 갱신`);
-      fetchReservations();
-    } catch {
-      toast.error('네이버 동기화에 실패했습니다.');
-    } finally {
-      setSyncing(false);
-    }
-  }
+      invalidateAllReservations();
+    },
+    onError: () => toast.error('네이버 동기화에 실패했습니다.'),
+  });
+
+  const handleSync = () => syncMutation.mutate();
+  const syncing = syncMutation.isPending;
 
   function openCreate() {
     setEditingId(null);
@@ -290,65 +297,63 @@ export default function Reservations() {
     }
   }
 
-  async function handleSave() {
+  const saveMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number | null; payload: ReservationCreatePayload }) =>
+      id != null ? reservationsAPI.update(id, payload) : reservationsAPI.create(payload),
+    onSuccess: (_, vars) => {
+      toast.success(vars.id != null ? '예약이 수정되었습니다.' : '예약이 등록되었습니다.');
+      setModalOpen(false);
+      invalidateAllReservations();
+    },
+    onError: () => toast.error('저장에 실패했습니다.'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => reservationsAPI.delete(id),
+    onSuccess: () => {
+      toast.success('예약이 삭제되었습니다.');
+      setDeleteId(null);
+      invalidateAllReservations();
+    },
+    onError: () => toast.error('삭제에 실패했습니다.'),
+  });
+
+  const saving = saveMutation.isPending;
+  const deleting = deleteMutation.isPending;
+
+  function handleSave() {
     if (!form.customer_name.trim()) { toast.error('예약자 이름을 입력하세요.'); return; }
     if (!form.phone.trim())          { toast.error('전화번호를 입력하세요.');    return; }
     if (!form.reservation_date)      { toast.error('예약 날짜를 선택하세요.');   return; }
 
-    setSaving(true);
-    try {
-      // Map male_count/female_count to gender + party_size
-      const maleCount = form.male_count ? Number(form.male_count) : 0;
-      const femaleCount = form.female_count ? Number(form.female_count) : 0;
-      const genderParts: string[] = [];
-      if (maleCount > 0) genderParts.push(`남${maleCount}`);
-      if (femaleCount > 0) genderParts.push(`여${femaleCount}`);
+    // Map male_count/female_count to gender + party_size
+    const maleCount = form.male_count ? Number(form.male_count) : 0;
+    const femaleCount = form.female_count ? Number(form.female_count) : 0;
+    const genderParts: string[] = [];
+    if (maleCount > 0) genderParts.push(`남${maleCount}`);
+    if (femaleCount > 0) genderParts.push(`여${femaleCount}`);
 
-      const payload: ReservationCreatePayload = {
-        customer_name:      form.customer_name.trim(),
-        phone:              form.phone.trim(),
-        check_in_date:      form.reservation_date,
-        check_in_time:      '00:00',
-        check_out_date:     dayjs(form.reservation_date).add(1, 'day').format('YYYY-MM-DD'),
-        status:             form.status,
-        party_size: (maleCount + femaleCount) || null,
-        gender:             genderParts.join('') || null,
-        male_count:         maleCount || null,
-        female_count:       femaleCount || null,
-        notes:              form.notes.trim() || null,
-        booking_source:     'manual',
-      };
+    const payload: ReservationCreatePayload = {
+      customer_name:      form.customer_name.trim(),
+      phone:              form.phone.trim(),
+      check_in_date:      form.reservation_date,
+      check_in_time:      '00:00',
+      check_out_date:     dayjs(form.reservation_date).add(1, 'day').format('YYYY-MM-DD'),
+      status:             form.status,
+      party_size: (maleCount + femaleCount) || null,
+      gender:             genderParts.join('') || null,
+      male_count:         maleCount || null,
+      female_count:       femaleCount || null,
+      notes:              form.notes.trim() || null,
+      booking_source:     'manual',
+    };
 
-      if (editingId != null) {
-        await reservationsAPI.update(editingId, payload);
-        toast.success('예약이 수정되었습니다.');
-      } else {
-        await reservationsAPI.create(payload);
-        toast.success('예약이 등록되었습니다.');
-      }
-      setModalOpen(false);
-      fetchReservations();
-
-    } catch {
-      toast.error('저장에 실패했습니다.');
-    } finally {
-      setSaving(false);
-    }
+    saveMutation.mutate({ id: editingId, payload });
   }
 
-  async function handleDelete() {
+  function handleDelete() {
     if (deleteId == null) return;
-    setDeleting(true);
-    try {
-      await reservationsAPI.delete(deleteId);
-      toast.success('예약이 삭제되었습니다.');
-      setDeleteId(null);
-      fetchReservations();
-    } catch {
-      toast.error('삭제에 실패했습니다.');
-    } finally {
-      setDeleting(false);
-    }
+    deleteMutation.mutate(deleteId);
   }
 
   function clearFilters() {
