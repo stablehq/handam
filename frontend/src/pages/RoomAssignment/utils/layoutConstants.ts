@@ -10,4 +10,4 @@
 export const ROOM_ROW_HEIGHT = 36;
 
 /** 빈 행 (게스트 없음 / 빈 도미토리 슬롯) 높이 (px). */
-export const ROOM_ROW_HEIGHT_EMPTY = 30;
+export const ROOM_ROW_HEIGHT_EMPTY = 33;
