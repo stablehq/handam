@@ -24,6 +24,8 @@ export interface ActivityLogFilters {
   status?: string;
   date?: string;
   q?: string;
+  page?: number;       // pagination 도 캐시 key 에 포함 (페이지 전환 시 자동 fetch + 재방문 캐시 hit)
+  pageSize?: number;   // PAGE_SIZE 변경 가능성 대비
 }
 
 export const queryKeys = {

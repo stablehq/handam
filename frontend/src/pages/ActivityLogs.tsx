@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Table, TableHead, TableBody, TableRow, TableHeadCell, TableCell } from '@/components/ui/table'
 import { TextInput } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -22,6 +23,8 @@ import {
 } from 'lucide-react'
 import { activityLogsAPI } from '@/services/api'
 import { normalizeUtcString } from '../lib/utils'
+import { queryKeys } from '@/lib/queryKeys'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 
 // ── Type helpers ──────────────────────────────────────────────
 
@@ -114,93 +117,90 @@ function StatCard({ title, value, icon, iconBg }: StatCardProps) {
 
 const PAGE_SIZE = 20
 
+const DEFAULT_STATS: ActivityStats = {
+  total_today: 0,
+  room_assign_today: 0,
+  sms_sent_today: 0,
+  naver_sync_today: 0,
+}
+
 const ActivityLogs = () => {
-  const [logs, setLogs] = useState<ActivityLog[]>([])
+  const qc = useQueryClient()
   const [expandedId, setExpandedId] = useState<number | null>(null)
-  const [stats, setStats] = useState<ActivityStats | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [statsLoading, setStatsLoading] = useState(true)
 
   // Filters
   const [filterType, setFilterType] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterDate, setFilterDate] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
-  // 디바운스된 검색어 — fetch 트리거에만 사용 (입력 UI 는 searchQuery 그대로 즉시 반응).
-  // useDeferredValue 는 렌더 우선순위만 낮추고 effect 자체를 지연하지 않음 → setTimeout 진짜 디바운스 사용.
-  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const debouncedSearch = useDebouncedValue(searchQuery, 300)
 
-  // Pagination
+  // Pagination — page 만 state, hasMore 는 query data 에서 파생
   const [page, setPage] = useState(0)
-  const [hasMore, setHasMore] = useState(true)
 
-  // ── Data fetching ──────────────────────────────────────────
+  // 필터/검색 변경 시 page 자동 0 reset (기존 useEffect 책임 유지)
+  useEffect(() => {
+    setPage(0)
+  }, [filterType, filterStatus, filterDate, debouncedSearch])
 
-  const loadStats = useCallback(async () => {
-    setStatsLoading(true)
-    try {
+  const statsQuery = useQuery<ActivityStats>({
+    queryKey: queryKeys.activityLogs.stats(),
+    queryFn: async () => {
       const res = await activityLogsAPI.getStats()
       const d = res.data
       const s = d.stats || {}
-      setStats({
+      return {
         total_today: d.total_activities ?? 0,
         room_assign_today: s.room_assign?.count ?? 0,
         sms_sent_today: (s.sms_send?.count ?? 0) + (s.sms_manual?.count ?? 0),
         naver_sync_today: s.naver_sync?.count ?? 0,
-      })
-    } catch {
-      // API not yet wired — show zeros gracefully
-      setStats({ total_today: 0, room_assign_today: 0, sms_sent_today: 0, naver_sync_today: 0 })
-    } finally {
-      setStatsLoading(false)
-    }
-  }, [])
-
-  const loadLogs = useCallback(
-    async (pageNum: number) => {
-      setLoading(true)
-      try {
-        const params: Record<string, any> = {
-          skip: pageNum * PAGE_SIZE,
-          limit: PAGE_SIZE + 1,
-        }
-        if (filterType) params.type = filterType
-        if (filterStatus) params.status = filterStatus
-        if (filterDate) params.date = filterDate
-        if (debouncedSearch.trim()) params.search = debouncedSearch.trim()
-
-        const res = await activityLogsAPI.getAll(params)
-        const data: ActivityLog[] = res.data ?? []
-        setHasMore(data.length > PAGE_SIZE)
-        setLogs(data.slice(0, PAGE_SIZE))
-      } catch {
-        setLogs([])
-        setHasMore(false)
-      } finally {
-        setLoading(false)
       }
     },
-    [filterType, filterStatus, filterDate, debouncedSearch],
-  )
+    staleTime: 30_000,
+  })
 
-  useEffect(() => {
-    loadStats()
-  }, [loadStats])
+  const logsQuery = useQuery<ActivityLog[]>({
+    queryKey: queryKeys.activityLogs.list({
+      type: filterType || undefined,
+      status: filterStatus || undefined,
+      date: filterDate || undefined,
+      q: debouncedSearch.trim() || undefined,
+      page,
+      pageSize: PAGE_SIZE,
+    }),
+    queryFn: async () => {
+      const params: Record<string, any> = {
+        skip: page * PAGE_SIZE,
+        limit: PAGE_SIZE + 1,
+      }
+      if (filterType) params.type = filterType
+      if (filterStatus) params.status = filterStatus
+      if (filterDate) params.date = filterDate
+      if (debouncedSearch.trim()) params.search = debouncedSearch.trim()
+      const res = await activityLogsAPI.getAll(params)
+      return res.data ?? []
+    },
+    staleTime: 30_000,
+  })
 
-  // 검색어 디바운스 — typing 중 매 키스트로크마다 fetch 발동되지 않도록 300ms 지연.
+  // 사전조사 §4-3: error logging — Step #2 와 동일 패턴 (useEffect 감쌈)
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery), 300)
-    return () => clearTimeout(t)
-  }, [searchQuery])
+    if (statsQuery.error) console.error('Failed to load activity stats:', statsQuery.error)
+  }, [statsQuery.error])
+  useEffect(() => {
+    if (logsQuery.error) console.error('Failed to load activity logs:', logsQuery.error)
+  }, [logsQuery.error])
 
-  useEffect(() => {
-    setPage(0)
-    loadLogs(0)
-  }, [filterType, filterStatus, filterDate, loadLogs])
+  const stats = statsQuery.data ?? DEFAULT_STATS
+  const statsLoading = statsQuery.isLoading
+  const rawLogs = logsQuery.data ?? []
+  const hasMore = rawLogs.length > PAGE_SIZE
+  const logs = rawLogs.slice(0, PAGE_SIZE)
+  const loading = logsQuery.isFetching
 
   const handlePageChange = (next: number) => {
     setPage(next)
-    loadLogs(next)
+    // queryKey 의 page 변경 → React Query 자동 refetch
   }
 
   // ── Helpers ────────────────────────────────────────────────
@@ -238,10 +238,7 @@ const ActivityLogs = () => {
         <Button
           color="light"
           size="sm"
-          onClick={() => {
-            loadStats()
-            loadLogs(page)
-          }}
+          onClick={() => qc.invalidateQueries({ queryKey: queryKeys.activityLogs.all() })}
         >
           <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
           새로고침
