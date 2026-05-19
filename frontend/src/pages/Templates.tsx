@@ -47,6 +47,8 @@ import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 
 import { templatesAPI, templateSchedulesAPI, buildingsAPI, reservationsAPI } from '@/services/api';
+import { queryKeys } from '@/lib/queryKeys';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { normalizeUtcString } from '../lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -427,13 +429,10 @@ const Templates: React.FC = () => {
   const [activeTab, setActiveTab] = useState('templates');
 
   // --- templates state ---
-  const [templates, setTemplates] = useState<Template[]>([]);
-  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  // templates / loadingTemplates / availableVariables / savingTemplate 는 useQuery / useMutation 으로 대체
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
-  const [availableVariables, setAvailableVariables] = useState<any>(null);
   const [detectedVars, setDetectedVars] = useState<{ valid: string[]; invalid: string[] }>({ valid: [], invalid: [] });
-  const [savingTemplate, setSavingTemplate] = useState(false);
 
   // template form
   const [sampleExamples, setSampleExamples] = useState<Record<string, string>>({});
@@ -462,11 +461,9 @@ const Templates: React.FC = () => {
   const [deleteTemplateTarget, setDeleteTemplateTarget] = useState<Template | null>(null);
 
   // --- schedules state ---
-  const [schedules, setSchedules] = useState<TemplateSchedule[]>([]);
-  const [loadingSchedules, setLoadingSchedules] = useState(false);
+  // schedules / loadingSchedules / savingSchedule 는 useQuery / useMutation 으로 대체
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<TemplateSchedule | null>(null);
-  const [savingSchedule, setSavingSchedule] = useState(false);
 
   // schedule form
   const [sName, setSName] = useState('');
@@ -495,7 +492,7 @@ const Templates: React.FC = () => {
   // event schedule state
   const [sCategory, setSCategory] = useState<'standard' | 'event' | 'custom_schedule'>('standard');
   const [sCustomType, setSCustomType] = useState('');
-  const [customTypeOptions, setCustomTypeOptions] = useState<Array<{ value: string; label: string }>>([]);
+  // customTypeOptions 는 useQuery 로 대체 (templateSchedules.customTypes, Infinity stale)
   const [sHoursSinceBooking, setSHoursSinceBooking] = useState('');
   const [sGenderFilter, setSGenderFilter] = useState<'' | 'male' | 'female'>('');
   const [sMaxCheckinDays, setSMaxCheckinDays] = useState('');
@@ -509,8 +506,7 @@ const Templates: React.FC = () => {
 
   // (filter picker state removed — replaced by toggle button UI)
 
-  // buildings for filter
-  const [buildings, setBuildings] = useState<Building[]>([]);
+  // buildings — useQuery (RoomSettings 와 같은 queryKey, 캐시 공유)
 
   // delete schedule
   const [deleteScheduleTarget, setDeleteScheduleTarget] = useState<TemplateSchedule | null>(null);
@@ -520,63 +516,65 @@ const Templates: React.FC = () => {
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
 
   // ---------------------------------------------------------------------------
-  // Data fetching
+  // Data fetching (React Query)
   // ---------------------------------------------------------------------------
 
-  const fetchTemplates = async () => {
-    setLoadingTemplates(true);
-    try {
-      const res = await templatesAPI.getAll();
-      setTemplates(res.data);
-    } catch {
-      toast.error('템플릿 목록을 불러오지 못했습니다');
-    } finally {
-      setLoadingTemplates(false);
-    }
-  };
+  const qc = useQueryClient();
 
-  const fetchSchedules = async () => {
-    setLoadingSchedules(true);
-    try {
-      const res = await templateSchedulesAPI.getAll();
-      setSchedules(res.data);
-    } catch {
-      toast.error('스케줄 목록을 불러오지 못했습니다');
-    } finally {
-      setLoadingSchedules(false);
-    }
-  };
+  const templatesQuery = useQuery<Template[]>({
+    queryKey: queryKeys.templates.list(),
+    queryFn: () => templatesAPI.getAll().then(r => r.data),
+    staleTime: 300_000,
+  });
+  const templates = templatesQuery.data ?? [];
+  const loadingTemplates = templatesQuery.isFetching;
 
-  const fetchAvailableVariables = async () => {
-    try {
-      const res = await templatesAPI.getAvailableVariables();
-      setAvailableVariables(res.data);
-    } catch {
-      /* non-critical */
-    }
-  };
+  const schedulesQuery = useQuery<TemplateSchedule[]>({
+    queryKey: queryKeys.templateSchedules.list(),
+    queryFn: () => templateSchedulesAPI.getAll().then(r => r.data),
+    staleTime: 30_000,  // run 결과 자주 갱신
+  });
+  const schedules = schedulesQuery.data ?? [];
+  const loadingSchedules = schedulesQuery.isFetching;
 
-  const fetchBuildings = async () => {
-    try {
-      const res = await buildingsAPI.getAll();
-      setBuildings(res.data);
-    } catch { /* non-critical */ }
-  };
+  const variablesQuery = useQuery<any>({
+    queryKey: queryKeys.templates.variables(),
+    queryFn: () => templatesAPI.getAvailableVariables().then(r => r.data),
+    staleTime: 600_000,  // 정적 데이터
+  });
+  const availableVariables = variablesQuery.data ?? null;
 
-  useEffect(() => {
-    fetchTemplates();
-    fetchSchedules();
-    fetchAvailableVariables();
-    fetchBuildings();
-    templateSchedulesAPI.getCustomTypes().then(res => setCustomTypeOptions(res.data)).catch(() => {});
-  }, []);
+  const buildingsQuery = useQuery<Building[]>({
+    queryKey: queryKeys.buildings.list(),
+    queryFn: () => buildingsAPI.getAll().then(r => r.data),
+    staleTime: 300_000,
+  });
+  const buildings = buildingsQuery.data ?? [];
+
+  const customTypesQuery = useQuery<Array<{ value: string; label: string }>>({
+    queryKey: queryKeys.templateSchedules.customTypes(),
+    queryFn: () => templateSchedulesAPI.getCustomTypes().then(r => r.data),
+    staleTime: Infinity,  // 시스템 상수 (tenant-agnostic)
+  });
+  const customTypeOptions = customTypesQuery.data ?? [];
+
+  // Error logging — Step #2 패턴
+  useEffect(() => { if (templatesQuery.error) { console.error('templates:', templatesQuery.error); toast.error('템플릿 목록을 불러오지 못했습니다'); } }, [templatesQuery.error]);
+  useEffect(() => { if (schedulesQuery.error) { console.error('schedules:', schedulesQuery.error); toast.error('스케줄 목록을 불러오지 못했습니다'); } }, [schedulesQuery.error]);
+
+  // Template 변경 시 schedule 의 template_id 표시도 갱신
+  const invalidateTemplates = () => {
+    qc.invalidateQueries({ queryKey: queryKeys.templates.all() });
+    qc.invalidateQueries({ queryKey: queryKeys.templateSchedules.list() });
+  };
 
   // ---------------------------------------------------------------------------
   // Template CRUD
   // ---------------------------------------------------------------------------
 
-  const loadSampleExamples = () => {
-    reservationsAPI.getAll({ limit: 20, status: 'confirmed' }).then(res => {
+  const loadSamplesMutation = useMutation({
+    mutationFn: () => reservationsAPI.getAll({ limit: 20, status: 'confirmed' }),
+    onSuccess: (res) => {
       const reservations = res.data.items ?? res.data;
       if (!reservations || reservations.length === 0) return;
       const pick = reservations[Math.floor(Math.random() * reservations.length)];
@@ -592,8 +590,9 @@ const Templates: React.FC = () => {
         male_count: String(pick.male_count || 0),
         female_count: String(pick.female_count || 0),
       });
-    }).catch(() => {});
-  };
+    },
+  });
+  const loadSampleExamples = () => loadSamplesMutation.mutate();
 
   const PARTICIPANT_VARS = ['participant_count', 'male_count', 'female_count',
     'tomorrow_male_count', 'tomorrow_female_count', 'tomorrow_total_count',
@@ -652,7 +651,29 @@ const Templates: React.FC = () => {
     }
   };
 
-  const handleSaveTemplate = async () => {
+  const saveTemplateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number | null; data: any }) =>
+      id != null ? templatesAPI.update(id, data) : templatesAPI.create(data),
+    onSuccess: (_, vars) => {
+      toast.success(vars.id != null ? '템플릿이 수정되었습니다' : '템플릿이 생성되었습니다');
+      setTemplateDialogOpen(false);
+      invalidateTemplates();
+    },
+    onError: (err: any) => toast.error(err.response?.data?.detail ?? '템플릿 저장 실패'),
+  });
+  const savingTemplate = saveTemplateMutation.isPending;
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: (id: number) => templatesAPI.delete(id),
+    onSuccess: () => {
+      toast.success('템플릿이 삭제되었습니다');
+      invalidateTemplates();
+    },
+    onError: (err: any) => toast.error(err.response?.data?.detail ?? '템플릿 삭제 실패'),
+    onSettled: () => setDeleteTemplateTarget(null),
+  });
+
+  const handleSaveTemplate = () => {
     if (!tKey.trim()) { setTKeyError('템플릿 키를 입력하세요'); return; }
     if (!/^[a-z_][a-z0-9_]*$/.test(tKey)) { setTKeyError('영문 소문자로 시작, 이후 영문 소문자/숫자/언더스코어(_)만 사용 가능합니다'); return; }
     if (!tName.trim()) { toast.error('템플릿 이름을 입력하세요'); return; }
@@ -668,79 +689,64 @@ const Templates: React.FC = () => {
       }
     }
 
-    setSavingTemplate(true);
-    try {
-      const data = {
-        template_key: tKey, name: tName, content: tContent,
-        short_label: tShortLabel || null,
-        lms_title: tLmsTitle.trim() || null,
-        variables: tVariables || undefined,
-        active: tActive,
-        participant_buffer: tParticipantBuffer,
-        male_buffer: tMaleBuffer,
-        female_buffer: tFemaleBuffer,
-        gender_ratio_buffers: tGenderRatioEnabled ? JSON.stringify(tGenderRatioBuffers) : null,
-        round_unit: tRoundUnit,
-        round_mode: tRoundMode,
-      };
-      if (editingTemplate) {
-        await templatesAPI.update(editingTemplate.id, data);
-        toast.success('템플릿이 수정되었습니다');
-      } else {
-        await templatesAPI.create(data);
-        toast.success('템플릿이 생성되었습니다');
-      }
-      setTemplateDialogOpen(false);
-      fetchTemplates();
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail ?? '템플릿 저장 실패');
-    } finally {
-      setSavingTemplate(false);
-    }
+    const data = {
+      template_key: tKey, name: tName, content: tContent,
+      short_label: tShortLabel || null,
+      lms_title: tLmsTitle.trim() || null,
+      variables: tVariables || undefined,
+      active: tActive,
+      participant_buffer: tParticipantBuffer,
+      male_buffer: tMaleBuffer,
+      female_buffer: tFemaleBuffer,
+      gender_ratio_buffers: tGenderRatioEnabled ? JSON.stringify(tGenderRatioBuffers) : null,
+      round_unit: tRoundUnit,
+      round_mode: tRoundMode,
+    };
+    saveTemplateMutation.mutate({ id: editingTemplate?.id ?? null, data });
   };
 
-  const handleDeleteTemplate = async (t: Template) => {
-    try {
-      await templatesAPI.delete(t.id);
-      toast.success('템플릿이 삭제되었습니다');
-      fetchTemplates();
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail ?? '템플릿 삭제 실패');
-    } finally {
-      setDeleteTemplateTarget(null);
-    }
-  };
+  const handleDeleteTemplate = (t: Template) => deleteTemplateMutation.mutate(t.id);
 
   // 진행 중 reorder API 가 있으면 새 드래그 차단 — 응답 도착 순서 꼬임 방지.
   // useRef 사용: 리렌더 없이 동기적으로 read/write.
   const reorderingRef = useRef(false);
 
+  // Optimistic reorder (RoomAssignment 의 모범사례 패턴). reorderingRef 가드 보존.
+  const reorderTemplatesMutation = useMutation({
+    mutationFn: (ids: number[]) => templatesAPI.reorder(ids),
+    onMutate: async (ids) => {
+      await qc.cancelQueries({ queryKey: queryKeys.templates.list() });
+      const previous = qc.getQueryData<Template[]>(queryKeys.templates.list());
+      qc.setQueryData<Template[]>(queryKeys.templates.list(), (prev) => {
+        if (!prev) return prev;
+        const map = new Map(prev.map(t => [t.id, t]));
+        return ids.map(id => map.get(id)).filter(Boolean) as Template[];
+      });
+      return { previous };
+    },
+    onError: (err: any, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(queryKeys.templates.list(), ctx.previous);
+      toast.error(err.response?.data?.detail ?? '순서 저장 실패');
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: queryKeys.templates.list() }),
+  });
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-
     if (reorderingRef.current) {
       toast.info('이전 변경이 처리 중입니다. 잠시 후 다시 시도해주세요.', { id: 'template-reorder-busy' });
       return;
     }
-
     const oldIndex = templates.findIndex(t => t.id === active.id);
     const newIndex = templates.findIndex(t => t.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
-
     const reordered = arrayMove(templates, oldIndex, newIndex);
-    setTemplates(reordered); // 즉시 반영 (옵티미스틱)
-
     reorderingRef.current = true;
-    templatesAPI
-      .reorder(reordered.map(t => t.id))
-      .catch((err: any) => {
-        toast.error(err.response?.data?.detail ?? '순서 저장 실패');
-        fetchTemplates(); // 롤백
-      })
-      .finally(() => {
-        reorderingRef.current = false;
-      });
+    reorderTemplatesMutation.mutate(
+      reordered.map(t => t.id),
+      { onSettled: () => { reorderingRef.current = false; } },
+    );
   };
 
   const dndSensors = useSensors(
@@ -862,52 +868,50 @@ const Templates: React.FC = () => {
     };
   };
 
-  const handleSaveSchedule = async () => {
+  const saveScheduleMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number | null; payload: any }) =>
+      id != null ? templateSchedulesAPI.update(id, payload) : templateSchedulesAPI.create(payload),
+    onSuccess: (_, vars) => {
+      toast.success(vars.id != null ? '스케줄이 수정되었습니다' : '스케줄이 생성되었습니다');
+      setScheduleDialogOpen(false);
+      qc.invalidateQueries({ queryKey: queryKeys.templateSchedules.list() });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.detail ?? '스케줄 저장 실패'),
+  });
+  const savingSchedule = saveScheduleMutation.isPending;
+
+  const deleteScheduleMutation = useMutation({
+    mutationFn: (id: number) => templateSchedulesAPI.delete(id),
+    onSuccess: () => {
+      toast.success('스케줄이 삭제되었습니다');
+      qc.invalidateQueries({ queryKey: queryKeys.templateSchedules.list() });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.detail ?? '스케줄 삭제 실패'),
+    onSettled: () => setDeleteScheduleTarget(null),
+  });
+
+  // run: default onSuccess 는 invalidate 만, toast 는 per-call (toast.loading 갱신)
+  const runScheduleMutation = useMutation({
+    mutationFn: (id: number) => templateSchedulesAPI.run(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.templateSchedules.list() }),
+  });
+
+  const handleSaveSchedule = () => {
     if (!sName.trim()) { toast.error('스케줄 이름을 입력하세요'); return; }
     if (!sTemplateId) { toast.error('템플릿을 선택하세요'); return; }
     if (sType === 'weekly' && sDayOfWeek.length === 0) { toast.error('요일을 선택하세요'); return; }
     if (sCategory === 'event' && !sHoursSinceBooking) { toast.error('예약 시점(시간)을 입력하세요'); return; }
-
-    setSavingSchedule(true);
-    try {
-      const payload = buildSchedulePayload();
-      if (editingSchedule) {
-        await templateSchedulesAPI.update(editingSchedule.id, payload);
-        toast.success('스케줄이 수정되었습니다');
-      } else {
-        await templateSchedulesAPI.create(payload);
-        toast.success('스케줄이 생성되었습니다');
-      }
-      setScheduleDialogOpen(false);
-      fetchSchedules();
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail ?? '스케줄 저장 실패');
-    } finally {
-      setSavingSchedule(false);
-    }
+    saveScheduleMutation.mutate({ id: editingSchedule?.id ?? null, payload: buildSchedulePayload() });
   };
 
-  const handleDeleteSchedule = async (s: TemplateSchedule) => {
-    try {
-      await templateSchedulesAPI.delete(s.id);
-      toast.success('스케줄이 삭제되었습니다');
-      fetchSchedules();
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail ?? '스케줄 삭제 실패');
-    } finally {
-      setDeleteScheduleTarget(null);
-    }
-  };
+  const handleDeleteSchedule = (s: TemplateSchedule) => deleteScheduleMutation.mutate(s.id);
 
-  const handleRunSchedule = async (id: number) => {
+  const handleRunSchedule = (id: number) => {
     const tid = toast.loading('실행 중...');
-    try {
-      const res = await templateSchedulesAPI.run(id);
-      toast.success(`실행 완료: ${res.data.sent_count}명 발송, ${res.data.failed_count}명 실패`, { id: tid, duration: 5000 });
-      fetchSchedules();
-    } catch {
-      toast.error('실행 실패', { id: tid });
-    }
+    runScheduleMutation.mutate(id, {
+      onSuccess: (res) => toast.success(`실행 완료: ${res.data.sent_count}명 발송, ${res.data.failed_count}명 실패`, { id: tid, duration: 5000 }),
+      onError: () => toast.error('실행 실패', { id: tid }),
+    });
   };
 
   const handlePreviewTargets = async (id: number) => {
