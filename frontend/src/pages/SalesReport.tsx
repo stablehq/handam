@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Search, ChevronDown, ChevronRight, Users, Eye, UserPlus, Trash2 } from 'lucide-react';
 import { Modal, ModalHeader, ModalBody } from '@/components/ui/modal';
@@ -11,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableHead, TableBody, TableRow, TableHeadCell, TableCell } from '@/components/ui/table';
 
 import { salesReportAPI, partyHostsAPI } from '@/services/api';
+import { queryKeys } from '@/lib/queryKeys';
 import { normalizeUtcString } from '@/lib/utils';
 
 // 펼침 상세 행의 배경색 — 다크 모드 분기 포함 (인라인 style 로는 dark variant 불가)
@@ -116,8 +118,7 @@ export default function SalesReport() {
   const [dateFrom, setDateFrom] = useState(dayjs().startOf('month').format('YYYY-MM-DD'));
   const [dateTo, setDateTo] = useState(dayjs().format('YYYY-MM-DD'));
 
-  const [loading, setLoading] = useState(false);
-  const [data, setData] = useState<ReportData>({ hosts: [], grand_total_revenue: 0, grand_total_participants: 0 });
+  const qc = useQueryClient();
   const [viewMode, setViewMode] = useState<ViewMode>('total');
 
   // 조회 기간 일수 (inclusive) — 여자초대수 일평균 계산에 사용
@@ -127,59 +128,71 @@ export default function SalesReport() {
 
   // 진행자 관리
   const [hostModalOpen, setHostModalOpen] = useState(false);
-  const [hosts, setHosts] = useState<{ id: number; name: string }[]>([]);
   const [newHostName, setNewHostName] = useState('');
 
-  const fetchHosts = useCallback(async () => {
-    try {
-      const { data: res } = await partyHostsAPI.list();
-      setHosts(res ?? []);
-    } catch {}
-  }, []);
+  // === Queries ===
+  const reportQuery = useQuery<ReportData>({
+    queryKey: queryKeys.salesReport.report(dateFrom, dateTo),
+    queryFn: () => salesReportAPI.get({ date_from: dateFrom, date_to: dateTo } as any).then(r => r.data),
+    staleTime: 30_000,
+  });
 
-  useEffect(() => { fetchHosts(); }, [fetchHosts]);
+  const hostsQuery = useQuery<{ id: number; name: string }[]>({
+    queryKey: queryKeys.partyHosts.list(),
+    queryFn: () => partyHostsAPI.list().then(r => r.data ?? []),
+    staleTime: 300_000,
+  });
 
-  const handleAddHost = async () => {
-    const name = newHostName.trim();
-    if (!name) return;
-    try {
-      await partyHostsAPI.create({ name });
-      toast.success('진행자가 추가되었습니다');
-      setNewHostName('');
-      fetchHosts();
-    } catch (e: any) {
-      toast.error(e.response?.data?.detail ?? '진행자 추가에 실패했습니다');
-    }
-  };
+  const data: ReportData = reportQuery.data ?? { hosts: [], grand_total_revenue: 0, grand_total_participants: 0 };
+  const hosts = hostsQuery.data ?? [];
+  const loading = reportQuery.isFetching;
 
-  const handleDeleteHost = async (id: number) => {
-    try {
-      await partyHostsAPI.delete(id);
-      toast.success('진행자가 삭제되었습니다');
-      fetchHosts();
-    } catch { toast.error('진행자 삭제에 실패했습니다'); }
-  };
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { data: res } = await salesReportAPI.get({
-        date_from: dateFrom,
-        date_to: dateTo,
-      } as any);
-      setData(res);
-      setExpandedHosts(new Set());
-      setDetailModal({ open: false, host: '', dd: null });
-    } catch {
-      toast.error('매출 데이터를 불러오는데 실패했습니다');
-    } finally {
-      setLoading(false);
-    }
+  // 기간 변경 시 UI state reset (기존 fetchData 내부 부수효과 — refetchOnWindowFocus 등 자동 refetch 시는 보존)
+  useEffect(() => {
+    setExpandedHosts(new Set());
+    setDetailModal({ open: false, host: '', dd: null });
   }, [dateFrom, dateTo]);
 
+  // === Error handling — Step #2 패턴 + toast (사전조사 §4-1 후보 1 보강) ===
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (reportQuery.error) {
+      console.error('Failed to load sales report:', reportQuery.error);
+      toast.error('매출 데이터를 불러오는데 실패했습니다');
+    }
+  }, [reportQuery.error]);
+  useEffect(() => {
+    if (hostsQuery.error) console.error('Failed to load party hosts:', hostsQuery.error);
+  }, [hostsQuery.error]);
+
+  // === Mutations ===
+  const addHostMutation = useMutation({
+    mutationFn: (name: string) => partyHostsAPI.create({ name }),
+    onSuccess: () => {
+      toast.success('진행자가 추가되었습니다');
+      setNewHostName('');
+      qc.invalidateQueries({ queryKey: queryKeys.partyHosts.list() });
+      qc.invalidateQueries({ queryKey: queryKeys.salesReport.all() });  // 매출 표 진행자 리스트 갱신 (회귀 해결)
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.detail ?? '진행자 추가에 실패했습니다'),
+  });
+
+  const deleteHostMutation = useMutation({
+    mutationFn: (id: number) => partyHostsAPI.delete(id),
+    onSuccess: () => {
+      toast.success('진행자가 삭제되었습니다');
+      qc.invalidateQueries({ queryKey: queryKeys.partyHosts.list() });
+      qc.invalidateQueries({ queryKey: queryKeys.salesReport.all() });
+    },
+    onError: () => toast.error('진행자 삭제에 실패했습니다'),
+  });
+
+  const handleAddHost = () => {
+    const name = newHostName.trim();
+    if (!name) return;
+    addHostMutation.mutate(name);
+  };
+
+  const handleDeleteHost = (id: number) => deleteHostMutation.mutate(id);
 
   const toggleHost = (username: string) => {
     setExpandedHosts(prev => {
@@ -221,7 +234,7 @@ export default function SalesReport() {
             />
           </div>
           <div className="flex items-center gap-2">
-            <Button color="blue" size="sm" onClick={fetchData} disabled={loading}>
+            <Button color="blue" size="sm" onClick={() => reportQuery.refetch()} disabled={loading}>
               {loading ? <Spinner size="sm" className="mr-1.5" /> : <Search className="h-3.5 w-3.5 mr-1.5" />}
               조회
             </Button>
