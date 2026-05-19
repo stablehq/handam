@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Card } from '@/components/ui/card'
 import { Table, TableHead, TableBody, TableRow, TableHeadCell, TableCell } from '@/components/ui/table'
 import { Spinner } from '@/components/ui/spinner'
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react'
 import { dashboardAPI } from '@/services/api'
 import { normalizeUtcString } from '../lib/utils'
+import { queryKeys } from '@/lib/queryKeys'
 
 const STATUS_LABELS: Record<string, string> = {
   pending: '대기중',
@@ -115,28 +117,29 @@ function GenderWeekly({ daily }: { daily: { date: string; male: number; female: 
 
 
 const Dashboard = () => {
-  const [stats, setStats] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const [schedules, setSchedules] = useState<any[]>([])
+  const statsQuery = useQuery<any>({
+    queryKey: queryKeys.dashboard.stats(),
+    queryFn: () => dashboardAPI.getStats().then(res => res.data),
+    staleTime: 30_000,
+  })
 
+  const schedulesQuery = useQuery<any[]>({
+    queryKey: queryKeys.dashboard.schedules(),
+    queryFn: () => dashboardAPI.getTodaySchedules().then(res => res.data),
+    staleTime: 30_000,
+  })
+
+  // 사전조사 §4-3 후보 4 정정: 매 렌더 호출 회피를 위해 useEffect 로 감쌈.
+  // 기존 try/catch 의 console.error 동작과 의미적 동등 (실패 시 1회 로그).
   useEffect(() => {
-    loadStats()
-  }, [])
-
-  useEffect(() => {
-    dashboardAPI.getTodaySchedules().then(res => setSchedules(res.data)).catch(() => {})
-  }, [])
-
-  const loadStats = async () => {
-    try {
-      const response = await dashboardAPI.getStats()
-      setStats(response.data)
-    } catch (error) {
-      console.error('Failed to load stats:', error)
-    } finally {
-      setLoading(false)
+    if (statsQuery.error) {
+      console.error('Failed to load stats:', statsQuery.error)
     }
-  }
+  }, [statsQuery.error])
+
+  const stats = statsQuery.data
+  const schedules: any[] = schedulesQuery.data ?? []
+  const loading = statsQuery.isLoading
 
   if (loading) {
     return <LoadingSkeleton />
