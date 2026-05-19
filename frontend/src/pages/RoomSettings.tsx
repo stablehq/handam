@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, DragEvent } from 'react';
+import { useEffect, useState, DragEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Home, Plus, Pencil, Trash2, GripVertical, RefreshCw, Building2, ArrowUpDown, Settings, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -121,17 +121,16 @@ const RoomSettings = () => {
   const [buildingManageOpen, setBuildingManageOpen] = useState(false);
   const [buildingRows, setBuildingRows] = useState<BuildingEditRow[]>([]);
   const [buildingHistory, setBuildingHistory] = useState<BuildingEditRow[][]>([]);
-  const [savingBuildings, setSavingBuildings] = useState(false);
+  // (savingBuildings 제거 — saveBuildingsMutation.isPending 으로)
 
   // ── Priority modal state ──
   const [priorityOpen, setPriorityOpen] = useState(false);
   // { [biz_item_id]: { [room_id]: { male_priority, female_priority } } }
   const [priorityData, setPriorityData] = useState<Record<string, Record<number, { male_priority: number; female_priority: number }>>>({});
-  const [savingPriority, setSavingPriority] = useState(false);
+  // (savingPriority 제거 — savePriorityMutation.isPending 으로)
 
   // ── Biz item settings modal state ──
-  const [bizItemModalOpen, setBizItemModalOpen] = useState(false);
-  const [bizItemSettingsList, setBizItemSettingsList] = useState<Array<{
+  interface BizItemSetting {
     biz_item_id: string;
     name: string;
     display_name: string;
@@ -141,15 +140,16 @@ const RoomSettings = () => {
     grade: number | null;
     active: boolean;
     exposed?: boolean;
-  }>>([]);
+  }
+  const [bizItemModalOpen, setBizItemModalOpen] = useState(false);
+  // bizItemSettingsList 는 useQuery 로 대체 (아래 bizItemSettingsQuery)
   const [bizItemEdits, setBizItemEdits] = useState<Record<string, {display_name?: string; default_capacity?: number; section_hint?: string; default_party_type?: string; grade?: number}>>({});
-  const [bizItemSaving, setBizItemSaving] = useState(false);
-  const [bizItemSyncing, setBizItemSyncing] = useState(false);
+  // (bizItemSaving / bizItemSyncing 제거 — mutation.isPending 으로)
 
   // ── Room grade modal state ──
   const [roomGradeModalOpen, setRoomGradeModalOpen] = useState(false);
   const [roomGradeEdits, setRoomGradeEdits] = useState<Record<number, number>>({});
-  const [roomGradeSaving, setRoomGradeSaving] = useState(false);
+  // (roomGradeSaving 제거 — saveRoomGradeMutation.isPending 으로)
 
   // ── React Query: 3 데이터 로드 ──
   const roomsQuery = useQuery<Room[]>({
@@ -186,26 +186,27 @@ const RoomSettings = () => {
     if (bizItemsQuery.error) console.error('bizItems load:', bizItemsQuery.error);
   }, [bizItemsQuery.error]);
 
-  // ── Step #6b 머지 시 제거할 helper (모달 함수의 loadRooms/loadBuildings/loadBizItems 호환) ──
-  const loadRooms = () => qc.invalidateQueries({ queryKey: queryKeys.rooms.all() });
-  const loadBuildings = () => qc.invalidateQueries({ queryKey: queryKeys.buildings.list() });
-  const loadBizItems = () => qc.invalidateQueries({ queryKey: queryKeys.rooms.bizItems() });
+  // (Step #6a helper 제거됨 — 모달 함수가 직접 invalidateQueries 호출)
 
 
   // ── Biz item settings modal ──
-  const loadBizItemSettings = useCallback(async () => {
-    try {
-      const res = await roomsAPI.getBizItems();
-      setBizItemSettingsList(res.data || []);
-      setBizItemEdits({});
-    } catch {
-      toast.error('상품 목록을 불러오지 못했습니다.');
-    }
-  }, []);
+  // bizItemsQuery 와 같은 queryKey → 캐시 공유. enabled 로 modal 열림 시만 active.
+  // bizItemSettingsQuery — Step #6a 의 bizItemsQuery 와 같은 queryKey → 캐시 공유. enabled 만 다름.
+  const bizItemSettingsQuery = useQuery<BizItemSetting[]>({
+    queryKey: queryKeys.rooms.bizItems(),
+    queryFn: () => roomsAPI.getBizItems().then(r => r.data || []),
+    staleTime: 300_000,
+    enabled: bizItemModalOpen,
+  });
+  const bizItemSettingsList = bizItemSettingsQuery.data ?? [];
 
   useEffect(() => {
-    if (bizItemModalOpen) loadBizItemSettings();
-  }, [bizItemModalOpen, loadBizItemSettings]);
+    if (bizItemModalOpen) setBizItemEdits({});  // 모달 열릴 때 편집 초기화 (refetch 시 보존)
+  }, [bizItemModalOpen]);
+
+  useEffect(() => {
+    if (bizItemSettingsQuery.error) toast.error('상품 목록을 불러오지 못했습니다.');
+  }, [bizItemSettingsQuery.error]);
 
   const handleBizItemEdit = (bizItemId: string, field: string, value: string | number) => {
     setBizItemEdits(prev => ({
@@ -214,41 +215,39 @@ const RoomSettings = () => {
     }));
   };
 
-  const handleBizItemSave = async () => {
+  const saveBizItemMutation = useMutation({
+    mutationFn: (changes: any[]) => roomsAPI.updateBizItems(changes),
+    onSuccess: () => {
+      toast.success('상품 설정이 저장되었습니다.');
+      qc.invalidateQueries({ queryKey: queryKeys.rooms.bizItems() });
+      qc.invalidateQueries({ queryKey: queryKeys.rooms.all() });
+    },
+    onError: () => toast.error('상품 설정 저장에 실패했습니다.'),
+  });
+  const bizItemSaving = saveBizItemMutation.isPending;
+
+  const syncBizItemMutation = useMutation({
+    mutationFn: () => roomsAPI.syncBizItems(),
+    onSuccess: () => {
+      toast.success('네이버 상품 동기화 완료');
+      qc.invalidateQueries({ queryKey: queryKeys.rooms.bizItems() });
+      qc.invalidateQueries({ queryKey: queryKeys.rooms.all() });
+    },
+    onError: () => toast.error('네이버 상품 동기화에 실패했습니다.'),
+  });
+  const bizItemSyncing = syncBizItemMutation.isPending;
+
+  const handleBizItemSave = () => {
     const changes = Object.entries(bizItemEdits).map(([biz_item_id, edits]) => ({
       biz_item_id,
       ...edits,
-      // empty string → null (서버에서 필드 지움)
       default_party_type: edits.default_party_type === '' ? null : edits.default_party_type,
     }));
-    if (changes.length === 0) {
-      setBizItemModalOpen(false);
-      return;
-    }
-    setBizItemSaving(true);
-    try {
-      await roomsAPI.updateBizItems(changes);
-      toast.success('상품 설정이 저장되었습니다.');
-      await loadBizItemSettings();
-    } catch {
-      toast.error('상품 설정 저장에 실패했습니다.');
-    } finally {
-      setBizItemSaving(false);
-    }
+    if (changes.length === 0) { setBizItemModalOpen(false); return; }
+    saveBizItemMutation.mutate(changes);
   };
 
-  const handleBizItemSync = async () => {
-    setBizItemSyncing(true);
-    try {
-      await roomsAPI.syncBizItems();
-      toast.success('네이버 상품 동기화 완료');
-      await loadBizItemSettings();
-    } catch {
-      toast.error('네이버 상품 동기화에 실패했습니다.');
-    } finally {
-      setBizItemSyncing(false);
-    }
-  };
+  const handleBizItemSync = () => syncBizItemMutation.mutate();
 
   // ── Room grade modal ──
   // 모달 열릴 때 현재 등급으로 edits 초기화 (운영자가 보고 변경 가능).
@@ -265,7 +264,18 @@ const RoomSettings = () => {
     setRoomGradeEdits(prev => ({ ...prev, [roomId]: grade }));
   };
 
-  const handleRoomGradeSave = async () => {
+  const saveRoomGradeMutation = useMutation({
+    mutationFn: (items: { id: number; grade: number }[]) => roomsAPI.updateRoomGrades(items),
+    onSuccess: () => {
+      toast.success('객실 등급이 저장되었습니다.');
+      setRoomGradeModalOpen(false);
+      qc.invalidateQueries({ queryKey: queryKeys.rooms.all() });
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.detail ?? '객실 등급 저장에 실패했습니다.'),
+  });
+  const roomGradeSaving = saveRoomGradeMutation.isPending;
+
+  const handleRoomGradeSave = () => {
     // 원본과 다른 항목만 PATCH 대상
     const items = Object.entries(roomGradeEdits)
       .map(([id, grade]) => ({ id: Number(id), grade }))
@@ -273,21 +283,8 @@ const RoomSettings = () => {
         const orig = rooms.find(r => r.id === id);
         return orig && orig.grade !== grade;
       });
-    if (items.length === 0) {
-      setRoomGradeModalOpen(false);
-      return;
-    }
-    setRoomGradeSaving(true);
-    try {
-      await roomsAPI.updateRoomGrades(items);
-      toast.success('객실 등급이 저장되었습니다.');
-      await loadRooms();
-      setRoomGradeModalOpen(false);
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail ?? '객실 등급 저장에 실패했습니다.');
-    } finally {
-      setRoomGradeSaving(false);
-    }
+    if (items.length === 0) { setRoomGradeModalOpen(false); return; }
+    saveRoomGradeMutation.mutate(items);
   };
 
 
@@ -439,19 +436,14 @@ const RoomSettings = () => {
     setBuildingRows(prev);
   };
 
-  const handleBuildingSaveAll = async () => {
-    const visibleRows = buildingRows.filter((r) => !r._deleted);
-    if (visibleRows.some((r) => !r.name.trim())) {
-      toast.error('건물 이름을 입력하세요');
-      return;
-    }
-    setSavingBuildings(true);
-    try {
+  const saveBuildingsMutation = useMutation({
+    mutationFn: async (rows: BuildingEditRow[]): Promise<string[]> => {
       // 단계별 Promise.allSettled — 순차 await 의 부분 저장 문제 해결.
       // 삭제 → 생성 → 수정 순서는 유지 (같은 이름 빌딩 재생성 시나리오 보존).
-      const deletedIds = buildingRows.filter((r) => r._deleted && r.id !== null).map((r) => r.id!);
-      const newRows = visibleRows.filter((r) => r.id === null);
-      const updateRows = visibleRows.filter((r) => {
+      const deletedIds = rows.filter((r) => r._deleted && r.id !== null).map((r) => r.id!);
+      const visible = rows.filter((r) => !r._deleted);
+      const newRows = visible.filter((r) => r.id === null);
+      const updateRows = visible.filter((r) => {
         if (r.id === null) return false;
         const original = buildings.find((b) => b.id === r.id);
         return !!original && (original.name !== r.name.trim() || (original.description || '') !== r.description.trim());
@@ -459,51 +451,44 @@ const RoomSettings = () => {
 
       const failures: string[] = [];
 
-      // Stage 1: 삭제
       if (deletedIds.length > 0) {
         const results = await Promise.allSettled(deletedIds.map((id) => buildingsAPI.delete(id)));
-        results.forEach((r, i) => {
-          if (r.status === 'rejected') failures.push(`삭제[id=${deletedIds[i]}]`);
-        });
+        results.forEach((r, i) => { if (r.status === 'rejected') failures.push(`삭제[id=${deletedIds[i]}]`); });
       }
-
-      // Stage 2: 생성
       if (newRows.length > 0) {
         const results = await Promise.allSettled(
           newRows.map((row) => buildingsAPI.create({ name: row.name.trim(), description: row.description.trim() })),
         );
-        results.forEach((r, i) => {
-          if (r.status === 'rejected') failures.push(`생성[${newRows[i].name}]`);
-        });
+        results.forEach((r, i) => { if (r.status === 'rejected') failures.push(`생성[${newRows[i].name}]`); });
       }
-
-      // Stage 3: 수정
       if (updateRows.length > 0) {
         const results = await Promise.allSettled(
           updateRows.map((row) => buildingsAPI.update(row.id!, { name: row.name.trim(), description: row.description.trim() })),
         );
-        results.forEach((r, i) => {
-          if (r.status === 'rejected') failures.push(`수정[${updateRows[i].name}]`);
-        });
+        results.forEach((r, i) => { if (r.status === 'rejected') failures.push(`수정[${updateRows[i].name}]`); });
       }
-
+      return failures;
+    },
+    onSuccess: (failures) => {
       if (failures.length > 0) {
         toast.error(`${failures.length}건 저장 실패: ${failures.join(', ')}. 다시 시도해주세요.`);
-        // 백엔드 진단용 — 다음 요청에 첨부
         window.__diagAction = `building_save_partial_failure_${failures.length}`;
       } else {
         toast.success('건물 저장 완료');
         setBuildingManageOpen(false);
       }
       // 부분 저장 / 전체 성공 모두 최신 상태로 재조회
-      loadBuildings();
-      loadRooms();
-    } catch (err: any) {
-      // Promise.allSettled 가 throw 안 하므로 일반적으로 여기 안 옴. 안전 fallback.
-      toast.error(err?.response?.data?.detail || '저장 실패');
-    } finally {
-      setSavingBuildings(false);
-    }
+      qc.invalidateQueries({ queryKey: queryKeys.buildings.list() });
+      qc.invalidateQueries({ queryKey: queryKeys.rooms.all() });
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.detail || '저장 실패'),
+  });
+  const savingBuildings = saveBuildingsMutation.isPending;
+
+  const handleBuildingSaveAll = () => {
+    const visibleRows = buildingRows.filter((r) => !r._deleted);
+    if (visibleRows.some((r) => !r.name.trim())) { toast.error('건물 이름을 입력하세요'); return; }
+    saveBuildingsMutation.mutate(buildingRows);
   };
 
   // ── Priority modal helpers ──
@@ -537,12 +522,10 @@ const RoomSettings = () => {
     }));
   };
 
-  const handlePrioritySave = async () => {
-    setSavingPriority(true);
-    try {
-      // Group by room_id: collect all biz_item_links for each room
+  const savePriorityMutation = useMutation({
+    mutationFn: async (data: typeof priorityData) => {
       const roomLinks: Record<number, { biz_item_id: string; male_priority: number; female_priority: number }[]> = {};
-      for (const [bizItemId, roomMap] of Object.entries(priorityData)) {
+      for (const [bizItemId, roomMap] of Object.entries(data)) {
         for (const [roomIdStr, prio] of Object.entries(roomMap)) {
           const roomId = Number(roomIdStr);
           if (!roomLinks[roomId]) roomLinks[roomId] = [];
@@ -553,21 +536,22 @@ const RoomSettings = () => {
           });
         }
       }
-      // Update each room with its biz_item_links
       await Promise.all(
         Object.entries(roomLinks).map(([roomIdStr, links]) =>
           roomsAPI.update(Number(roomIdStr), { biz_item_links: links })
         )
       );
+    },
+    onSuccess: () => {
       toast.success('배정 순서 저장 완료');
       setPriorityOpen(false);
-      loadRooms();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || '저장 실패');
-    } finally {
-      setSavingPriority(false);
-    }
-  };
+      qc.invalidateQueries({ queryKey: queryKeys.rooms.all() });
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.detail || '저장 실패'),
+  });
+  const savingPriority = savePriorityMutation.isPending;
+
+  const handlePrioritySave = () => savePriorityMutation.mutate(priorityData);
 
   // ── Drag and Drop ──
   const onDragStart = (e: DragEvent, index: number) => {
