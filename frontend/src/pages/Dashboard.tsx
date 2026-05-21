@@ -195,7 +195,7 @@ const Dashboard = () => {
           subtitle={stats.naver_sync?.error
             ? stats.naver_sync.error
             : stats.naver_sync?.last_sync_at
-            ? `${new Date(normalizeUtcString(stats.naver_sync.last_sync_at)).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' })} · 다음 ${new Date(normalizeUtcString(stats.naver_sync.next_sync_at)).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`
+            ? `${new Date(normalizeUtcString(stats.naver_sync.last_sync_at)).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' })}${stats.naver_sync.next_sync_at ? ` · 다음 ${new Date(normalizeUtcString(stats.naver_sync.next_sync_at)).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' })}` : ''}`
             : '스케줄러 미실행'}
           icon={<RefreshCw size={20} />}
           iconBg={stats.naver_sync?.status === 'failed'
