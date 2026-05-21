@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { BedDouble } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { cleancrewAPI, type CleanSkipRoom } from '@/services/api'
 
@@ -27,48 +26,40 @@ export default function ConsecutiveStays() {
   }, [])
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-2.5">
-        <div className="stat-icon bg-[#E8F3FF] text-[#3182F6] dark:bg-[#3182F6]/15 dark:text-[#3182F6]">
-          <BedDouble size={20} />
-        </div>
-        <div>
-          <h1 className="page-title">청소 건너뛸 객실</h1>
-          <p className="page-subtitle">오늘 체크아웃하지 않는 객실 (어제부터 같은 방에 머무는 게스트)</p>
-        </div>
-      </div>
+    <div className="mx-auto flex min-h-[70vh] max-w-md flex-col items-center px-4 py-8 text-center">
+      <p className="text-caption text-[#8B95A1] dark:text-gray-500 tabular-nums">
+        {(() => {
+          const d = new Date()
+          return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+        })()}
+      </p>
+      <h1 className="mt-1 text-title font-bold text-[#191F28] dark:text-white">연박객실</h1>
 
-      <div className="section-card">
+      <div className="mt-8 w-full">
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <Spinner size="lg" />
           </div>
         ) : error ? (
-          <div className="empty-state">
-            <p className="text-label text-[#F04452] dark:text-[#F87171]">{error}</p>
-          </div>
+          <p className="py-16 text-label text-[#F04452] dark:text-[#F87171]">{error}</p>
         ) : rooms.length === 0 ? (
-          <div className="empty-state">
-            <p className="text-label text-[#8B95A1]">오늘 체크아웃 없이 머무는 객실이 없습니다.</p>
-          </div>
+          <p className="py-16 text-label text-[#8B95A1]">오늘 연박 객실이 없습니다.</p>
         ) : (
-          <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+          <ul className="flex flex-col gap-4">
             {rooms.map((room) => (
-              <div
+              <li
                 key={room.room_number}
-                className="rounded-2xl border border-[#E5E8EB] bg-[#F8F9FA] px-4 py-6 text-center dark:border-gray-800 dark:bg-[#1E1E24]"
+                className="text-heading font-semibold tabular-nums text-[#191F28] dark:text-white"
               >
-                <div className="text-title font-bold tabular-nums text-[#191F28] dark:text-white">
-                  {room.room_number}
-                </div>
-                {room.is_dormitory && room.capacity ? (
-                  <div className="mt-1.5 text-caption font-medium text-[#3182F6] dark:text-[#60A5FA] tabular-nums">
-                    연박 {room.stayover_count ?? 0}/{room.capacity}
-                  </div>
+                {room.room_number}
+                {room.is_dormitory ? (
+                  <span className="ml-1.5 text-label font-medium text-[#3182F6] dark:text-[#60A5FA]">
+                    ({room.stayover_count ?? 0}자리연박)
+                  </span>
                 ) : null}
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </div>
     </div>
