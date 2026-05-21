@@ -1,4 +1,6 @@
 import { GuestZone, type GuestZoneProps } from './GuestZone';
+import { MobileGuestZone } from './MobileGuestZone';
+import { useIsMobile } from '../../../../hooks/use-mobile';
 
 type WrapperProps = Omit<
   GuestZoneProps,
@@ -7,8 +9,10 @@ type WrapperProps = Omit<
 
 /** 취소 zone 래퍼 — 드롭 안 받음, 빨강 테마, 카운트 표시 + 흐림(opacity-60), 비었으면 숨김. */
 export function CancelledZone(props: WrapperProps) {
+  const isMobile = useIsMobile();
+  const Zone = isMobile ? MobileGuestZone : GuestZone;
   return (
-    <GuestZone
+    <Zone
       title="취소"
       titleColorClass="text-[#F04452] dark:text-[#FF6B7A]"
       accept={false}

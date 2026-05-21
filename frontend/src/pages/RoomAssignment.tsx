@@ -5,17 +5,11 @@ import { queryKeys } from '@/lib/queryKeys';
 import { useTenantStore } from '@/stores/tenant-store';
 import dayjs, { Dayjs } from 'dayjs';
 import { toast } from 'sonner';
-import { TextInput } from '@/components/ui/input';
-import {
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-} from 'lucide-react';
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragStartEvent,
@@ -40,19 +34,15 @@ import { GuestRow } from './RoomAssignment/components/shared/GuestRow';
 import { CompactGuestCell } from './RoomAssignment/components/shared/CompactGuestCell';
 import { GuestDragCard } from './RoomAssignment/components/shared/GuestDragCard';
 import { markDragEnded } from './RoomAssignment/utils/dragState';
-import { UnassignedZone } from './RoomAssignment/components/zones/UnassignedZone';
-import { PartyZone } from './RoomAssignment/components/zones/PartyZone';
-import { UnstableZone } from './RoomAssignment/components/zones/UnstableZone';
-import { CancelledZone } from './RoomAssignment/components/zones/CancelledZone';
 import { RoomRow, type RoomEntry } from './RoomAssignment/components/RoomRow';
-import { BuildingGroup } from './RoomAssignment/components/BuildingGroup';
+import { MobileRoomCard } from './RoomAssignment/components/MobileRoomCard';
+import { MobileGuestRow } from './RoomAssignment/components/shared/MobileGuestRow';
 import { useReservationForm } from './RoomAssignment/hooks/useReservationForm';
 import { useUndoStack } from './RoomAssignment/hooks/useUndoStack';
 import { useSseInvalidator } from '../hooks/useSseInvalidator';
 import { useGuestMove } from './RoomAssignment/hooks/useGuestMove';
-import { PageHeader } from './RoomAssignment/components/PageHeader';
-import { SummaryCards } from './RoomAssignment/components/SummaryCards';
-import { CampaignToolbar } from './RoomAssignment/components/CampaignToolbar';
+import { DesktopLayout, type DesktopLayoutProps } from './RoomAssignment/layouts/DesktopLayout';
+import { MobileLayout } from './RoomAssignment/layouts/MobileLayout';
 import { ConfirmDialog } from './RoomAssignment/modals/ConfirmDialog';
 import { MultiNightConfirmModal } from './RoomAssignment/modals/MultiNightConfirmModal';
 import { AutoAssignConfirmModal } from './RoomAssignment/modals/AutoAssignConfirmModal';
@@ -171,8 +161,14 @@ const RoomAssignment = () => {
 
   // dnd-kit (PC 전용 드래그) — sensors + state. handleDragStart/End/Cancel은 useGuestMove 직후에 정의 (클로저 의존성).
   const [activeResId, setActiveResId] = useState<number | null>(null);
+  // Step #06a fix: PointerSensor + TouchSensor 동시 등록 시 같은 터치 이벤트가 양쪽에서 잡혀 충돌 →
+  // drag 가 시작되자마자 취소(깜빡 후 snap back). dnd-kit 권장 조합 (MouseSensor + TouchSensor) 으로 변경.
+  // MouseSensor 는 PC 마우스 전용, TouchSensor 는 터치 전용. 서로 간섭 없음.
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(MouseSensor, {
+      activationConstraint: { distance: 4 },
+    }),
+    useSensor(TouchSensor, {
       activationConstraint: { distance: 4 },
     }),
   );
@@ -387,7 +383,6 @@ const RoomAssignment = () => {
 
   const {
     contextMenu, setContextMenu,
-    mobileContextMenuOpen, setMobileContextMenuOpen, mobileContextBtnRef,
     longPressTimerRef, longPressFiredRef,
     onGuestContextMenu,
   } = useContextMenu({
@@ -717,7 +712,19 @@ const RoomAssignment = () => {
       {...sharedRowProps}
     />
   );
+  // 모바일 컴팩트 게스트 줄 (Step #03b) — props 인터페이스는 GuestRow 와 동일하므로 sharedRowProps 그대로 spread.
+  const renderMobileGuestRow = (res: Reservation, showGrip: boolean, zone?: string) => (
+    <MobileGuestRow
+      key={res.id}
+      res={res}
+      showGrip={showGrip}
+      isSelected={selectedGuestIds.has(res.id)}
+      zone={zone}
+      {...sharedRowProps}
+    />
+  );
   // 4 zone 컴포넌트가 공유하는 props 묶음
+  // Step #04: zones 의 renderGuestRow 는 isMobile 일 때 MobileGuestRow 를 사용 (모바일 zone 카드 안의 컴팩트 게스트 줄)
   const sharedZoneProps = {
     hover, setHover, clearHover,
     onDropZoneClick,
@@ -726,7 +733,7 @@ const RoomAssignment = () => {
     NEXT_DAY_EXPANDED_WIDTH,
     nextDayColWidth: colWidths.nextDay,
     GUEST_COLS,
-    renderGuestRow,
+    renderGuestRow: isMobile ? renderMobileGuestRow : renderGuestRow,
     renderCompactCell,
   };
 
@@ -735,19 +742,38 @@ const RoomAssignment = () => {
     const groupColor = groupInfo?.isLast
       ? roomGroups.find(g => g.id === groupInfo.group_id)?.color
       : undefined;
+    const commonRoomProps = {
+      entry,
+      rowIndex,
+      groupInfo,
+      groupColor,
+      guestsToday: assignedRooms.get(entry.room_id) || [],
+      guestsNextDay: nextDayRoomMap.get(entry.room_id) || [],
+      roomMemo: roomMemoMap[entry.room_id] || '',
+      onSaveRoomMemo: saveRoomMemo,
+      isDarkMode,
+      rowColors,
+    };
+    if (isMobile) {
+      // Step #03b: 모바일은 MobileRoomCard 사용 (renderMobileGuestRow 사용, 컬럼/내일 expand 폭은 무시)
+      return (
+        <MobileRoomCard
+          key={entry.room_id}
+          {...commonRoomProps}
+          hover={hover}
+          setHover={setHover}
+          clearHover={clearHover}
+          onDropZoneClick={onDropZoneClick}
+          selectionActive={selectionActive}
+          nextDayExpanded={nextDayExpanded}
+          renderMobileGuestRow={renderMobileGuestRow}
+        />
+      );
+    }
     return (
       <RoomRow
         key={entry.room_id}
-        entry={entry}
-        rowIndex={rowIndex}
-        groupInfo={groupInfo}
-        groupColor={groupColor}
-        guestsToday={assignedRooms.get(entry.room_id) || []}
-        guestsNextDay={nextDayRoomMap.get(entry.room_id) || []}
-        roomMemo={roomMemoMap[entry.room_id] || ''}
-        onSaveRoomMemo={saveRoomMemo}
-        isDarkMode={isDarkMode}
-        rowColors={rowColors}
+        {...commonRoomProps}
         {...sharedZoneProps}
       />
     );
@@ -866,170 +892,65 @@ const RoomAssignment = () => {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
+      // PC + 모바일 모두 autoScroll 활성 — drag 중 viewport 가장자리에서 자동 스크롤.
+      // (모바일은 touch-action: none 가 grip 에만 걸려있으므로 그 밖 영역의 swipe 와 충돌 없음.)
     >
     <div className={`space-y-4 pb-14 min-w-0 ${processing ? 'opacity-60 pointer-events-none' : ''}`}>
 
-      <PageHeader />
-
-      <SummaryCards summary={summary} hasUnstable={hasUnstable} />
-
-      <CampaignToolbar
-        templateLabels={templateLabels}
-        selectedTemplateKey={selectedTemplateKey}
-        setSelectedTemplateKey={setSelectedTemplateKey}
-        campaignDropdownOpen={campaignDropdownOpen}
-        setCampaignDropdownOpen={setCampaignDropdownOpen}
-        campaignDropdownRef={campaignDropdownRef}
-        targets={targets}
-        clearTargets={clearTargets}
-        sending={sending}
-        loadTargets={loadTargets}
-        requestSendCampaign={requestSendCampaign}
-        onOpenTableSettings={() => setTableSettingsOpen(true)}
-        onAddPartyGuest={handleAddPartyGuest}
-      />
-
-      {/* Main grid card */}
-      <div className="section-card !overflow-visible w-max min-w-full">
-        {/* Date navigation header — sticky */}
-        <div ref={dateHeaderRef} className="sticky top-0 z-20">
-          <div className="section-header justify-center bg-white dark:bg-[#1E1E24]">
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => navigateDate('prev')}
-                className="cursor-pointer p-1 text-[#B0B8C1] hover:text-[#191F28] dark:text-[#4E5968] dark:hover:text-white transition-colors bg-transparent border-none"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <TextInput
-                type="date"
-                sizing="sm"
-                value={selectedDate.format('YYYY-MM-DD')}
-                onChange={(e) => {
-                  if (e.target.value) setSelectedDate(dayjs(e.target.value));
-                }}
-              />
-              <button
-                onClick={() => navigateDate('next')}
-                className="cursor-pointer p-1 text-[#B0B8C1] hover:text-[#191F28] dark:text-[#4E5968] dark:hover:text-white transition-colors bg-transparent border-none"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="section-body !pt-2">
-          <div
-            key={selectedDate.format('YYYY-MM-DD')}
-            className={
-              animDirection === 'left'
-                ? 'date-slide-left'
-                : animDirection === 'right'
-                  ? 'date-slide-right'
-                  : ''
-            }
-          >
-            {/* Unified Table */}
-            <div ref={tableContainerRef} className="relative rounded-xl border border-[#F2F4F6] dark:border-[#2C2C34]">
-              {resizeGuideX !== null && (
-                <div className="absolute top-0 bottom-0 w-px bg-[#3182F6] z-50 pointer-events-none" style={{ left: resizeGuideX }} />
-              )}
-              {/* Header */}
-              <div className="flex items-center h-10 bg-[#F2F4F6] dark:bg-[#17171C] border-b border-[#D1D5DB] dark:border-[#4E5968] sticky z-[19]" style={{ top: dateHeaderH }}>
-                <div className="flex-shrink-0 pl-3 pr-2 w-38 border-r border-[#F2F4F6] dark:border-[#2C2C34]">
-                  <span className="text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">객실</span>
-                </div>
-                <div className="w-10 flex-shrink-0" />
-                <div
-                  className="flex-1 grid items-center"
-                  style={{ gridTemplateColumns: GUEST_COLS }}
-                >
-                  <div className="relative pl-[9px] pr-1.5 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">이름<div onMouseDown={(e) => startResize('name', e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
-                  <div className="relative pl-[9px] pr-1.5 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">전화번호<div onMouseDown={(e) => startResize('phone', e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
-                  <div className="relative px-1.5 text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">파티<div onMouseDown={(e) => startResize('party', e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
-                  <div className="relative px-1.5 text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">성별<div onMouseDown={(e) => startResize('gender', e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
-                  <div className="relative px-1.5 text-center text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">예약객실<div onMouseDown={(e) => startResize('roomType', e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
-                  <div className="relative pl-[9px] pr-1.5 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">메모<div onMouseDown={(e) => startResize('notes', e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
-                  <div className="relative pl-[9px] pr-1.5 text-label font-semibold uppercase tracking-wide text-[#8B95A1] dark:text-[#8B95A1]">문자<div onMouseDown={(e) => startResize('sms', e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:right-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" /></div>
-                </div>
-                <div className="relative flex-shrink-0 z-[2] before:content-[''] before:absolute before:inset-y-0 before:left-0 before:w-px before:bg-[#E5E8EB] dark:before:bg-gray-700 before:z-10 before:pointer-events-none flex flex-col justify-center self-stretch transition-all duration-200" style={{ width: nextDayExpanded ? NEXT_DAY_EXPANDED_WIDTH : colWidths.nextDay }}>
-                  {!nextDayExpanded && (
-                    <div onMouseDown={(e) => startResize('nextDay', e)} className="absolute left-0 top-0 bottom-0 w-2 cursor-col-resize z-10 before:content-[''] before:absolute before:left-0 before:top-1 before:bottom-1 before:w-px before:bg-[#D1D5DB] dark:before:bg-[#4E5968] hover:before:bg-[#3182F6] active:before:bg-[#3182F6]" />
-                  )}
-                  {!nextDayExpanded ? (
-                    <div className="flex items-center justify-center gap-1 px-2">
-                      <button onClick={() => setNextDayExpanded(true)} className="text-[#8B95A1] hover:text-[#3182F6] transition-colors cursor-pointer" title="펼치기">
-                        <ChevronsLeft className="h-3.5 w-3.5" />
-                      </button>
-                      <span className="text-caption font-semibold text-[#8B95A1] dark:text-[#8B95A1]">{selectedDate.add(1, 'day').format('M/D')}</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center">
-                      <button onClick={() => setNextDayExpanded(false)} className="w-8 flex-shrink-0 flex items-center justify-center text-[#8B95A1] hover:text-[#3182F6] transition-colors cursor-pointer" title="접기">
-                        <ChevronsRight className="h-3.5 w-3.5" />
-                      </button>
-                      <div className="flex-1 grid items-center" style={{ gridTemplateColumns: NEXT_GUEST_COLS }}>
-                        <div className="px-1 text-caption font-semibold text-[#8B95A1] whitespace-nowrap">{selectedDate.add(1, 'day').format('M/D')}</div>
-                        <div className="px-1 text-[10px] font-semibold text-[#8B95A1]">전화번호</div>
-                        <div className="px-1 text-center text-[10px] font-semibold text-[#8B95A1]">파티</div>
-                        <div className="px-1 text-center text-[10px] font-semibold text-[#8B95A1]">성별</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Selection mode toast is handled via useEffect */}
-
-              {/* Room Rows (stale-while-revalidate: 이전 데이터 유지, 새 데이터 조용히 교체) */}
-              <div className={loading ? 'pointer-events-none' : ''} onContextMenu={(e) => { if (!(e.target as HTMLElement).closest('[data-allow-context]')) e.preventDefault(); }}>
-                {(() => {
-                  let rowIdx = 0;
-                  return buildingGroups.map((group) => {
-                    const startIdx = rowIdx;
-                    rowIdx += group.entries.length;
-                    return (
-                      <BuildingGroup
-                        key={`building-${group.building_id ?? 'none'}`}
-                        group={group}
-                        isCollapsed={collapsedBuildings.has(group.building_id)}
-                        onToggle={toggleBuildingCollapse}
-                        startRowIndex={startIdx}
-                        renderRoomRow={renderRoomRow}
-                      />
-                    );
-                  });
-                })()}
-              </div>
-
-              <UnassignedZone
-                guests={unassigned}
-                nextDayGuests={nextDayUnassigned}
-                {...sharedZoneProps}
-              />
-
-              <PartyZone
-                guests={partyOnly}
-                nextDayGuests={nextDayPartyOnly}
-                {...sharedZoneProps}
-              />
-
-              <UnstableZone
-                guests={unstableGuests}
-                nextDayGuests={[]}
-                {...sharedZoneProps}
-              />
-
-              <CancelledZone
-                guests={cancelledGuests}
-                nextDayGuests={[]}
-                {...sharedZoneProps}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* PC/모바일 분기 (Step #02). 현 단계 MobileLayout 은 DesktopLayout wrapper — 동작/시각 동일. */}
+      {(() => {
+        const layoutProps: DesktopLayoutProps = {
+          // SummaryCards
+          summary,
+          hasUnstable,
+          // CampaignToolbar
+          templateLabels,
+          selectedTemplateKey,
+          setSelectedTemplateKey,
+          campaignDropdownOpen,
+          setCampaignDropdownOpen,
+          campaignDropdownRef,
+          targets,
+          clearTargets,
+          sending,
+          loadTargets,
+          requestSendCampaign,
+          onOpenTableSettings: () => setTableSettingsOpen(true),
+          onAddPartyGuest: handleAddPartyGuest,
+          // Date nav
+          selectedDate,
+          setSelectedDate,
+          navigateDate,
+          animDirection,
+          // Column resize / sticky
+          dateHeaderRef,
+          tableContainerRef,
+          dateHeaderH,
+          resizeGuideX,
+          startResize,
+          colWidths,
+          GUEST_COLS,
+          NEXT_GUEST_COLS,
+          NEXT_DAY_EXPANDED_WIDTH,
+          nextDayExpanded,
+          setNextDayExpanded,
+          // BuildingGroup loop
+          buildingGroups,
+          collapsedBuildings,
+          toggleBuildingCollapse,
+          renderRoomRow,
+          loading,
+          // Zones
+          unassigned,
+          nextDayUnassigned,
+          partyOnly,
+          nextDayPartyOnly,
+          unstableGuests,
+          cancelledGuests,
+          sharedZoneProps,
+        };
+        return isMobile ? <MobileLayout {...layoutProps} /> : <DesktopLayout {...layoutProps} />;
+      })()}
 
       {/* Guest Form Modal */}
       <ReservationFormModal
@@ -1048,53 +969,6 @@ const RoomAssignment = () => {
         onPartyAdd={handleQuickAddParty}
         canUndo={canUndo}
         onUndo={handleUndo}
-        isMobile={isMobile}
-        selectionActive={selectionActive}
-        selectedCount={selectedGuestIds.size}
-        mobileContextBtnRef={mobileContextBtnRef}
-        mobileContextMenuOpen={mobileContextMenuOpen}
-        onToggleMobileContext={() => {
-          if (mobileContextMenuOpen) {
-            setContextMenu(null);
-            setMobileContextMenuOpen(false);
-          } else {
-            const ids = [...selectedGuestIds];
-            if (ids.length === 0) return;
-            const rect = mobileContextBtnRef.current!.getBoundingClientRect();
-            setContextMenu({ x: rect.left, y: rect.top - 8, targetIds: ids });
-            setMobileContextMenuOpen(true);
-          }
-        }}
-        onCallSelected={() => {
-          if (selectedGuestIds.size !== 1) return;
-          const id = [...selectedGuestIds][0];
-          const found = findReservation(id);
-          const phone = found?.res?.phone?.trim();
-          if (!phone) {
-            toast.warning('연락처가 등록되지 않은 게스트입니다');
-            return;
-          }
-          window.location.href = `tel:${phone}`;
-        }}
-        onDeleteSelected={() => {
-          const ids = [...selectedGuestIds];
-          if (ids.length === 0) return;
-          if (ids.length > 1) {
-            const names = ids.map((id) => findReservation(id)?.res.customer_name?.trim() || '?').slice(0, 5);
-            const nameList = names.join(', ') + (ids.length > 5 ? ` 외 ${ids.length - 5}명` : '');
-            showConfirm('게스트 일괄 삭제', `${nameList} (총 ${ids.length}명) 을 삭제하시겠습니까?`, async () => {
-              for (const id of ids) {
-                try { await reservationsAPI.delete(id); } catch { /* skip */ }
-              }
-              toast.success(`${ids.length}명 삭제 완료`);
-              setSelectedGuestIds(new Set());
-              _invalidateReservations();
-            });
-          } else {
-            handleDeleteGuest(ids[0]);
-            setSelectedGuestIds(new Set());
-          }
-        }}
       />
 
       <ConfirmDialog
@@ -1277,9 +1151,8 @@ const RoomAssignment = () => {
                 return;
               }
               setContextMenu(null);
-              setMobileContextMenuOpen(false);
             }}
-            onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); setMobileContextMenuOpen(false); }}
+            onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }}
           />
         <GuestContextMenu
           position={{ x: contextMenu.x, y: contextMenu.y }}
@@ -1298,8 +1171,7 @@ const RoomAssignment = () => {
           onCancelExtendStay={contextMenuActions.onCancelExtendStay}
           onChangeDates={contextMenuActions.onChangeDates}
           onCall={contextMenuActions.onCall}
-          hideDelete={isMobile && mobileContextMenuOpen}
-          onClose={() => { setContextMenu(null); setMobileContextMenuOpen(false); }}
+          onClose={() => setContextMenu(null)}
         />
         </>
       )}

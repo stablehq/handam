@@ -3,7 +3,12 @@
  *
  * Phase A-5: RoomAssignment.tsx 의 통계 영역 JSX 분리.
  * SummaryShape 는 부모의 useMemo 결과 shape 와 일치해야 한다 (RoomAssignment.tsx:2232~).
+ *
+ * Mobile Layout Step #05 (2026-05-20): useIsMobile 분기. 모바일은 MobileSummaryCards (grid-cols-2 컴팩트) 로 위임.
  */
+
+import { useIsMobile } from '../../../hooks/use-mobile';
+import { MobileSummaryCards } from './MobileSummaryCards';
 
 export interface SummaryShape {
   roomTotal: number;
@@ -31,6 +36,10 @@ interface SummaryCardsProps {
 }
 
 export function SummaryCards({ summary, hasUnstable }: SummaryCardsProps) {
+  const isMobile = useIsMobile();
+  if (isMobile) {
+    return <MobileSummaryCards summary={summary} hasUnstable={hasUnstable} />;
+  }
   return (
     <div className="flex flex-wrap gap-3 items-stretch">
       {/* 그룹 카드 */}

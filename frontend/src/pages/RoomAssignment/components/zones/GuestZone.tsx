@@ -103,13 +103,14 @@ export function GuestZone({
   });
 
   // dnd-kit useDroppable — PC 드래그용. id는 항상 unique 필요 → zoneId 없으면 noop fallback.
+  // Step #06a: 모바일도 드롭 활성.
   const dropMain = useDroppable({
     id: zoneId || `__noop-zone-${title}-main`,
-    disabled: !isDesktop || !accept || !zoneId,
+    disabled: !accept || !zoneId,
   });
   const dropNext = useDroppable({
     id: nextZoneId || `__noop-zone-${title}-next`,
-    disabled: !isDesktop || !accept || !nextZoneId || !nextDayExpanded,
+    disabled: !accept || !nextZoneId || !nextDayExpanded,
   });
   const isMainOver = main.isDragOver || dropMain.isOver;
   const isNextOver = next.isDragOver || dropNext.isOver;

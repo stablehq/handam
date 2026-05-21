@@ -133,13 +133,14 @@ export function RoomRow({
     enabled: nextDayExpanded && selectionActive && isActive,
   });
   // dnd-kit useDroppable — PC 드래그용. 모바일은 disabled
+  // Step #06a: 모바일도 드롭 활성.
   const dropMain = useDroppable({
     id: `room-${room_id}`,
-    disabled: !isDesktop || !isActive,
+    disabled: !isActive,
   });
   const dropNext = useDroppable({
     id: `next-room-${room_id}`,
-    disabled: !isDesktop || !isActive || !nextDayExpanded,
+    disabled: !isActive || !nextDayExpanded,
   });
   const isMainOver = main.isDragOver || dropMain.isOver;
   const isNextOver = next.isDragOver || dropNext.isOver;

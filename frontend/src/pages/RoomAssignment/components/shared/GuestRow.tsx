@@ -1,8 +1,7 @@
 import React from 'react';
 import type { Dayjs } from 'dayjs';
-import { Circle, GripVertical } from 'lucide-react';
+import { GripVertical } from 'lucide-react';
 import { useDraggable } from '@dnd-kit/core';
-import { useIsDesktop } from '../../../../hooks/use-desktop';
 import { normalizeUtcString } from '../../../../lib/utils';
 import {
   PRESET_HIGHLIGHT_STYLES,
@@ -82,10 +81,10 @@ export function GuestRow({
   const genderPeople = formatGenderPeople(res);
   const longStay = !!res.is_long_stay;
   const isCancelled = res.status === 'cancelled';
-  const isDesktop = useIsDesktop();
+  // Step #06a: 모바일에서도 드래그 활성. cancelled 만 제외.
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `guest-${res.id}`,
-    disabled: !isDesktop || isCancelled,
+    disabled: isCancelled,
   });
   const isCustomHex = isCustomHexColor(res.highlight_color);
   const highlightStyle = !isCustomHex && res.highlight_color ? PRESET_HIGHLIGHT_STYLES[res.highlight_color] : null;
@@ -161,17 +160,10 @@ export function GuestRow({
         }
       }}
       onClick={(e: React.MouseEvent) => {
-        if (isCancelled || isDesktop) return;
-        // long-press 직후 발화하는 합성 click 무시 (선택 토글 방지)
+        // Step #06b: selection 시스템 제거. long-press 합성 click 만 가드 (컨텍스트 메뉴 직후 의도치 않은 클릭 차단).
         if (longPressFiredRef.current) {
           longPressFiredRef.current = false;
-          return;
-        }
-        if (showGrip && !(e.target as HTMLElement).closest('input, textarea, select, [data-interactive], button, a, [role="button"]')) {
-          if (selectionActive && !isSelected) {
-            return;
-          }
-          onGripClick(e, res.id);
+          e.stopPropagation();
         }
       }}
     >
@@ -180,28 +172,20 @@ export function GuestRow({
           ref={setNodeRef}
           {...attributes}
           {...listeners}
-          className={`flex items-center justify-center w-10 px-0.5 flex-shrink-0 ${isDesktop ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${
+          className={`flex items-center justify-center w-10 px-0.5 flex-shrink-0 cursor-grab active:cursor-grabbing touch-none text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${
             isSelected
               ? 'text-[#3182F6] dark:text-[#3182F6]'
               : longStay ? 'group-hover/guest:text-[#FFB366] dark:group-hover/guest:text-[#FFB366]' : 'group-hover/guest:text-[#3182F6] dark:group-hover/guest:text-[#3182F6]'
           }`}
         >
-          {isDesktop ? (
-            <GripVertical size={18} strokeWidth={1.5} />
-          ) : (
-            <span className="relative flex items-center justify-center w-[18px] h-[18px] group/circle">
-              <span className={`absolute inset-0 rounded-full bg-[#3182F6] transition-all duration-300 ease-out ${
-                isSelected ? 'scale-[0.55] opacity-80' : 'scale-0 opacity-0 group-hover/circle:scale-[0.55] group-hover/circle:opacity-30'
-              }`} />
-              <Circle size={18} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${isSelected ? 'text-[#3182F6]' : ''}`} />
-            </span>
-          )}
+          {/* Step #06a: 모바일도 PC 와 동일하게 GripVertical 사용 (drag 핸들 명시). */}
+          <GripVertical size={18} strokeWidth={1.5} />
         </div>
       )}
       <div className="flex-1 grid items-center" style={{ gridTemplateColumns: GUEST_COLS }}>
         <div className="overflow-hidden px-1.5 flex items-center gap-0.5">
           <span className="flex items-center gap-1 min-w-0">
-            <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className={`font-medium ${cellText}`} placeholder="이름" autoFocus={res.id === quickAddedId} disabled={isCancelled} compact onActivate={cancelDeselect} singleClick={isDesktop} />
+            <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className={`font-medium ${cellText}`} placeholder="이름" autoFocus={res.id === quickAddedId} disabled={isCancelled} compact onActivate={cancelDeselect} singleClick />
             {formatGuestSuffix(res) && (
               <span className={`flex-shrink-0 text-caption ${subtleText}`}>{formatGuestSuffix(res)}</span>
             )}
@@ -209,13 +193,13 @@ export function GuestRow({
           </span>
         </div>
         <div className="overflow-hidden px-1.5">
-          <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className={`${cellText} tabular-nums`} placeholder="연락처" onActivate={cancelDeselect} singleClick={isDesktop} />
+          <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className={`${cellText} tabular-nums`} placeholder="연락처" onActivate={cancelDeselect} singleClick />
         </div>
         <div className="overflow-hidden text-center px-1.5">
-          <InlineInput value={res.party_type || ''} field="party_type" resId={res.id} onSave={handleFieldSave} className={`${cellText} font-medium text-center`} placeholder="-" onActivate={cancelDeselect} singleClick={isDesktop} />
+          <InlineInput value={res.party_type || ''} field="party_type" resId={res.id} onSave={handleFieldSave} className={`${cellText} font-medium text-center`} placeholder="-" onActivate={cancelDeselect} singleClick />
         </div>
         <div className="overflow-hidden text-center px-1.5">
-          <InlineInput value={genderPeople} field="genderPeople" resId={res.id} onSave={handleFieldSave} className={`${cellText} font-medium text-center`} placeholder="-" onActivate={cancelDeselect} singleClick={isDesktop} />
+          <InlineInput value={genderPeople} field="genderPeople" resId={res.id} onSave={handleFieldSave} className={`${cellText} font-medium text-center`} placeholder="-" onActivate={cancelDeselect} singleClick />
         </div>
         <div className={`overflow-hidden truncate text-body text-center px-1.5 ${naverRoomText}`}>{res.naver_room_type || <span className="text-[#B0B8C1] dark:text-[#4E5968]">-</span>}</div>
         <div className="overflow-hidden px-1.5">
@@ -224,7 +208,7 @@ export function GuestRow({
               {new Date(normalizeUtcString(res.cancelled_at)).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })} 취소
             </span>
           ) : (
-            <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className={cellText} placeholder="" onActivate={cancelDeselect} singleClick={isDesktop} />
+            <InlineInput value={res.notes || ''} field="notes" resId={res.id} onSave={handleFieldSave} className={cellText} placeholder="" onActivate={cancelDeselect} singleClick />
           )}
         </div>
         <div className="overflow-visible px-1.5">

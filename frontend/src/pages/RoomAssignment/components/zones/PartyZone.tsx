@@ -1,4 +1,6 @@
 import { GuestZone, type GuestZoneProps } from './GuestZone';
+import { MobileGuestZone } from './MobileGuestZone';
+import { useIsMobile } from '../../../../hooks/use-mobile';
 
 type WrapperProps = Omit<
   GuestZoneProps,
@@ -7,8 +9,10 @@ type WrapperProps = Omit<
 
 /** 파티만 zone 래퍼 — 드롭 받음, 보라 테마. */
 export function PartyZone(props: WrapperProps) {
+  const isMobile = useIsMobile();
+  const Zone = isMobile ? MobileGuestZone : GuestZone;
   return (
-    <GuestZone
+    <Zone
       title="파티만"
       titleColorClass="text-[#7B61FF] dark:text-[#7B61FF]"
       accept

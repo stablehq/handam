@@ -1,8 +1,7 @@
 import React from 'react';
 import type { Dayjs } from 'dayjs';
-import { Circle, GripVertical } from 'lucide-react';
+import { GripVertical } from 'lucide-react';
 import { useDraggable } from '@dnd-kit/core';
-import { useIsDesktop } from '../../../../hooks/use-desktop';
 import { formatGenderPeople, formatGuestSuffix } from '../../utils/reservationFormat';
 import { InlineInput } from '../InlineInput';
 import type { Reservation } from '../../types';
@@ -42,10 +41,9 @@ export function CompactGuestCell({
   cancelDeselect,
 }: CompactGuestCellProps) {
   const gp = formatGenderPeople(guest);
-  const isDesktop = useIsDesktop();
+  // Step #06a: 모바일도 드래그 활성.
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `guest-next-${guest.id}`,
-    disabled: !isDesktop,
   });
 
   // 다음날 데이터 저장 — selectedDate + 1일을 targetDate 로
@@ -80,33 +78,21 @@ export function CompactGuestCell({
         ref={setNodeRef}
         {...attributes}
         {...listeners}
-        onClick={(e: React.MouseEvent) => {
-          if (isDesktop) return;
-          onGripClick(e, guest.id);
-        }}
-        className={`flex items-center justify-center w-8 px-0.5 flex-shrink-0 ${isDesktop ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${
+        className={`flex items-center justify-center w-8 px-0.5 flex-shrink-0 cursor-grab active:cursor-grabbing touch-none text-[#B0B8C1] dark:text-[#4E5968] transition-all duration-200 ${
           isSelected
             ? 'text-[#3182F6] dark:text-[#3182F6]'
             : 'group-hover/guest:text-[#3182F6] dark:group-hover/guest:text-[#3182F6]'
         }`}
       >
-        {isDesktop ? (
-          <GripVertical size={16} strokeWidth={1.5} />
-        ) : (
-          <span className="relative flex items-center justify-center w-[16px] h-[16px] group/circle">
-            <span className={`absolute inset-0 rounded-full bg-[#3182F6] transition-all duration-300 ease-out ${
-              isSelected ? 'scale-[0.55] opacity-80' : 'scale-0 opacity-0 group-hover/circle:scale-[0.55] group-hover/circle:opacity-30'
-            }`} />
-            <Circle size={16} strokeWidth={1} className={`relative z-10 transition-colors duration-200 ${isSelected ? 'text-[#3182F6]' : ''}`} />
-          </span>
-        )}
+        {/* Step #06a: 모바일도 GripVertical. */}
+        <GripVertical size={16} strokeWidth={1.5} />
       </div>
       {/* Editable fields */}
       <div className="flex-1 grid items-center" style={{ gridTemplateColumns: NEXT_GUEST_COLS }}>
         <div className="overflow-hidden px-1 flex items-center gap-1 min-w-0">
           <InlineInput value={guest.customer_name} field="customer_name" resId={guest.id}
             onSave={saveNext}
-            className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" compact onActivate={cancelDeselect} singleClick={isDesktop} />
+            className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" compact onActivate={cancelDeselect} singleClick />
           {formatGuestSuffix(guest) && (
             <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{formatGuestSuffix(guest)}</span>
           )}
@@ -114,17 +100,17 @@ export function CompactGuestCell({
         <div className="overflow-hidden px-1">
           <InlineInput value={guest.phone || ''} field="phone" resId={guest.id}
             onSave={saveNext}
-            className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" onActivate={cancelDeselect} singleClick={isDesktop} />
+            className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" onActivate={cancelDeselect} singleClick />
         </div>
         <div className="overflow-hidden text-center px-1">
           <InlineInput value={guest.party_type || ''} field="party_type" resId={guest.id}
             onSave={saveNext}
-            className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" onActivate={cancelDeselect} singleClick={isDesktop} />
+            className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" onActivate={cancelDeselect} singleClick />
         </div>
         <div className="overflow-hidden text-center px-1">
           <InlineInput value={gp} field="genderPeople" resId={guest.id}
             onSave={saveNext}
-            className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" onActivate={cancelDeselect} singleClick={isDesktop} />
+            className="text-[#191F28] dark:text-white font-medium text-center text-caption" placeholder="-" onActivate={cancelDeselect} singleClick />
         </div>
       </div>
     </div>

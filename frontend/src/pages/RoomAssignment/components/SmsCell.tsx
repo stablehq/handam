@@ -105,7 +105,7 @@ export const SmsCell: React.FC<SmsCellProps> = ({
     <div className="relative flex items-center h-8">
       <div
         ref={scrollRef}
-        className="overflow-x-auto overflow-y-hidden flex items-center min-w-0 scrollbar-none"
+        className="flex-1 overflow-x-auto overflow-y-hidden flex items-center min-w-0 scrollbar-none"
       >
         <div className="flex items-center gap-1 flex-nowrap">
           {assignments.map((a) => {

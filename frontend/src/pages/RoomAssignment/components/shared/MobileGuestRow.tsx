@@ -1,0 +1,318 @@
+/**
+ * 게스트 한 줄 — 모바일(<768px) 컴팩트 3줄 레이아웃.
+ *
+ * Mobile Layout Step #03b (2026-05-20): GuestRow 의 가로 grid 를 세로 3줄로 재구성.
+ * 같은 props (`GuestRowProps`) 받아 drop-in replacement 가능.
+ *
+ * 레이아웃:
+ *   [○] 이름 (suffix) · 남2 · 파티타입
+ *       전화번호 · 예약객실
+ *       메모(편집 가능) · [SMS 칩들]
+ *
+ * 보존:
+ *  - 인라인 편집: customer_name / phone / party_type / genderPeople / notes
+ *  - 읽기 전용: naver_room_type, suffix(나이/성별), unstable dot, cancelled time
+ *  - highlight color (preset + custom hex)
+ *  - selection ring (long-press 후 표시)
+ *  - long-press 컨텍스트 메뉴 (500ms)
+ *  - drag (PC 에선 활성, 모바일 disabled)
+ *  - SmsCell
+ *  - long-stay 강조 배경
+ *  - cancelled 시 line-through + 취소 시각 표시
+ */
+
+import React, { useState } from 'react';
+import type { Dayjs } from 'dayjs';
+import { GripVertical, ChevronDown, ChevronUp } from 'lucide-react';
+import { useDraggable } from '@dnd-kit/core';
+import { normalizeUtcString } from '../../../../lib/utils';
+import {
+  PRESET_HIGHLIGHT_STYLES,
+  isCustomHexColor,
+  getCustomBgStyle,
+  getCustomTextClass,
+  isLightColor,
+} from '@/lib/highlight-colors';
+import { formatGenderPeople, formatGuestSuffix } from '../../utils/reservationFormat';
+import { InlineInput } from '../InlineInput';
+import { SmsCell } from '../SmsCell';
+import type { GuestRowProps } from './GuestRow';
+
+export function MobileGuestRow({
+  res,
+  showGrip,
+  isSelected,
+  zone,
+  selectionActive,
+  isDarkMode,
+  // GUEST_COLS 는 모바일 레이아웃에서 사용 안 함 (수신은 함 — drop-in 호환)
+  GUEST_COLS: _GUEST_COLS,
+  templateLabels,
+  selectedDate,
+  quickAddedId,
+  onGripClick,
+  onGuestContextMenu,
+  handleFieldSave,
+  handleSmsToggle,
+  handleSmsAssign,
+  handleSmsRemove,
+  cancelDeselect,
+  longPressTimerRef,
+  longPressFiredRef,
+}: GuestRowProps) {
+  // Step #06d: 모바일 행 펼침/접힘 상태 — 우측 chevron 버튼으로 토글. 펼치면 예약객실/메모/SMS 표시.
+  const [expanded, setExpanded] = useState(false);
+  const genderPeople = formatGenderPeople(res);
+  const suffix = formatGuestSuffix(res);
+  const longStay = !!res.is_long_stay;
+  const isCancelled = res.status === 'cancelled';
+
+  // Step #06a: 모바일도 드래그 활성.
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `guest-${res.id}`,
+    disabled: isCancelled,
+  });
+
+  const isCustomHex = isCustomHexColor(res.highlight_color);
+  const highlightStyle = !isCustomHex && res.highlight_color
+    ? PRESET_HIGHLIGHT_STYLES[res.highlight_color]
+    : null;
+  const hasCustomText = isCustomHex || !!highlightStyle?.text;
+  const isDarkHexBg = isCustomHex && !isLightColor(res.highlight_color!);
+  const subtleText = isDarkHexBg
+    ? 'text-[#191F28] dark:text-white'
+    : 'text-[#8B95A1] dark:text-[#4E5968]';
+  const cellText = isCancelled
+    ? 'text-[#F04452] line-through opacity-60'
+    : hasCustomText
+      ? 'text-inherit'
+      : 'text-[#191F28] dark:text-white';
+
+  const containerBgClass = isCancelled
+    ? 'bg-[#FFEBEE] dark:bg-[#F04452]/10'
+    : isSelected
+      ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/15 ring-1 ring-inset ring-[#3182F6]/30'
+      : isCustomHex
+        ? `${getCustomTextClass(res.highlight_color!)} hover:brightness-[0.97] dark:hover:brightness-110`
+        : highlightStyle
+          ? `${highlightStyle.bg} ${highlightStyle.hover} ${highlightStyle.text || ''}`
+          : longStay
+            ? 'bg-[#FFF0E0] dark:bg-[#FF9500]/15 hover:bg-[#FFE4CC] dark:hover:bg-[#FF9500]/20'
+            : 'hover:bg-[#E8F3FF] dark:hover:bg-[#3182F6]/8';
+
+  return (
+    <div
+      key={res.id}
+      className={`group/guest flex items-start gap-2 px-2 py-2 transition-colors duration-150 cursor-pointer ${
+        isDragging ? 'opacity-40' : ''
+      } ${containerBgClass}`}
+      style={isCustomHex && !isSelected ? getCustomBgStyle(res.highlight_color!, isDarkMode) : undefined}
+      onContextMenu={(e) => {
+        if (isCancelled) return;
+        if (document.activeElement instanceof HTMLInputElement) return;
+        onGuestContextMenu(e, res.id, zone);
+      }}
+      onTouchStart={(e) => {
+        if (isCancelled) return;
+        const target = e.target as HTMLElement;
+        if (target.closest('input, textarea, button, a, [role="button"], [data-interactive]')) return;
+        longPressFiredRef.current = false;
+        const t = e.touches[0];
+        const x = t.clientX;
+        const y = t.clientY;
+        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = setTimeout(() => {
+          longPressFiredRef.current = true;
+          longPressTimerRef.current = null;
+          onGuestContextMenu(
+            { preventDefault: () => {}, stopPropagation: () => {}, clientX: x, clientY: y } as React.MouseEvent,
+            res.id,
+            zone,
+          );
+          setTimeout(() => { longPressFiredRef.current = false; }, 1000);
+        }, 500);
+      }}
+      onTouchMove={() => {
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+      }}
+      onTouchEnd={(e) => {
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+        if (longPressFiredRef.current) {
+          e.preventDefault();
+        }
+      }}
+      onTouchCancel={() => {
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+      }}
+      onClick={(e: React.MouseEvent) => {
+        // Step #06b: selection 제거. long-press 합성 click 만 가드.
+        if (longPressFiredRef.current) {
+          longPressFiredRef.current = false;
+          e.stopPropagation();
+        }
+      }}
+    >
+      {/* Selection grip (좌측). Step #06b: selection 시스템 제거로 grip 의 onClick 도 제거 — drag 만 활성. */}
+      {showGrip && !isCancelled && (
+        <div
+          ref={setNodeRef}
+          {...attributes}
+          {...listeners}
+          className={`flex items-center justify-center w-6 h-5 mt-px flex-shrink-0 cursor-grab active:cursor-grabbing touch-none text-[#B0B8C1] dark:text-[#4E5968] transition-colors duration-200 ${
+            isSelected
+              ? 'text-[#3182F6] dark:text-[#3182F6]'
+              : longStay
+                ? 'group-hover/guest:text-[#FFB366]'
+                : 'group-hover/guest:text-[#3182F6]'
+          }`}
+        >
+          {/* Step #06a: 모바일도 GripVertical (drag 핸들). */}
+          <GripVertical size={18} strokeWidth={1.5} />
+        </div>
+      )}
+
+      {/* 본문 (3줄) */}
+      <div className="flex-1 min-w-0 overflow-hidden flex flex-col gap-0.5">
+        {/* Line 1: 이름(suffix+dot) / 전화번호 / 파티 / 성별 — 가로 4-column */}
+        <div className="flex items-center gap-2 min-w-0">
+          {/* 이름 + unstable dot — flex-1 (남는 공간 차지, truncate). suffix 는 1행에서 숨김. */}
+          <span className="flex items-center gap-1 min-w-0 flex-1">
+            <InlineInput
+              value={res.customer_name}
+              field="customer_name"
+              resId={res.id}
+              onSave={handleFieldSave}
+              className={`font-medium text-label ${cellText}`}
+              placeholder="이름"
+              autoFocus={res.id === quickAddedId}
+              disabled={isCancelled}
+              compact
+              onActivate={cancelDeselect}
+              singleClick
+            />
+            {res.has_unstable_booking && (
+              <span
+                className="inline-block h-[6px] w-[6px] rounded-full bg-[#7B61FF] flex-shrink-0"
+                title="언스테이블 파티 예약 확인"
+              />
+            )}
+          </span>
+          {/* Phone — 최소 96px, compact 으로 셀 높이 = line-height (py-1.5 부풀림 방지) */}
+          <div className="min-w-[96px] flex-shrink-0">
+            <InlineInput
+              value={res.phone}
+              field="phone"
+              resId={res.id}
+              onSave={handleFieldSave}
+              className={`${cellText} tabular-nums text-label`}
+              placeholder="연락처"
+              compact
+              onActivate={cancelDeselect}
+              singleClick
+            />
+          </div>
+          {/* Party — 최소 36px, 가운데 정렬 */}
+          <div className="min-w-[36px] flex-shrink-0 text-center">
+            <InlineInput
+              value={res.party_type || ''}
+              field="party_type"
+              resId={res.id}
+              onSave={handleFieldSave}
+              className={`${cellText} font-medium text-label text-center`}
+              placeholder="-"
+              compact
+              onActivate={cancelDeselect}
+              singleClick
+            />
+          </div>
+          {/* Gender — 최소 48px, 가운데 정렬 */}
+          <div className="min-w-[48px] flex-shrink-0 text-center">
+            <InlineInput
+              value={genderPeople}
+              field="genderPeople"
+              resId={res.id}
+              onSave={handleFieldSave}
+              className={`${cellText} font-medium text-label text-center`}
+              placeholder="-"
+              compact
+              onActivate={cancelDeselect}
+              singleClick
+            />
+          </div>
+        </div>
+
+        {/* 펼침 영역 */}
+        {expanded && (
+          <>
+            {/* Line 2: suffix / 객실타입 / 메모 — 컬럼 레이아웃 (점 구분자 X) */}
+            <div className="flex items-center gap-2 min-w-0">
+              <span className={`text-label ${subtleText} min-w-[64px] flex-shrink-0 truncate`}>
+                {suffix || ''}
+              </span>
+              <span className={`text-label ${subtleText} min-w-[40px] flex-shrink-0 truncate`}>
+                {res.naver_room_type || ''}
+              </span>
+              <div className="flex-1 min-w-0 overflow-hidden">
+                {isCancelled && res.cancelled_at ? (
+                  <span className="text-label text-[#F04452]">
+                    {new Date(normalizeUtcString(res.cancelled_at)).toLocaleTimeString('ko-KR', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: false,
+                    })}{' '}
+                    취소
+                  </span>
+                ) : (
+                  <InlineInput
+                    value={res.notes || ''}
+                    field="notes"
+                    resId={res.id}
+                    onSave={handleFieldSave}
+                    className={`${cellText} text-label`}
+                    placeholder="메모 입력하기"
+                    onActivate={cancelDeselect}
+                    singleClick
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Line 3: SMS 칩 */}
+            <div className="flex items-center min-w-0">
+              <SmsCell
+                reservation={res}
+                templateLabels={templateLabels}
+                selectedDate={selectedDate.format('YYYY-MM-DD')}
+                onToggle={handleSmsToggle}
+                onAssign={handleSmsAssign}
+                onRemove={handleSmsRemove}
+              />
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* 우측 펼침/접힘 토글 */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setExpanded((prev) => !prev);
+        }}
+        className="flex items-center justify-center w-5 h-5 mt-px flex-shrink-0 text-[#8B95A1] dark:text-[#4E5968] hover:text-[#3182F6] dark:hover:text-[#3182F6] transition-colors cursor-pointer"
+        aria-label={expanded ? '접기' : '펼치기'}
+      >
+        {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+      </button>
+    </div>
+  );
+}

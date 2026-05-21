@@ -16,12 +16,11 @@ interface UseContextMenuProps {
  * 게스트 컨텍스트 메뉴 외피 (state + 열기 + 닫기 + long-press refs).
  *
  * Phase D-3: 메뉴 항목 빌더(contextMenuActions useMemo) 는 본체에 잔존.
- * 빌더가 의존하는 핸들러들이 Phase G/I 에서 정리되면 함께 청소 가능.
+ * Step #06c (2026-05-20): 모바일 selection 컨텍스트 버튼 제거 — mobileContextMenuOpen /
+ * mobileContextBtnRef / 동기화 effect 폐기. long-press 컨텍스트 메뉴만 유지.
  */
 export function useContextMenu({ canOpen, selectedGuestIds }: UseContextMenuProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [mobileContextMenuOpen, setMobileContextMenuOpen] = useState(false);
-  const mobileContextBtnRef = useRef<HTMLButtonElement>(null);
 
   // long-press 타이머 — renderGuestRow 의 onTouchStart/Move/End/Cancel 핸들러가 직접 read/write.
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -48,11 +47,6 @@ export function useContextMenu({ canOpen, selectedGuestIds }: UseContextMenuProp
     };
   }, [contextMenu]);
 
-  // contextMenu 가 닫히면 모바일 메뉴 토글도 자동 해제 (두 상태 동기화)
-  useEffect(() => {
-    if (!contextMenu) setMobileContextMenuOpen(false);
-  }, [contextMenu]);
-
   const onGuestContextMenu = useCallback((e: React.MouseEvent, resId: number, zone?: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -69,9 +63,6 @@ export function useContextMenu({ canOpen, selectedGuestIds }: UseContextMenuProp
   return {
     contextMenu,
     setContextMenu,
-    mobileContextMenuOpen,
-    setMobileContextMenuOpen,
-    mobileContextBtnRef,
     longPressTimerRef,
     longPressFiredRef,
     onGuestContextMenu,
