@@ -64,3 +64,35 @@ export interface ConfirmState {
   content: string;
   onOk: () => void;
 }
+
+/**
+ * RoomAssignment 페이지의 상단 SummaryCards 가 표시하는 통계.
+ * RoomAssignment.tsx 의 summary useMemo (line 801-861) 반환 타입을 명시.
+ * DesktopLayout / SummaryCards 가 동일한 prop 타입으로 받는다.
+ */
+export interface Summary {
+  // 객실 게스트 통계 (복사본 제외)
+  roomTotal: number;
+  roomMale: number;
+  roomFemale: number;
+  // 파티 전체
+  partyTotal: number;
+  partyMale: number;
+  partyFemale: number;
+  // 파티 1차 (1차만 + 1,2차)
+  firstTotal: number;
+  firstMale: number;
+  firstFemale: number;
+  // 파티 2차만
+  secondOnlyTotal: number;
+  secondOnlyMale: number;
+  secondOnlyFemale: number;
+  // 2차 전환율 (1차 중 2차 참여 비율, %)
+  conversionRate: number;
+  // 1차 남:여 비율 ("1.5:1" 또는 "-")
+  genderRatio: string;
+  // unstable (순수 unstable + 복사본)
+  unstableTotal: number;
+  unstableMale: number;
+  unstableFemale: number;
+}
