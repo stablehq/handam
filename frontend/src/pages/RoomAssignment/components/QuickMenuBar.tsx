@@ -1,7 +1,8 @@
 import { createPortal } from 'react-dom';
-import { BedDouble, UserRoundPlus, Undo2 } from 'lucide-react';
+import { BedDouble, UserRoundPlus, Undo2, Phone, Trash2, Menu } from 'lucide-react';
 import { Tooltip } from '@/components/ui/tooltip';
 import { Spinner } from '@/components/ui/spinner';
+import type { Reservation } from '../types';
 
 interface QuickMenuBarProps {
   // 자동 배정
@@ -12,19 +13,22 @@ interface QuickMenuBarProps {
   // 되돌리기
   canUndo: boolean;
   onUndo: () => void;
+  // 모바일: InlineInput 활성화로 지정된 "활성 게스트". null 이면 추가 버튼 미노출.
+  activeGuest?: Reservation | null;
+  onActiveClear?: () => void;
+  onActiveCall?: (g: Reservation) => void;
+  onActiveDelete?: (g: Reservation) => void;
+  onActiveContext?: (g: Reservation, e: React.MouseEvent) => void;
 }
 
 /**
  * 객실 배정 페이지 하단 고정 Quick Menu.
  *
- * Step #06c (2026-05-20): 모바일 selection 컨텍스트/전화/삭제 버튼 제거.
- * 모바일도 long-press 컨텍스트 메뉴를 사용하므로 별도 모바일 버튼 불필요.
+ * Step #06c (2026-05-20): 모바일 selection 기반 버튼 제거.
+ * 재도입 (2026-05-21): 모바일 InlineInput 활성화 → activeGuest 지정 시 3 버튼
+ * (전화 / 삭제 / 컨텍스트 메뉴) + 닫기(X) 표시. selectedGuestIds 와 무관.
  *
  * createPortal 로 document.body 직속 렌더 + transform 없는 중앙정렬.
- * ancestor 의 transform/filter/contain 등이 fixed positioning 의
- * containing block 을 가로채는 모바일 브라우저 버그를 회피.
- * 래퍼는 viewport 폭(left-0 right-0)을 잡고 flex justify-center 로 안쪽
- * 카드를 중앙. 래퍼 pointer-events-none, 카드 only pointer-events-auto.
  */
 export function QuickMenuBar({
   autoAssigning,
@@ -32,7 +36,14 @@ export function QuickMenuBar({
   onPartyAdd,
   canUndo,
   onUndo,
+  activeGuest,
+  onActiveClear,
+  onActiveCall,
+  onActiveDelete,
+  onActiveContext,
 }: QuickMenuBarProps) {
+  const showActive = !!activeGuest;
+
   return createPortal(
     <div className="fixed bottom-4 left-0 right-0 z-50 flex justify-center pointer-events-none">
       <div className="rounded-2xl shadow-lg bg-white dark:bg-[#1E1E24] border border-[#E5E8EB] dark:border-gray-800 px-4 py-2.5 pointer-events-auto">
@@ -70,6 +81,41 @@ export function QuickMenuBar({
               </button>
             </div>
           </Tooltip>
+          {showActive && activeGuest && (
+            <>
+              <div className="w-px h-6 bg-[#E5E8EB] dark:bg-gray-700" />
+              <Tooltip content="컨텍스트 메뉴" placement="top">
+                <div className="inline-block">
+                  <button
+                    onClick={(e) => onActiveContext?.(activeGuest, e)}
+                    className="h-10 w-10 flex items-center justify-center rounded-full bg-white dark:bg-[#2C2C34] border border-[#E5E8EB] dark:border-gray-700 text-[#4E5968] dark:text-gray-300 hover:bg-[#F2F4F6] dark:hover:bg-[#35353E] active:bg-[#E5E8EB] transition-colors cursor-pointer"
+                  >
+                    <Menu className="h-[18px] w-[18px]" />
+                  </button>
+                </div>
+              </Tooltip>
+              <Tooltip content="선택한 게스트에게 전화" placement="top">
+                <div className="inline-block">
+                  <button
+                    onClick={() => onActiveCall?.(activeGuest)}
+                    className="h-10 w-10 flex items-center justify-center rounded-full bg-[#00C9A7]/10 text-[#00C9A7] border border-[#00C9A7]/20 hover:bg-[#00C9A7]/20 active:bg-[#00C9A7]/30 transition-colors cursor-pointer"
+                  >
+                    <Phone className="h-[18px] w-[18px]" />
+                  </button>
+                </div>
+              </Tooltip>
+              <Tooltip content="선택한 게스트 삭제" placement="top">
+                <div className="inline-block">
+                  <button
+                    onClick={() => onActiveDelete?.(activeGuest)}
+                    className="h-10 w-10 flex items-center justify-center rounded-full bg-[#F04452]/10 text-[#F04452] border border-[#F04452]/20 hover:bg-[#F04452]/20 active:bg-[#F04452]/30 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="h-[18px] w-[18px]" />
+                  </button>
+                </div>
+              </Tooltip>
+            </>
+          )}
         </div>
       </div>
     </div>,

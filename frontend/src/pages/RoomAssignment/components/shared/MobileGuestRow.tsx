@@ -103,7 +103,7 @@ export function MobileGuestRow({
   return (
     <div
       key={res.id}
-      className={`group/guest flex items-start gap-2 px-2 py-2 transition-colors duration-150 cursor-pointer ${
+      className={`group/guest flex items-center gap-2 px-2 py-2 transition-colors duration-150 cursor-pointer ${
         isDragging ? 'opacity-40' : ''
       } ${containerBgClass}`}
       style={isCustomHex && !isSelected ? getCustomBgStyle(res.highlight_color!, isDarkMode) : undefined}
@@ -182,23 +182,31 @@ export function MobileGuestRow({
 
       {/* 본문 (3줄) */}
       <div className="flex-1 min-w-0 overflow-hidden flex flex-col gap-0.5">
-        {/* Line 1: 이름(suffix+dot) / 전화번호 / 파티 / 성별 — 가로 4-column */}
-        <div className="flex items-center gap-2 min-w-0">
-          {/* 이름 + unstable dot — flex-1 (남는 공간 차지, truncate). suffix 는 1행에서 숨김. */}
-          <span className="flex items-center gap-1 min-w-0 flex-1">
-            <InlineInput
-              value={res.customer_name}
-              field="customer_name"
-              resId={res.id}
-              onSave={handleFieldSave}
-              className={`font-medium text-label ${cellText}`}
-              placeholder="이름"
-              autoFocus={res.id === quickAddedId}
-              disabled={isCancelled}
-              compact
-              onActivate={cancelDeselect}
-              singleClick
-            />
+        {/* Line 1: 이름(suffix+dot) / 전화번호 / 파티 / 성별 — 가로 4-column.
+            items-baseline 으로 font-weight/font-family 차이에 의한 미세 오프셋 제거. */}
+        <div className="flex items-baseline gap-1 min-w-0">
+          {/* 이름 + unstable dot — 자연 너비 우선(shrink-0). 전화번호가 먼저 줄어듦.
+              items-baseline 으로 dot 도 텍스트 baseline 에 맞춤. */}
+          <span className="flex items-baseline gap-1 flex-shrink-0">
+            {/* visitor 가 별도로 있으면 visitor 정보만 노출(편집도 visitor 필드로). */}
+            {(() => {
+              const useVisitor = !!(res.visitor_name && res.visitor_name !== res.customer_name);
+              return (
+                <InlineInput
+                  value={useVisitor ? (res.visitor_name || '') : res.customer_name}
+                  field={useVisitor ? 'visitor_name' : 'customer_name'}
+                  resId={res.id}
+                  onSave={handleFieldSave}
+                  className={`font-medium text-label ${cellText}`}
+                  placeholder="이름"
+                  autoFocus={res.id === quickAddedId}
+                  disabled={isCancelled}
+                  compact
+                  onActivate={cancelDeselect}
+                  singleClick
+                />
+              );
+            })()}
             {res.has_unstable_booking && (
               <span
                 className="inline-block h-[6px] w-[6px] rounded-full bg-[#7B61FF] flex-shrink-0"
@@ -206,22 +214,27 @@ export function MobileGuestRow({
               />
             )}
           </span>
-          {/* Phone — 최소 96px, compact 으로 셀 높이 = line-height (py-1.5 부풀림 방지) */}
-          <div className="min-w-[96px] flex-shrink-0">
-            <InlineInput
-              value={res.phone}
-              field="phone"
-              resId={res.id}
-              onSave={handleFieldSave}
-              className={`${cellText} tabular-nums text-label`}
-              placeholder="연락처"
-              compact
-              onActivate={cancelDeselect}
-              singleClick
-            />
+          {/* Phone — 이름 우선 정책. 남는 공간 차지, 좁으면 truncate. */}
+          <div className="flex-1 min-w-[64px] overflow-hidden">
+            {(() => {
+              const useVisitorPhone = !!(res.visitor_phone && res.visitor_phone !== res.phone);
+              return (
+                <InlineInput
+                  value={useVisitorPhone ? (res.visitor_phone || '') : res.phone}
+                  field={useVisitorPhone ? 'visitor_phone' : 'phone'}
+                  resId={res.id}
+                  onSave={handleFieldSave}
+                  className={`${cellText} tabular-nums text-label text-center`}
+                  placeholder="연락처"
+                  compact
+                  onActivate={cancelDeselect}
+                  singleClick
+                />
+              );
+            })()}
           </div>
-          {/* Party — 최소 36px, 가운데 정렬 */}
-          <div className="min-w-[36px] flex-shrink-0 text-center">
+          {/* Party — 최소 33px, 가운데 정렬 */}
+          <div className="min-w-[33px] flex-shrink-0 text-center">
             <InlineInput
               value={res.party_type || ''}
               field="party_type"
@@ -235,7 +248,7 @@ export function MobileGuestRow({
             />
           </div>
           {/* Gender — 최소 48px, 가운데 정렬 */}
-          <div className="min-w-[48px] flex-shrink-0 text-center">
+          <div className="min-w-[42px] flex-shrink-0 text-center">
             <InlineInput
               value={genderPeople}
               field="genderPeople"

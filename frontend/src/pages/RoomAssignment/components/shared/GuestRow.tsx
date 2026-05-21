@@ -185,7 +185,13 @@ export function GuestRow({
       <div className="flex-1 grid items-center" style={{ gridTemplateColumns: GUEST_COLS }}>
         <div className="overflow-hidden px-1.5 flex items-center gap-0.5">
           <span className="flex items-center gap-1 min-w-0">
-            <InlineInput value={res.customer_name} field="customer_name" resId={res.id} onSave={handleFieldSave} className={`font-medium ${cellText}`} placeholder="이름" autoFocus={res.id === quickAddedId} disabled={isCancelled} compact onActivate={cancelDeselect} singleClick />
+            {/* visitor 가 별도로 있으면 visitor 정보만 노출(편집도 visitor 필드로). */}
+            {(() => {
+              const useVisitor = !!(res.visitor_name && res.visitor_name !== res.customer_name);
+              return (
+                <InlineInput value={useVisitor ? (res.visitor_name || '') : res.customer_name} field={useVisitor ? 'visitor_name' : 'customer_name'} resId={res.id} onSave={handleFieldSave} className={`font-medium ${cellText}`} placeholder="이름" autoFocus={res.id === quickAddedId} disabled={isCancelled} compact onActivate={cancelDeselect} singleClick />
+              );
+            })()}
             {formatGuestSuffix(res) && (
               <span className={`flex-shrink-0 text-caption ${subtleText}`}>{formatGuestSuffix(res)}</span>
             )}
@@ -193,7 +199,12 @@ export function GuestRow({
           </span>
         </div>
         <div className="overflow-hidden px-1.5">
-          <InlineInput value={res.phone} field="phone" resId={res.id} onSave={handleFieldSave} className={`${cellText} tabular-nums`} placeholder="연락처" onActivate={cancelDeselect} singleClick />
+          {(() => {
+            const useVisitorPhone = !!(res.visitor_phone && res.visitor_phone !== res.phone);
+            return (
+              <InlineInput value={useVisitorPhone ? (res.visitor_phone || '') : res.phone} field={useVisitorPhone ? 'visitor_phone' : 'phone'} resId={res.id} onSave={handleFieldSave} className={`${cellText} tabular-nums`} placeholder="연락처" onActivate={cancelDeselect} singleClick />
+            );
+          })()}
         </div>
         <div className="overflow-hidden text-center px-1.5">
           <InlineInput value={res.party_type || ''} field="party_type" resId={res.id} onSave={handleFieldSave} className={`${cellText} font-medium text-center`} placeholder="-" onActivate={cancelDeselect} singleClick />

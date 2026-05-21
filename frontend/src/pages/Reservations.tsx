@@ -550,7 +550,7 @@ export default function Reservations() {
                             {r.customer_name}
                           </span>
                           {r.visitor_name && r.visitor_name !== r.customer_name && (
-                            <p className="text-caption text-gray-400">{r.visitor_name}</p>
+                            <p className="text-caption text-gray-400">({r.visitor_name})</p>
                           )}
                         </div>
                       </TableCell>
@@ -560,7 +560,7 @@ export default function Reservations() {
                             {r.phone}
                           </span>
                           {r.visitor_phone && r.visitor_phone !== r.phone && (
-                            <p className="text-caption tabular-nums text-gray-400">{r.visitor_phone}</p>
+                            <p className="text-caption tabular-nums text-gray-400">({r.visitor_phone})</p>
                           )}
                         </div>
                       </TableCell>

@@ -54,7 +54,7 @@ export function CompactGuestCell({
     return (
       <div className="flex items-center gap-1.5 truncate">
         <span className="truncate text-caption text-[#4E5968] dark:text-[#8B95A1]">
-          {guest.customer_name}
+          {(guest.visitor_name && guest.visitor_name !== guest.customer_name) ? guest.visitor_name : guest.customer_name}
           {formatGuestSuffix(guest) && (
             <span className="ml-1 text-[#8B95A1] dark:text-[#4E5968]">{formatGuestSuffix(guest)}</span>
           )}
@@ -90,17 +90,27 @@ export function CompactGuestCell({
       {/* Editable fields */}
       <div className="flex-1 grid items-center" style={{ gridTemplateColumns: NEXT_GUEST_COLS }}>
         <div className="overflow-hidden px-1 flex items-center gap-1 min-w-0">
-          <InlineInput value={guest.customer_name} field="customer_name" resId={guest.id}
-            onSave={saveNext}
-            className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" compact onActivate={cancelDeselect} singleClick />
+          {(() => {
+            const useVisitor = !!(guest.visitor_name && guest.visitor_name !== guest.customer_name);
+            return (
+              <InlineInput value={useVisitor ? (guest.visitor_name || '') : guest.customer_name} field={useVisitor ? 'visitor_name' : 'customer_name'} resId={guest.id}
+                onSave={saveNext}
+                className="font-medium text-[#191F28] dark:text-white text-caption" placeholder="이름" compact onActivate={cancelDeselect} singleClick />
+            );
+          })()}
           {formatGuestSuffix(guest) && (
             <span className="flex-shrink-0 text-caption text-[#8B95A1] dark:text-[#4E5968]">{formatGuestSuffix(guest)}</span>
           )}
         </div>
         <div className="overflow-hidden px-1">
-          <InlineInput value={guest.phone || ''} field="phone" resId={guest.id}
-            onSave={saveNext}
-            className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" onActivate={cancelDeselect} singleClick />
+          {(() => {
+            const useVisitorPhone = !!(guest.visitor_phone && guest.visitor_phone !== guest.phone);
+            return (
+              <InlineInput value={useVisitorPhone ? (guest.visitor_phone || '') : (guest.phone || '')} field={useVisitorPhone ? 'visitor_phone' : 'phone'} resId={guest.id}
+                onSave={saveNext}
+                className="text-[#191F28] dark:text-white tabular-nums text-caption" placeholder="연락처" onActivate={cancelDeselect} singleClick />
+            );
+          })()}
         </div>
         <div className="overflow-hidden text-center px-1">
           <InlineInput value={guest.party_type || ''} field="party_type" resId={guest.id}

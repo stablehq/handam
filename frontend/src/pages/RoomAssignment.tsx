@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Fragment, useState, useEffect, useCallback, useMemo } from 'react';
 import api, { reservationsAPI, roomsAPI } from '../services/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/queryKeys';
@@ -192,6 +192,11 @@ const RoomAssignment = () => {
 
   const [processing] = useState(false);
   const [quickAddedId, setQuickAddedId] = useState<number | null>(null);
+  // 모바일 전용: InlineInput 활성화로 지정되는 "QuickMenuBar 대상" 게스트.
+  // selectedGuestIds 와 분리 (드롭존/토스트 같은 selection-dependent 동작은 트리거하지 않음).
+  const [activeQuickGuestId, setActiveQuickGuestId] = useState<number | null>(null);
+  // 날짜 변경 시 해제
+  useEffect(() => { setActiveQuickGuestId(null); }, [selectedDate]);
   const { collapsedBuildings, toggleBuildingCollapse } = useCollapsibleBuildings();
 
   const { confirmState, showConfirm, closeConfirm } = useConfirmDialog();
@@ -713,6 +718,8 @@ const RoomAssignment = () => {
     />
   );
   // 모바일 컴팩트 게스트 줄 (Step #03b) — props 인터페이스는 GuestRow 와 동일하므로 sharedRowProps 그대로 spread.
+  // 모바일은 grip 이 drag 전용(Step #06b) → input 활성화를 "QuickMenuBar 대상 지정" 으로 사용.
+  // cancelDeselect override 로 hook in (다른 selection-dependent 동작은 트리거 안 함).
   const renderMobileGuestRow = (res: Reservation, showGrip: boolean, zone?: string) => (
     <MobileGuestRow
       key={res.id}
@@ -721,6 +728,10 @@ const RoomAssignment = () => {
       isSelected={selectedGuestIds.has(res.id)}
       zone={zone}
       {...sharedRowProps}
+      cancelDeselect={() => {
+        cancelDeselect();
+        setActiveQuickGuestId(res.id);
+      }}
     />
   );
   // 4 zone 컴포넌트가 공유하는 props 묶음
@@ -756,18 +767,25 @@ const RoomAssignment = () => {
     };
     if (isMobile) {
       // Step #03b: 모바일은 MobileRoomCard 사용 (renderMobileGuestRow 사용, 컬럼/내일 expand 폭은 무시)
+      // 그룹 경계는 그룹 마지막 카드 뒤에 sibling divider 로 표시 — flex gap 사이 1px 연한 그레이 선.
       return (
-        <MobileRoomCard
-          key={entry.room_id}
-          {...commonRoomProps}
-          hover={hover}
-          setHover={setHover}
-          clearHover={clearHover}
-          onDropZoneClick={onDropZoneClick}
-          selectionActive={selectionActive}
-          nextDayExpanded={nextDayExpanded}
-          renderMobileGuestRow={renderMobileGuestRow}
-        />
+        <Fragment key={entry.room_id}>
+          <MobileRoomCard
+            {...commonRoomProps}
+            hover={hover}
+            setHover={setHover}
+            clearHover={clearHover}
+            onDropZoneClick={onDropZoneClick}
+            selectionActive={selectionActive}
+            nextDayExpanded={nextDayExpanded}
+            renderMobileGuestRow={renderMobileGuestRow}
+          />
+          {groupInfo?.isLast && (
+            <div className="py-1" aria-hidden="true">
+              <div className="h-px bg-[#D1D5DB] dark:bg-gray-700" />
+            </div>
+          )}
+        </Fragment>
       );
     }
     return (
@@ -969,6 +987,28 @@ const RoomAssignment = () => {
         onPartyAdd={handleQuickAddParty}
         canUndo={canUndo}
         onUndo={handleUndo}
+        activeGuest={(() => {
+          if (activeQuickGuestId === null) return null;
+          const found =
+            reservations.find((r) => r.id === activeQuickGuestId) ||
+            nextDayReservations.find((r) => r.id === activeQuickGuestId) ||
+            unstableGuests.find((r) => r.id === activeQuickGuestId) ||
+            cancelledGuests.find((r) => r.id === activeQuickGuestId) ||
+            null;
+          return found;
+        })()}
+        onActiveClear={() => setActiveQuickGuestId(null)}
+        onActiveCall={(g) => {
+          const phone = (g.visitor_phone && g.visitor_phone !== g.phone) ? g.visitor_phone : g.phone;
+          if (phone) window.location.href = `tel:${phone}`;
+        }}
+        onActiveDelete={(g) => {
+          handleDeleteGuest(g.id);
+          setActiveQuickGuestId(null);
+        }}
+        onActiveContext={(g, e) => {
+          setContextMenu({ x: e.clientX, y: e.clientY, targetIds: [g.id] });
+        }}
       />
 
       <ConfirmDialog

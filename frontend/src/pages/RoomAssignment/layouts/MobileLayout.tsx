@@ -117,7 +117,8 @@ export function MobileLayout({
           </div>
         </div>
 
-        <div className="section-body !pt-2">
+        {/* 모바일: section-body 의 기본 p-5 (20px) 가 너무 큼 → 0 으로. 아래 table container 의 p-2 만 inset 담당. */}
+        <div className="section-body !p-0 !pt-2">
           <div
             key={selectedDate.format('YYYY-MM-DD')}
             className={

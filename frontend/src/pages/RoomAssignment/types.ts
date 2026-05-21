@@ -26,6 +26,8 @@ export interface Reservation {
   id: number;
   customer_name: string;
   phone: string;
+  visitor_name?: string | null;
+  visitor_phone?: string | null;
   check_in_date: string;
   check_in_time: string;
   status: string;

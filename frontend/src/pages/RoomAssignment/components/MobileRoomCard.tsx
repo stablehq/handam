@@ -79,7 +79,7 @@ export function MobileRoomCard({
     : Math.max(1, guests.length);
 
   const hasGuests = guests.length > 0;
-  // 모바일 카드 스타일 — stripe / 그룹 경계 border 제거 (개별 카드로 시각 분리, MobileLayout 의 gap 이 spacing 담당)
+  // 모바일 카드 스타일 — stripe / 그룹 경계 border 제거. 그룹 경계는 부모(renderRoomRow)에서 카드 사이 sibling divider 로 렌더.
 
   // 드롭존
   const isDesktop = useIsDesktop();
@@ -107,7 +107,9 @@ export function MobileRoomCard({
 
   return (
     <div
-      className={`relative select-none transition-colors rounded-lg border bg-white dark:bg-[#1E1E24] shadow-[0_1px_2px_rgba(0,0,0,0.04)] overflow-hidden ${
+      className={`relative select-none transition-colors rounded-lg border ${
+        hasGuests ? 'bg-white' : 'bg-[#FAFBFC]'
+      } dark:bg-[#1E1E24] shadow-[0_1px_2px_rgba(0,0,0,0.04)] overflow-hidden ${
         isMainOver
           ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/8 ring-1 ring-inset ring-[#3182F6]/30 dark:ring-[#3182F6]/30 border-[#3182F6]/30'
           : 'border-[#E5E8EB] dark:border-gray-800'

@@ -16,7 +16,7 @@ export function GuestDragCard({ reservation }: GuestDragCardProps) {
   return (
     <div className="rounded-xl bg-white dark:bg-[#1E1E24] shadow-lg border border-[#3182F6]/30 dark:border-[#3182F6]/30 px-3 py-2 flex items-center gap-2 whitespace-nowrap min-w-[120px]">
       <span className="font-medium text-body text-[#191F28] dark:text-white">
-        {reservation.customer_name}
+        {(reservation.visitor_name && reservation.visitor_name !== reservation.customer_name) ? reservation.visitor_name : reservation.customer_name}
       </span>
       {suffix && (
         <span className="text-caption text-[#8B95A1] dark:text-[#4E5968]">{suffix}</span>
