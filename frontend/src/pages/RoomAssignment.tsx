@@ -197,6 +197,23 @@ const RoomAssignment = () => {
   const [activeQuickGuestId, setActiveQuickGuestId] = useState<number | null>(null);
   // 날짜 변경 시 해제
   useEffect(() => { setActiveQuickGuestId(null); }, [selectedDate]);
+  // iOS Safari 의 키보드 Done(체크) 버튼은 blur 이벤트가 누락되는 경우가 있어
+  // InlineInput.onDeactivate 만으로는 activeQuickGuestId 가 클리어 안 될 수 있음.
+  // 안전장치: document focusout 발생 후 다음 프레임에 활성 요소 재확인 →
+  // input/textarea 가 아니면 강제 클리어. QuickMenuBar 버튼은 onMouseDown
+  // preventDefault 로 input focus 를 빼앗지 않아 이 핸들러가 발화하지 않음.
+  useEffect(() => {
+    const handler = () => {
+      requestAnimationFrame(() => {
+        const ae = document.activeElement;
+        if (!(ae instanceof HTMLInputElement || ae instanceof HTMLTextAreaElement)) {
+          setActiveQuickGuestId(null);
+        }
+      });
+    };
+    document.addEventListener('focusout', handler);
+    return () => document.removeEventListener('focusout', handler);
+  }, []);
   const { collapsedBuildings, toggleBuildingCollapse } = useCollapsibleBuildings();
 
   const { confirmState, showConfirm, closeConfirm } = useConfirmDialog();

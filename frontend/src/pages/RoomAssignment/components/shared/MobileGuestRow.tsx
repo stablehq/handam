@@ -217,8 +217,8 @@ export function MobileGuestRow({
               />
             )}
           </span>
-          {/* Phone — 이름 우선 정책. 남는 공간 차지, 좁으면 truncate. */}
-          <div className="flex-1 min-w-[64px] overflow-hidden">
+          {/* Phone — 이름 우선 정책. 남는 공간 차지, 좁으면 truncate. text-center 로 셀 안에서 가로 가운데. */}
+          <div className="flex-1 min-w-[64px] overflow-hidden text-center">
             {(() => {
               const useVisitorPhone = !!(res.visitor_phone && res.visitor_phone !== res.phone);
               return (
