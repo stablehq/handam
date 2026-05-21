@@ -19,7 +19,6 @@ import { TextInput } from '@/components/ui/input';
 import { PageHeader } from '../components/PageHeader';
 import { SummaryCards } from '../components/SummaryCards';
 import { CampaignToolbar } from '../components/CampaignToolbar';
-import { BuildingGroup } from '../components/BuildingGroup';
 import { UnassignedZone } from '../components/zones/UnassignedZone';
 import { PartyZone } from '../components/zones/PartyZone';
 import { UnstableZone } from '../components/zones/UnstableZone';
@@ -54,8 +53,6 @@ export function MobileLayout({
   tableContainerRef,
   // BuildingGroup loop
   buildingGroups,
-  collapsedBuildings,
-  toggleBuildingCollapse,
   renderRoomRow,
   loading,
   // Zones
@@ -132,29 +129,23 @@ export function MobileLayout({
             }
           >
             {/* Card list container (Step #03b — 컬럼 헤더 및 resize 가이드 제거) */}
-            <div ref={tableContainerRef} className="relative">
-              {/* Selection mode toast is handled via useEffect */}
-
-              {/* Room Rows (stale-while-revalidate: 이전 데이터 유지, 새 데이터 조용히 교체) */}
-              <div className={loading ? 'pointer-events-none' : ''} onContextMenu={(e) => { if (!(e.target as HTMLElement).closest('[data-allow-context]')) e.preventDefault(); }}>
-                {(() => {
-                  let rowIdx = 0;
-                  return buildingGroups.map((group) => {
-                    const startIdx = rowIdx;
-                    rowIdx += group.entries.length;
-                    return (
-                      <BuildingGroup
-                        key={`building-${group.building_id ?? 'none'}`}
-                        group={group}
-                        isCollapsed={collapsedBuildings.has(group.building_id)}
-                        onToggle={toggleBuildingCollapse}
-                        startRowIndex={startIdx}
-                        renderRoomRow={renderRoomRow}
-                      />
-                    );
-                  });
-                })()}
-              </div>
+            {/* 모바일: 개별 카드 분리. flex-col + gap 으로 카드 사이 간격. BuildingGroup 미사용 (모바일에선 책갈피 탭 / 그룹 접기 미지원, 객실들 flat 렌더). */}
+            <div
+              ref={tableContainerRef}
+              className={`relative flex flex-col gap-2 p-2 ${loading ? 'pointer-events-none' : ''}`}
+              onContextMenu={(e) => { if (!(e.target as HTMLElement).closest('[data-allow-context]')) e.preventDefault(); }}
+            >
+              {/* Rooms — buildingGroups 평탄화 */}
+              {(() => {
+                let rowIdx = 0;
+                return buildingGroups.flatMap((group) =>
+                  group.entries.map((entry) => {
+                    const node = renderRoomRow(entry, rowIdx);
+                    rowIdx += 1;
+                    return node;
+                  })
+                );
+              })()}
 
               <UnassignedZone
                 guests={unassigned}

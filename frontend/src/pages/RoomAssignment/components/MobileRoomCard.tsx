@@ -79,21 +79,7 @@ export function MobileRoomCard({
     : Math.max(1, guests.length);
 
   const hasGuests = guests.length > 0;
-  const isOverbooking = !isDormitory && guests.length >= 2;
-
-  // 스트라이프 색상 (groupIndex 기반)
-  const stripeKey = groupInfo ? groupInfo.groupIndex : rowIndex;
-  const cardBgStyle: React.CSSProperties = isOverbooking
-    ? { backgroundColor: isDarkMode ? `${rowColors.overbooking}1A` : rowColors.overbooking }
-    : stripeKey % 2 === 0
-      ? { backgroundColor: isDarkMode ? rowColors.evenDark : rowColors.even }
-      : { backgroundColor: isDarkMode ? rowColors.oddDark : rowColors.odd };
-
-  // 그룹 경계 색상 (마지막 객실 하단 강조)
-  const groupLast = groupInfo?.isLast;
-  const borderStyle: React.CSSProperties = groupLast
-    ? { borderBottomColor: isDarkMode ? (groupColor || '#4E5968') : (groupColor || '#D1D5DB'), borderBottomWidth: 2 }
-    : { borderBottomColor: isDarkMode ? '#2C2C34' : '#E5E8EB', borderBottomWidth: 1 };
+  // 모바일 카드 스타일 — stripe / 그룹 경계 border 제거 (개별 카드로 시각 분리, MobileLayout 의 gap 이 spacing 담당)
 
   // 드롭존
   const isDesktop = useIsDesktop();
@@ -121,12 +107,11 @@ export function MobileRoomCard({
 
   return (
     <div
-      className={`relative select-none transition-colors ${
+      className={`relative select-none transition-colors rounded-lg border bg-white dark:bg-[#1E1E24] shadow-[0_1px_2px_rgba(0,0,0,0.04)] overflow-hidden ${
         isMainOver
-          ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/8 ring-1 ring-inset ring-[#3182F6]/30 dark:ring-[#3182F6]/30'
-          : ''
+          ? 'bg-[#E8F3FF] dark:bg-[#3182F6]/8 ring-1 ring-inset ring-[#3182F6]/30 dark:ring-[#3182F6]/30 border-[#3182F6]/30'
+          : 'border-[#E5E8EB] dark:border-gray-800'
       } ${selectionActive && isActive ? 'cursor-pointer' : ''}`}
-      style={{ ...(isMainOver ? {} : cardBgStyle), ...borderStyle }}
       {...main.dropZoneProps}
       onClick={isActive ? onDropZoneClick : undefined}
     >
@@ -142,8 +127,8 @@ export function MobileRoomCard({
 
         {/* Card Header — 예약자 있을 때는 책갈피 형태로 축소. 배경/border 없음 → 객실 stripe 가 헤더~게스트 통째로 관통 (같은 객실 시각적 묶음). */}
         {hasGuests ? (
-          <div className="flex items-baseline justify-end gap-1.5 px-2 py-0.5">
-            <span className="text-caption font-semibold text-[#3182F6]">{room_number}</span>
+          <div className="flex items-center justify-center gap-1.5 px-2 h-[22px]">
+            <span className="text-caption font-semibold text-[#3182F6] pl-[3px]">{room_number}</span>
             <RoomMemoEditor roomId={room_id} memo={roomMemo} onSave={onSaveRoomMemo} />
           </div>
         ) : (

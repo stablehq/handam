@@ -67,10 +67,10 @@ export function MobileGuestZone({
 
   return (
     <div
-      className={`select-none transition-colors border-b border-[#E5E8EB] dark:border-[#2C2C34] ${
+      className={`select-none transition-colors rounded-lg border bg-white dark:bg-[#1E1E24] shadow-[0_1px_2px_rgba(0,0,0,0.04)] overflow-hidden ${
         accept && isMainOver
-          ? hoverBgClass ?? ''
-          : guests.length > 0 ? 'bg-white dark:bg-[#1E1E24]' : 'bg-[#F2F4F6]/50 dark:bg-[#17171C]/30'
+          ? `${hoverBgClass ?? ''} border-[#3182F6]/30`
+          : 'border-[#E5E8EB] dark:border-gray-800'
       } ${selectionActive && accept ? 'cursor-pointer' : ''} ${zoneClassName ?? ''}`}
       {...main.dropZoneProps}
       onClick={accept ? onDropZoneClick : undefined}
