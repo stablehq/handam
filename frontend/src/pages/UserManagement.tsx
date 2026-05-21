@@ -15,7 +15,7 @@ interface User {
   id: number
   username: string
   name: string
-  role: 'superadmin' | 'admin' | 'staff'
+  role: 'superadmin' | 'admin' | 'staff' | 'cleancrew'
   active: boolean
   created_at?: string
 }
@@ -24,6 +24,7 @@ const ROLE_LABELS: Record<string, string> = {
   superadmin: '슈퍼관리자',
   admin: '관리자',
   staff: '직원',
+  cleancrew: '클린크루',
 }
 
 // 다크 모드 분기를 포함하기 위해 hex → Tailwind 클래스로 변경.
@@ -32,6 +33,7 @@ const ROLE_COLOR_CLASS: Record<string, string> = {
   superadmin: 'text-[#8B5CF6] dark:text-[#A78BFA]',
   admin: 'text-[#3182F6] dark:text-[#60A5FA]',
   staff: 'text-[#8B95A1] dark:text-[#B0B8C1]',
+  cleancrew: 'text-[#00C9A7] dark:text-[#34D399]',
 }
 
 const STATUS_COLOR_CLASS: Record<string, string> = {
@@ -85,7 +87,11 @@ export default function UserManagement() {
 
   // Role options filtered by current user's role
   const roleOptions = currentUser?.role === 'superadmin'
-    ? [{ value: 'admin', label: '관리자' }, { value: 'staff', label: '직원' }]
+    ? [
+        { value: 'admin', label: '관리자' },
+        { value: 'staff', label: '직원' },
+        { value: 'cleancrew', label: '클린크루' },
+      ]
     : [{ value: 'staff', label: '직원' }]
 
   // Create

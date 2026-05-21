@@ -18,6 +18,7 @@ import ActivityLogs from './pages/ActivityLogs'
 import PartyCheckin from './pages/PartyCheckin'
 import EventSms from './pages/EventSms'
 import SalesReport from './pages/SalesReport'
+import ConsecutiveStays from './pages/ConsecutiveStays'
 import NotFound from './pages/NotFound'
 
 // 스태프 전용 리다이렉트: staff 계정은 /party-checkin 으로만 이동
@@ -25,6 +26,18 @@ function StaffRedirect({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user)
   if (user?.role === 'staff') {
     return <Navigate to="/party-checkin" replace />
+  }
+  if (user?.role === 'cleancrew') {
+    return <Navigate to="/clean" replace />
+  }
+  return <>{children}</>
+}
+
+// cleancrew 는 /party-checkin 에 와도 /clean 로 강제 이동
+function CleanCrewBlock({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore((s) => s.user)
+  if (user?.role === 'cleancrew') {
+    return <Navigate to="/clean" replace />
   }
   return <>{children}</>
 }
@@ -86,8 +99,17 @@ function App() {
                   </ProtectedRoute>
                 }
               />
-              {/* 파티 체크인: 모든 역할 접근 가능 */}
-              <Route path="/party-checkin" element={<PartyCheckin />} />
+              {/* 파티 체크인: 모든 역할 접근 가능 (cleancrew 만 /clean 로 리다이렉트) */}
+              <Route path="/party-checkin" element={<CleanCrewBlock><PartyCheckin /></CleanCrewBlock>} />
+              {/* 연박 객실: cleancrew 전용 (superadmin URL 직접 접근 허용, 사이드바 미노출) */}
+              <Route
+                path="/clean"
+                element={
+                  <ProtectedRoute requiredRoles={['superadmin', 'cleancrew']}>
+                    <ConsecutiveStays />
+                  </ProtectedRoute>
+                }
+              />
               {/* 404: 인증된 사용자가 잘못된 URL 진입 시. 미인증은 ProtectedRoute 가 /login 으로 먼저 리다이렉트 */}
               <Route path="*" element={<NotFound />} />
             </Route>

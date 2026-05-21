@@ -15,6 +15,7 @@ ROLE_HIERARCHY = {
     UserRole.SUPERADMIN: 3,
     UserRole.ADMIN: 2,
     UserRole.STAFF: 1,
+    UserRole.CLEANCREW: 1,
 }
 
 

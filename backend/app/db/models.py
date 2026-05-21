@@ -26,6 +26,7 @@ class UserRole(str, enum.Enum):
     SUPERADMIN = "superadmin"
     ADMIN = "admin"
     STAFF = "staff"
+    CLEANCREW = "cleancrew"
 
 
 class ReservationStatus(str, enum.Enum):

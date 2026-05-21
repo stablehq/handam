@@ -132,16 +132,18 @@ const NAV_GROUPS: NavGroup[] = [
 ]
 
 // ── Role Badge ──
-const ROLE_BADGE_COLORS: Record<string, 'purple' | 'info' | 'gray'> = {
+const ROLE_BADGE_COLORS: Record<string, 'purple' | 'info' | 'gray' | 'success'> = {
   superadmin: 'purple',
   admin: 'info',
   staff: 'gray',
+  cleancrew: 'success',
 }
 
 const ROLE_LABELS: Record<string, string> = {
   superadmin: '슈퍼관리자',
   admin: '관리자',
   staff: '직원',
+  cleancrew: '클린크루',
 }
 
 // ── Tenant Switcher (superadmin only) ──

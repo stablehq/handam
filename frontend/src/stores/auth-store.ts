@@ -5,7 +5,7 @@ export interface AuthUser {
   id: number
   username: string
   name: string
-  role: 'superadmin' | 'admin' | 'staff'
+  role: 'superadmin' | 'admin' | 'staff' | 'cleancrew'
   active: boolean
 }
 

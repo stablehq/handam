@@ -21,6 +21,7 @@ from app.api.party_hosts import router as party_hosts_router
 from app.api.onsite_auction import router as onsite_auction_router
 from app.api.daily_review import router as daily_review_router
 from app.api.onsite_female_invite import router as onsite_female_invite_router
+from app.api.cleancrew import router as cleancrew_router
 from app.config import settings as app_settings
 from app.db.database import init_db, get_db
 from app.scheduler.jobs import start_scheduler, stop_scheduler
@@ -219,6 +220,7 @@ app.include_router(party_hosts_router)
 app.include_router(onsite_auction_router)
 app.include_router(daily_review_router)
 app.include_router(onsite_female_invite_router)
+app.include_router(cleancrew_router)
 
 
 @app.get("/")

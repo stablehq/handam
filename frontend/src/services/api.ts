@@ -449,4 +449,15 @@ export const onsiteFemaleInviteAPI = {
   delete: (id: number) => api.delete(`/api/onsite-female-invites/${id}`),
 };
 
+// Clean crew API
+export interface CleanSkipRoom {
+  room_number: string
+  is_dormitory: boolean
+  stayover_count?: number | null
+  capacity?: number | null
+}
+export const cleancrewAPI = {
+  listConsecutiveStays: () => api.get<CleanSkipRoom[]>('/api/clean'),
+};
+
 export default api;
