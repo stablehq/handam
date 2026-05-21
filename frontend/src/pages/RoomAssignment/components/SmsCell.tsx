@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Plus } from 'lucide-react';
 import dayjs from 'dayjs';
 import { normalizeUtcString } from '../../../lib/utils';
+import { useIsMobile } from '../../../hooks/use-mobile';
 import type { Reservation } from '../types';
 
 interface SmsCellProps {
@@ -22,6 +23,9 @@ export const SmsCell: React.FC<SmsCellProps> = ({
   onRemove,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  // 모바일: scrollRef 를 flex-1 로 → 부모 폭 강제 fit + chips 가로 스크롤. + 버튼은 flex-shrink-0 이라 우측 고정.
+  // PC: flex-1 적용 시 + 버튼이 grid cell 끝으로 밀려나서 chip 과 분리됨 → 기본 (content-sized) 유지.
+  const isMobile = useIsMobile();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState<{ top?: number; bottom?: number; right: number }>({ right: 0 });
@@ -105,7 +109,7 @@ export const SmsCell: React.FC<SmsCellProps> = ({
     <div className="relative flex items-center h-8">
       <div
         ref={scrollRef}
-        className="flex-1 overflow-x-auto overflow-y-hidden flex items-center min-w-0 scrollbar-none"
+        className={`${isMobile ? 'flex-1' : ''} overflow-x-auto overflow-y-hidden flex items-center min-w-0 scrollbar-none`}
       >
         <div className="flex items-center gap-1 flex-nowrap">
           {assignments.map((a) => {
