@@ -732,6 +732,7 @@ const RoomAssignment = () => {
         cancelDeselect();
         setActiveQuickGuestId(res.id);
       }}
+      onInputDeactivate={() => setActiveQuickGuestId(null)}
     />
   );
   // 4 zone 컴포넌트가 공유하는 props 묶음

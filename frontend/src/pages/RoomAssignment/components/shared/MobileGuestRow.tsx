@@ -57,6 +57,7 @@ export function MobileGuestRow({
   handleSmsAssign,
   handleSmsRemove,
   cancelDeselect,
+  onInputDeactivate,
   longPressTimerRef,
   longPressFiredRef,
 }: GuestRowProps) {
@@ -103,7 +104,7 @@ export function MobileGuestRow({
   return (
     <div
       key={res.id}
-      className={`group/guest flex items-center gap-2 px-2 py-2 transition-colors duration-150 cursor-pointer ${
+      className={`group/guest flex flex-col gap-0.5 px-2 py-2 transition-colors duration-150 cursor-pointer ${
         isDragging ? 'opacity-40' : ''
       } ${containerBgClass}`}
       style={isCustomHex && !isSelected ? getCustomBgStyle(res.highlight_color!, isDarkMode) : undefined}
@@ -161,30 +162,32 @@ export function MobileGuestRow({
         }
       }}
     >
-      {/* Selection grip (좌측). Step #06b: selection 시스템 제거로 grip 의 onClick 도 제거 — drag 만 활성. */}
-      {showGrip && !isCancelled && (
-        <div
-          ref={setNodeRef}
-          {...attributes}
-          {...listeners}
-          className={`flex items-center justify-center w-6 h-5 mt-px flex-shrink-0 cursor-grab active:cursor-grabbing touch-none text-[#B0B8C1] dark:text-[#4E5968] transition-colors duration-200 ${
-            isSelected
-              ? 'text-[#3182F6] dark:text-[#3182F6]'
-              : longStay
-                ? 'group-hover/guest:text-[#FFB366]'
-                : 'group-hover/guest:text-[#3182F6]'
-          }`}
-        >
-          {/* Step #06a: 모바일도 GripVertical (drag 핸들). */}
-          <GripVertical size={18} strokeWidth={1.5} />
-        </div>
-      )}
+      {/* Line 1 row: grip + 셀 + arrow 가 하나의 items-center 가로 flex.
+          row 루트는 flex-col 이라 펼침 영역이 sibling 으로 아래 stack →
+          grip/arrow 는 line 1 anchor 에만 묶여 펼쳐도 위치 안 바뀜. */}
+      <div className="flex items-center gap-2 min-w-0">
+        {/* Selection grip (좌측). Step #06b: selection 시스템 제거로 grip 의 onClick 도 제거 — drag 만 활성. */}
+        {showGrip && !isCancelled && (
+          <div
+            ref={setNodeRef}
+            {...attributes}
+            {...listeners}
+            className={`flex items-center justify-center w-6 h-5 flex-shrink-0 cursor-grab active:cursor-grabbing touch-none text-[#B0B8C1] dark:text-[#4E5968] transition-colors duration-200 ${
+              isSelected
+                ? 'text-[#3182F6] dark:text-[#3182F6]'
+                : longStay
+                  ? 'group-hover/guest:text-[#FFB366]'
+                  : 'group-hover/guest:text-[#3182F6]'
+            }`}
+          >
+            {/* Step #06a: 모바일도 GripVertical (drag 핸들). */}
+            <GripVertical size={18} strokeWidth={1.5} />
+          </div>
+        )}
 
-      {/* 본문 (3줄) */}
-      <div className="flex-1 min-w-0 overflow-hidden flex flex-col gap-0.5">
-        {/* Line 1: 이름(suffix+dot) / 전화번호 / 파티 / 성별 — 가로 4-column.
+        {/* Line 1 cells: 이름(suffix+dot) / 전화번호 / 파티 / 성별 — 가로 4-column.
             items-baseline 으로 font-weight/font-family 차이에 의한 미세 오프셋 제거. */}
-        <div className="flex items-baseline gap-1 min-w-0">
+        <div className="flex-1 min-w-0 overflow-hidden flex items-baseline gap-1">
           {/* 이름 + unstable dot — 자연 너비 우선(shrink-0). 전화번호가 먼저 줄어듦.
               items-baseline 으로 dot 도 텍스트 baseline 에 맞춤. */}
           <span className="flex items-baseline gap-1 flex-shrink-0">
@@ -202,7 +205,7 @@ export function MobileGuestRow({
                   autoFocus={res.id === quickAddedId}
                   disabled={isCancelled}
                   compact
-                  onActivate={cancelDeselect}
+                  onActivate={cancelDeselect} onDeactivate={onInputDeactivate}
                   singleClick
                 />
               );
@@ -227,7 +230,7 @@ export function MobileGuestRow({
                   className={`${cellText} tabular-nums text-label text-center`}
                   placeholder="연락처"
                   compact
-                  onActivate={cancelDeselect}
+                  onActivate={cancelDeselect} onDeactivate={onInputDeactivate}
                   singleClick
                 />
               );
@@ -243,7 +246,7 @@ export function MobileGuestRow({
               className={`${cellText} font-medium text-label text-center`}
               placeholder="-"
               compact
-              onActivate={cancelDeselect}
+              onActivate={cancelDeselect} onDeactivate={onInputDeactivate}
               singleClick
             />
           </div>
@@ -257,75 +260,76 @@ export function MobileGuestRow({
               className={`${cellText} font-medium text-label text-center`}
               placeholder="-"
               compact
-              onActivate={cancelDeselect}
+              onActivate={cancelDeselect} onDeactivate={onInputDeactivate}
               singleClick
             />
           </div>
         </div>
 
-        {/* 펼침 영역 */}
-        {expanded && (
-          <>
-            {/* Line 2: suffix / 객실타입 / 메모 — 컬럼 레이아웃 (점 구분자 X) */}
-            <div className="flex items-center gap-2 min-w-0">
-              <span className={`text-label ${subtleText} min-w-[64px] flex-shrink-0 truncate`}>
-                {suffix || ''}
-              </span>
-              <span className={`text-label ${subtleText} min-w-[40px] flex-shrink-0 truncate`}>
-                {res.naver_room_type || ''}
-              </span>
-              <div className="flex-1 min-w-0 overflow-hidden">
-                {isCancelled && res.cancelled_at ? (
-                  <span className="text-label text-[#F04452]">
-                    {new Date(normalizeUtcString(res.cancelled_at)).toLocaleTimeString('ko-KR', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: false,
-                    })}{' '}
-                    취소
-                  </span>
-                ) : (
-                  <InlineInput
-                    value={res.notes || ''}
-                    field="notes"
-                    resId={res.id}
-                    onSave={handleFieldSave}
-                    className={`${cellText} text-label`}
-                    placeholder="메모 입력하기"
-                    onActivate={cancelDeselect}
-                    singleClick
-                  />
-                )}
-              </div>
-            </div>
-
-            {/* Line 3: SMS 칩 */}
-            <div className="flex items-center min-w-0">
-              <SmsCell
-                reservation={res}
-                templateLabels={templateLabels}
-                selectedDate={selectedDate.format('YYYY-MM-DD')}
-                onToggle={handleSmsToggle}
-                onAssign={handleSmsAssign}
-                onRemove={handleSmsRemove}
-              />
-            </div>
-          </>
-        )}
+        {/* 우측 펼침/접힘 토글 — 같은 row wrapper 안에 위치해야 line 1 anchor 유지 */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((prev) => !prev);
+          }}
+          className="flex items-center justify-center w-5 h-5 flex-shrink-0 text-[#8B95A1] dark:text-[#4E5968] hover:text-[#3182F6] dark:hover:text-[#3182F6] transition-colors cursor-pointer"
+          aria-label={expanded ? '접기' : '펼치기'}
+        >
+          {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
       </div>
 
-      {/* 우측 펼침/접힘 토글 */}
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          setExpanded((prev) => !prev);
-        }}
-        className="flex items-center justify-center w-5 h-5 mt-px flex-shrink-0 text-[#8B95A1] dark:text-[#4E5968] hover:text-[#3182F6] dark:hover:text-[#3182F6] transition-colors cursor-pointer"
-        aria-label={expanded ? '접기' : '펼치기'}
-      >
-        {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-      </button>
+      {/* 펼침 영역 — line 1 row 의 sibling. row 루트가 flex-col 이라 아래로 stack.
+          grip 이 있으면 pl-8 (grip w-6 + gap-2 = 32px) 로 line 1 cells 와 좌측 정렬. */}
+      {expanded && (
+        <div className={showGrip && !isCancelled ? 'pl-8' : ''}>
+          {/* Line 2: suffix / 객실타입 / 메모 — 컬럼 레이아웃 (점 구분자 X) */}
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={`text-label ${subtleText} min-w-[64px] flex-shrink-0 truncate`}>
+              {suffix || ''}
+            </span>
+            <span className={`text-label ${subtleText} min-w-[40px] flex-shrink-0 truncate`}>
+              {res.naver_room_type || ''}
+            </span>
+            <div className="flex-1 min-w-0 overflow-hidden">
+              {isCancelled && res.cancelled_at ? (
+                <span className="text-label text-[#F04452]">
+                  {new Date(normalizeUtcString(res.cancelled_at)).toLocaleTimeString('ko-KR', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                  })}{' '}
+                  취소
+                </span>
+              ) : (
+                <InlineInput
+                  value={res.notes || ''}
+                  field="notes"
+                  resId={res.id}
+                  onSave={handleFieldSave}
+                  className={`${cellText} text-label`}
+                  placeholder="메모 입력하기"
+                  onActivate={cancelDeselect} onDeactivate={onInputDeactivate}
+                  singleClick
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Line 3: SMS 칩 */}
+          <div className="flex items-center min-w-0">
+            <SmsCell
+              reservation={res}
+              templateLabels={templateLabels}
+              selectedDate={selectedDate.format('YYYY-MM-DD')}
+              onToggle={handleSmsToggle}
+              onAssign={handleSmsAssign}
+              onRemove={handleSmsRemove}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

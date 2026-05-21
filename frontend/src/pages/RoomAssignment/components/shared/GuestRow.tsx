@@ -45,6 +45,8 @@ export interface GuestRowProps {
   handleSmsAssign: (resId: number, templateKey: string) => void | Promise<void>;
   handleSmsRemove: (resId: number, templateKey: string) => void | Promise<void>;
   cancelDeselect: () => void;
+  // InlineInput 편집 종료(blur/ESC) 콜백 — 모바일 activeQuickGuestId 해제용. 데스크탑은 무시.
+  onInputDeactivate?: () => void;
 
   // long-press refs (useContextMenu 가 소유, 이 행 핸들러가 read/write)
   longPressTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>;
@@ -75,6 +77,8 @@ export function GuestRow({
   handleSmsAssign,
   handleSmsRemove,
   cancelDeselect,
+  // 데스크탑에서는 미사용 — destructure 만 해서 prop spread 경고 회피.
+  onInputDeactivate: _onInputDeactivate,
   longPressTimerRef,
   longPressFiredRef,
 }: GuestRowProps) {

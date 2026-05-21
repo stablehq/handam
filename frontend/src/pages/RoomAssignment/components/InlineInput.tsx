@@ -15,6 +15,8 @@ interface InlineInputProps {
   compact?: boolean;
   // 편집 모드 진입 직후 호출. 행의 deselect 250ms 타이머 취소 등에 사용.
   onActivate?: () => void;
+  // 편집 모드 종료(blur 또는 ESC cancel) 시 호출. activeQuickGuestId 해제 등에 사용.
+  onDeactivate?: () => void;
   /** PC에서 단일클릭으로 편집 진입 (true). false면 더블클릭 (모바일 기존 동작). */
   singleClick?: boolean;
 }
@@ -30,6 +32,7 @@ export const InlineInput = ({
   disabled,
   compact,
   onActivate,
+  onDeactivate,
   singleClick,
 }: InlineInputProps) => {
   const [editing, setEditing] = useState(false);
@@ -75,11 +78,13 @@ export const InlineInput = ({
     committedRef.current = true;
     if (localValue !== value) onSave(resId, field, localValue);
     setEditing(false);
+    onDeactivate?.();
   };
 
   const cancel = () => {
     setLocalValue(value);
     setEditing(false);
+    onDeactivate?.();
   };
 
   if (editing) {

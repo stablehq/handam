@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom';
-import { BedDouble, UserRoundPlus, Undo2, Phone, Trash2, Menu } from 'lucide-react';
+import { BedDouble, UserRoundPlus, Undo2, Phone, Trash2, Menu, X } from 'lucide-react';
 import { Tooltip } from '@/components/ui/tooltip';
 import { Spinner } from '@/components/ui/spinner';
 import type { Reservation } from '../types';
@@ -48,55 +48,15 @@ export function QuickMenuBar({
     <div className="fixed bottom-4 left-0 right-0 z-50 flex justify-center pointer-events-none">
       <div className="rounded-2xl shadow-lg bg-white dark:bg-[#1E1E24] border border-[#E5E8EB] dark:border-gray-800 px-4 py-2.5 pointer-events-auto">
         <div className="flex items-center gap-3">
-          <span className="text-[9px] font-bold tracking-widest leading-tight text-[#B0B8C1] dark:text-[#4E5968]">QUICK<br/>MENU</span>
-          <Tooltip content={autoAssigning ? '배정 중...' : '객실 자동 배정'} placement="top">
-            <div className="inline-block">
-              <button
-                onClick={onAutoAssign}
-                disabled={autoAssigning}
-                className="h-10 w-10 flex items-center justify-center rounded-full bg-[#3182F6] text-white hover:bg-[#1B64DA] active:bg-[#1554B5] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-              >
-                {autoAssigning ? <Spinner size="sm" /> : <BedDouble className="h-[18px] w-[18px]" />}
-              </button>
-            </div>
-          </Tooltip>
-          <Tooltip content="파티 게스트 추가" placement="top">
-            <div className="inline-block">
-              <button
-                onClick={onPartyAdd}
-                className="h-10 w-10 flex items-center justify-center rounded-full bg-white dark:bg-[#2C2C34] border border-[#E5E8EB] dark:border-gray-700 text-[#4E5968] dark:text-gray-300 hover:bg-[#F2F4F6] dark:hover:bg-[#35353E] active:bg-[#E5E8EB] transition-colors cursor-pointer"
-              >
-                <UserRoundPlus className="h-[18px] w-[18px]" />
-              </button>
-            </div>
-          </Tooltip>
-          <Tooltip content="되돌리기 (Ctrl+Z)" placement="top">
-            <div className="inline-block">
-              <button
-                onClick={onUndo}
-                disabled={!canUndo}
-                className="h-10 w-10 flex items-center justify-center rounded-full bg-white dark:bg-[#2C2C34] border border-[#E5E8EB] dark:border-gray-700 text-[#4E5968] dark:text-gray-300 hover:bg-[#F2F4F6] dark:hover:bg-[#35353E] active:bg-[#E5E8EB] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
-              >
-                <Undo2 className="h-[18px] w-[18px]" />
-              </button>
-            </div>
-          </Tooltip>
-          {showActive && activeGuest && (
+          {showActive && activeGuest ? (
+            // 활성 모드: 전화 / 삭제 / 컨텍스트 / 닫기 (모바일 input 활성 시 노출)
             <>
-              <div className="w-px h-6 bg-[#E5E8EB] dark:bg-gray-700" />
-              <Tooltip content="컨텍스트 메뉴" placement="top">
-                <div className="inline-block">
-                  <button
-                    onClick={(e) => onActiveContext?.(activeGuest, e)}
-                    className="h-10 w-10 flex items-center justify-center rounded-full bg-white dark:bg-[#2C2C34] border border-[#E5E8EB] dark:border-gray-700 text-[#4E5968] dark:text-gray-300 hover:bg-[#F2F4F6] dark:hover:bg-[#35353E] active:bg-[#E5E8EB] transition-colors cursor-pointer"
-                  >
-                    <Menu className="h-[18px] w-[18px]" />
-                  </button>
-                </div>
-              </Tooltip>
+              {/* 액션 버튼 3종: onMouseDown preventDefault 로 input focus 유지 →
+                  blur 발생 안 함 → onInputDeactivate 안 불려 activeGuest 가 살아있는 상태로 click 처리. */}
               <Tooltip content="선택한 게스트에게 전화" placement="top">
                 <div className="inline-block">
                   <button
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => onActiveCall?.(activeGuest)}
                     className="h-10 w-10 flex items-center justify-center rounded-full bg-[#00C9A7]/10 text-[#00C9A7] border border-[#00C9A7]/20 hover:bg-[#00C9A7]/20 active:bg-[#00C9A7]/30 transition-colors cursor-pointer"
                   >
@@ -107,10 +67,69 @@ export function QuickMenuBar({
               <Tooltip content="선택한 게스트 삭제" placement="top">
                 <div className="inline-block">
                   <button
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => onActiveDelete?.(activeGuest)}
                     className="h-10 w-10 flex items-center justify-center rounded-full bg-[#F04452]/10 text-[#F04452] border border-[#F04452]/20 hover:bg-[#F04452]/20 active:bg-[#F04452]/30 transition-colors cursor-pointer"
                   >
                     <Trash2 className="h-[18px] w-[18px]" />
+                  </button>
+                </div>
+              </Tooltip>
+              <Tooltip content="컨텍스트 메뉴" placement="top">
+                <div className="inline-block">
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) => onActiveContext?.(activeGuest, e)}
+                    className="h-10 w-10 flex items-center justify-center rounded-full bg-white dark:bg-[#2C2C34] border border-[#E5E8EB] dark:border-gray-700 text-[#4E5968] dark:text-gray-300 hover:bg-[#F2F4F6] dark:hover:bg-[#35353E] active:bg-[#E5E8EB] transition-colors cursor-pointer"
+                  >
+                    <Menu className="h-[18px] w-[18px]" />
+                  </button>
+                </div>
+              </Tooltip>
+              <Tooltip content="닫기" placement="top">
+                <div className="inline-block">
+                  <button
+                    onClick={onActiveClear}
+                    className="h-10 w-10 flex items-center justify-center rounded-full bg-white dark:bg-[#2C2C34] border border-[#E5E8EB] dark:border-gray-700 text-[#B0B8C1] dark:text-[#4E5968] hover:bg-[#F2F4F6] dark:hover:bg-[#35353E] active:bg-[#E5E8EB] transition-colors cursor-pointer"
+                  >
+                    <X className="h-[18px] w-[18px]" />
+                  </button>
+                </div>
+              </Tooltip>
+            </>
+          ) : (
+            // 기본 모드: 자동 배정 / 파티 추가 / 되돌리기 (라벨 포함)
+            <>
+              <span className="text-[9px] font-bold tracking-widest leading-tight text-[#B0B8C1] dark:text-[#4E5968]">QUICK<br/>MENU</span>
+              <Tooltip content={autoAssigning ? '배정 중...' : '객실 자동 배정'} placement="top">
+                <div className="inline-block">
+                  <button
+                    onClick={onAutoAssign}
+                    disabled={autoAssigning}
+                    className="h-10 w-10 flex items-center justify-center rounded-full bg-[#3182F6] text-white hover:bg-[#1B64DA] active:bg-[#1554B5] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  >
+                    {autoAssigning ? <Spinner size="sm" /> : <BedDouble className="h-[18px] w-[18px]" />}
+                  </button>
+                </div>
+              </Tooltip>
+              <Tooltip content="파티 게스트 추가" placement="top">
+                <div className="inline-block">
+                  <button
+                    onClick={onPartyAdd}
+                    className="h-10 w-10 flex items-center justify-center rounded-full bg-white dark:bg-[#2C2C34] border border-[#E5E8EB] dark:border-gray-700 text-[#4E5968] dark:text-gray-300 hover:bg-[#F2F4F6] dark:hover:bg-[#35353E] active:bg-[#E5E8EB] transition-colors cursor-pointer"
+                  >
+                    <UserRoundPlus className="h-[18px] w-[18px]" />
+                  </button>
+                </div>
+              </Tooltip>
+              <Tooltip content="되돌리기 (Ctrl+Z)" placement="top">
+                <div className="inline-block">
+                  <button
+                    onClick={onUndo}
+                    disabled={!canUndo}
+                    className="h-10 w-10 flex items-center justify-center rounded-full bg-white dark:bg-[#2C2C34] border border-[#E5E8EB] dark:border-gray-700 text-[#4E5968] dark:text-gray-300 hover:bg-[#F2F4F6] dark:hover:bg-[#35353E] active:bg-[#E5E8EB] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  >
+                    <Undo2 className="h-[18px] w-[18px]" />
                   </button>
                 </div>
               </Tooltip>
