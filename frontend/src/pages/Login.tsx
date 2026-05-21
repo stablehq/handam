@@ -55,6 +55,18 @@ export default function Login() {
         localStorage.removeItem(SAVED_CREDENTIALS_KEY)
       }
 
+      // reload 전에 tenant ID 를 미리 박아두어 reload 직후 첫 React Query 요청이
+      // X-Tenant-Id 헤더 없이 발화하는 race 차단. 응답의 user.tenants 가 권한 있는 목록.
+      // 기존 stored ID 가 여전히 유효하면 보존, 아니면 첫 번째 tenant 로 설정.
+      const allowed = (user.tenants ?? []) as Array<{ id: number }>
+      if (allowed.length > 0) {
+        const existing = localStorage.getItem('sms-tenant-id')
+        const stillValid = existing && allowed.some((t) => String(t.id) === existing)
+        if (!stillValid) {
+          localStorage.setItem('sms-tenant-id', String(allowed[0].id))
+        }
+      }
+
       login(access_token, refresh_token, user)
       // SPA navigate 대신 full reload — 신규 배포가 있을 때 캐시된 옛 번들 대신 fresh index.html
       // 받아 새 hash 번들 자동 적용. 토큰은 zustand persist 로 localStorage 저장돼 reload 후에도 유지.
