@@ -235,7 +235,9 @@ def assign_room(
     if not reservation:
         raise ValueError(f"Reservation {reservation_id} not found")
 
-    room_obj = db.query(Room).filter(Room.id == room_id, Room.is_active == True).first()
+    room_obj = db.query(Room).filter(
+        Room.id == room_id, Room.is_active == True, Room.is_hidden == False
+    ).first()
     if not room_obj:
         raise ValueError("Room not found")
 
@@ -1056,7 +1058,7 @@ def check_capacity_all_dates(
     Manual assignments bypass this check via assign_room()'s assigned_by guard.
     """
     room = db.query(Room).filter(
-        Room.id == room_id, Room.is_active == True
+        Room.id == room_id, Room.is_active == True, Room.is_hidden == False
     ).first()
     if not room:
         return False

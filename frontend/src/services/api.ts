@@ -242,6 +242,8 @@ export const roomsAPI = {
   reorder: (orderedIds: number[]) =>
     api.post('/api/rooms/reorder', { ordered_ids: orderedIds }),
   delete: (id: number) => api.delete(`/api/rooms/${id}`),
+  hide: (id: number) => api.post(`/api/rooms/${id}/hide`),
+  unhide: (id: number) => api.post(`/api/rooms/${id}/unhide`),
   getBizItems: () => api.get('/api/rooms/naver/biz-items'),
   syncBizItems: () => api.post('/api/rooms/naver/biz-items/sync'),
   updateBizItems: (items: Array<{biz_item_id: string; display_name?: string | null; default_capacity?: number | null; section_hint?: string | null; default_party_type?: string | null; grade?: number | null}>) =>

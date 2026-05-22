@@ -262,7 +262,8 @@ class Room(TenantMixin, Base):
     room_type = Column(String(50), nullable=False)  # e.g., 더블룸, 트윈룸, 패밀리룸
     base_capacity = Column(Integer, default=2)  # 기준 인원
     max_capacity = Column(Integer, default=4)  # 최대 인원
-    is_active = Column(Boolean, default=True)  # Active/inactive flag
+    is_active = Column(Boolean, default=True)  # Active/inactive flag (체크 시 검정 오버레이 + 배정 차단, 페이지엔 노출)
+    is_hidden = Column(Boolean, default=False, nullable=False)  # Hidden flag (객실 배정 페이지에서 카드 자체 미노출. on 시 미래 RoomAssignment 삭제됨)
     sort_order = Column(Integer, default=0)  # Display order
     naver_biz_item_id = Column(String(50), nullable=True)  # Deprecated: use biz_item_links instead
     building_id = Column(Integer, ForeignKey("buildings.id"), nullable=True)

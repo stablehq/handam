@@ -46,6 +46,7 @@ interface Room {
   base_capacity: number;
   max_capacity: number;
   active: boolean;
+  hidden: boolean;
   sort_order: number;
   created_at: string;
   naver_biz_item_id?: string | null;
@@ -70,6 +71,7 @@ interface RoomForm {
   max_capacity: number;
   sort_order: number;
   active: boolean;
+  hidden: boolean;
   biz_item_ids: string[];
   biz_item_priorities: Record<string, { male_priority: number; female_priority: number }>;
   dormitory: boolean;
@@ -97,6 +99,7 @@ const EMPTY_ROOM_FORM: RoomForm = {
   max_capacity: 4,
   sort_order: 1,
   active: true,
+  hidden: false,
   biz_item_ids: [],
   biz_item_priorities: {},
   dormitory: false,
@@ -321,6 +324,7 @@ const RoomSettings = () => {
       max_capacity: room.max_capacity,
       sort_order: room.sort_order,
       active: room.active,
+      hidden: room.hidden,
       biz_item_ids: ids,
       biz_item_priorities: priorities,
       dormitory: room.dormitory || false,
@@ -378,6 +382,25 @@ const RoomSettings = () => {
     },
     onError: (err: any) => toast.error(err?.response?.data?.detail || '삭제 실패'),
     onSettled: () => setDeleteTarget(null),
+  });
+
+  const hideRoomMutation = useMutation({
+    mutationFn: (id: number) => roomsAPI.hide(id),
+    onSuccess: (res: any) => {
+      toast.success(res?.data?.message || '미노출 처리됨');
+      qc.invalidateQueries({ queryKey: queryKeys.rooms.all() });
+      qc.invalidateQueries({ queryKey: queryKeys.reservations.all() });
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.detail || '미노출 처리 실패'),
+  });
+
+  const unhideRoomMutation = useMutation({
+    mutationFn: (id: number) => roomsAPI.unhide(id),
+    onSuccess: (res: any) => {
+      toast.success(res?.data?.message || '노출 처리됨');
+      qc.invalidateQueries({ queryKey: queryKeys.rooms.all() });
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.detail || '노출 처리 실패'),
   });
 
   const saving = saveRoomMutation.isPending;
@@ -975,6 +998,36 @@ const RoomSettings = () => {
                 onChange={(v) => setForm((f) => ({ ...f, active: v }))}
               />
             </div>
+
+            {editingId !== null && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label className="mb-0">객실 노출</Label>
+                  <span className={`text-body font-medium ${form.hidden ? 'text-[#F04452]' : 'text-[#00C9A7]'}`}>
+                    {form.hidden ? '미노출' : '노출'}
+                  </span>
+                </div>
+                <ToggleSwitch
+                  checked={!form.hidden}
+                  disabled={hideRoomMutation.isPending || unhideRoomMutation.isPending}
+                  onChange={(v) => {
+                    if (editingId === null) return;
+                    if (!v) {
+                      // 노출 → 미노출 (destructive: 미래 배정 삭제)
+                      if (!window.confirm('미노출 처리 시 오늘 이후 배정자가 미배정으로 이동됩니다. 진행하시겠습니까?')) return;
+                      setForm((f) => ({ ...f, hidden: true }));
+                      hideRoomMutation.mutate(editingId);
+                    } else {
+                      setForm((f) => ({ ...f, hidden: false }));
+                      unhideRoomMutation.mutate(editingId);
+                    }
+                  }}
+                />
+                <p className="text-caption text-[#8B95A1] dark:text-gray-500">
+                  미노출 시 객실 배정 페이지에서 카드가 보이지 않습니다. 미래 배정자는 미배정으로 이동되며, 노출 해제 시 자동 복귀하지 않습니다.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-2">
               <div className="flex gap-5">

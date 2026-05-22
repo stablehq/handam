@@ -147,7 +147,8 @@ export function useReservationsData(selectedDate: Dayjs) {
   );
 
   const activeRoomEntries = useMemo(() => {
-    return rooms.map((room) => ({
+    // hidden=true 객실은 페이지에서 카드 자체 제외 (미노출 정책)
+    return rooms.filter((room) => !room.hidden).map((room) => ({
       room_id: room.id as number,
       room_number: room.room_number as string,
       isDormitory: room.dormitory || false,

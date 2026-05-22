@@ -59,6 +59,7 @@ def auto_assign_rooms(db: Session, target_date: str = None, created_by: str = "s
         db.query(Room)
         .filter(
             Room.is_active == True,
+            Room.is_hidden == False,
             exists().where(
                 and_(
                     RoomBizItemLink.room_id == Room.id,

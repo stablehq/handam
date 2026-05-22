@@ -74,6 +74,7 @@ class RoomResponse(BaseModel):
     base_capacity: int
     max_capacity: int
     active: bool
+    hidden: bool = False
     sort_order: int
     naver_biz_item_id: Optional[str] = None  # Deprecated: computed from first biz_item_link
     biz_item_ids: List[str] = []
@@ -129,6 +130,7 @@ def _room_to_response(room: Room) -> dict:
         base_capacity=room.base_capacity,
         max_capacity=room.max_capacity,
         active=room.is_active,
+        hidden=bool(room.is_hidden),
         sort_order=room.sort_order,
         naver_biz_item_id=biz_item_ids[0] if biz_item_ids else room.naver_biz_item_id,
         biz_item_ids=biz_item_ids,
@@ -807,6 +809,122 @@ async def delete_room(room_id: int, db: Session = Depends(get_tenant_scoped_db),
 
     logger.info(f"Deleted room: {room_number}")
     return {"success": True, "message": f"객실 '{room_number}'이(가) 삭제되었습니다."}
+
+
+@router.post("/{room_id}/hide", response_model=ActionResponse)
+async def hide_room(
+    room_id: int,
+    db: Session = Depends(get_tenant_scoped_db),
+    current_user: User = Depends(get_current_user),
+):
+    """객실을 미노출 처리 — 객실 배정 페이지에서 카드 자체 안 보이게.
+
+    부수효과:
+    - 오늘 이후 (date >= today_kst) 의 RoomAssignment 행 모두 삭제 → 해당 예약자들 미배정 zone 으로 이동
+    - 영향받은 예약 각각 reconcile_all_chips() 호출 → SMS 칩 재계산
+    - 과거 RoomAssignment 는 그대로 보존 (이력)
+    """
+    from app.config import today_kst
+    from app.services.activity_logger import log_activity
+    from app.services.reconcile import reconcile_all_chips
+
+    diag("rooms.hide.enter", level="critical", room_id=room_id)
+
+    db_room = db.query(Room).filter(Room.id == room_id).first()
+    if not db_room:
+        raise HTTPException(status_code=404, detail="객실을 찾을 수 없습니다")
+
+    if db_room.is_hidden:
+        return {"success": True, "message": f"객실 '{db_room.room_number}'은(는) 이미 미노출 상태입니다."}
+
+    today = today_kst()
+    future_assignments = db.query(RoomAssignment).filter(
+        RoomAssignment.room_id == room_id,
+        RoomAssignment.date >= today,
+    ).all()
+    affected_pairs = [(a.reservation_id, a.date) for a in future_assignments]
+    affected_res_ids = sorted({r for r, _ in affected_pairs})
+
+    for a in future_assignments:
+        db.delete(a)
+
+    db_room.is_hidden = True
+    db.flush()
+
+    # 영향받은 예약자 칩 재계산 (삭제된 날짜만 대상)
+    res_to_dates: dict[int, list[str]] = {}
+    for res_id, d in affected_pairs:
+        res_to_dates.setdefault(res_id, []).append(d)
+    for res_id, dates in res_to_dates.items():
+        try:
+            reconcile_all_chips(db, res_id, dates=dates, room_id=room_id)
+        except Exception as e:
+            logger.warning(f"hide_room: reconcile failed res={res_id} room={room_id}: {e}")
+
+    log_activity(
+        db, type="room_hide",
+        title=f"객실 미노출 : {db_room.room_number}",
+        detail={
+            "room_id": room_id,
+            "room_number": db_room.room_number,
+            "future_assignments_removed": len(affected_pairs),
+            "affected_reservation_ids": affected_res_ids,
+        },
+        created_by=current_user.username,
+    )
+    db.commit()
+
+    diag(
+        "rooms.hide.exit",
+        level="info",
+        room_id=room_id,
+        removed=len(affected_pairs),
+        affected_res_count=len(affected_res_ids),
+    )
+
+    return {
+        "success": True,
+        "message": (
+            f"객실 '{db_room.room_number}' 미노출 처리됨. "
+            f"미래 배정자 {len(affected_res_ids)}명을 미배정으로 이동했습니다."
+        ),
+    }
+
+
+@router.post("/{room_id}/unhide", response_model=ActionResponse)
+async def unhide_room(
+    room_id: int,
+    db: Session = Depends(get_tenant_scoped_db),
+    current_user: User = Depends(get_current_user),
+):
+    """객실 미노출 해제 — 페이지에 다시 노출. 과거 RoomAssignment 그대로 보임.
+
+    미노출 시 삭제된 미래 배정자는 자동 복귀하지 않음 (정책상). 필요 시 수동/자동 배정 재실행.
+    """
+    from app.services.activity_logger import log_activity
+
+    diag("rooms.unhide.enter", level="info", room_id=room_id)
+
+    db_room = db.query(Room).filter(Room.id == room_id).first()
+    if not db_room:
+        raise HTTPException(status_code=404, detail="객실을 찾을 수 없습니다")
+
+    if not db_room.is_hidden:
+        return {"success": True, "message": f"객실 '{db_room.room_number}'은(는) 이미 노출 상태입니다."}
+
+    db_room.is_hidden = False
+    log_activity(
+        db, type="room_unhide",
+        title=f"객실 미노출 해제 : {db_room.room_number}",
+        detail={"room_id": room_id, "room_number": db_room.room_number},
+        created_by=current_user.username,
+    )
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"객실 '{db_room.room_number}' 노출 처리됨.",
+    }
 
 
 @router.post("/auto-assign")
