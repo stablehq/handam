@@ -135,7 +135,7 @@ export const InlineInput = ({
       onFocus={(e) => {
         if (e.currentTarget.matches(':focus-visible')) activate();
       }}
-      title={disabled ? undefined : (singleClick ? '클릭하여 수정' : '더블클릭하여 수정')}
+      title={value ? String(value) : (disabled ? undefined : (singleClick ? '클릭하여 수정' : '더블클릭하여 수정'))}
       // touchAction: 'manipulation' 제거 — iOS에서 long-press → contextmenu 도 같이
       // 차단해 컨텍스트 메뉴가 안 뜸. 더블탭 줌은 handleTouchEnd 의 preventDefault 로
       // 충분히 막힘 (RoomMemoEditor 도 동일 방식).

@@ -236,7 +236,7 @@ export function MobileGuestRow({
                 field={useVisitor ? 'visitor_name' : 'customer_name'}
                 resId={res.id}
                 onSave={handleFieldSave}
-                className={`font-medium text-label ${cellText}`}
+                className={`font-medium text-label max-w-[100px] inline-block truncate align-bottom ${cellText}`}
                 placeholder="이름"
                 autoFocus={res.id === quickAddedId}
                 disabled={isCancelled}

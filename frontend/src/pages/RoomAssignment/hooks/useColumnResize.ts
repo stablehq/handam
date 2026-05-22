@@ -32,6 +32,9 @@ const saveColWidthsFor = (dateStr: string, widths: ColWidths): void => {
 };
 
 // 캔버스로 텍스트 폭 측정 — DOM 안 건드리고 폰트 적용해 그렸다고 가정한 폭만 반환.
+// MAX_NAME_WIDTH 로 캡 — 긴 이름(예: "FORTINA GUILLAUME") 이 컬럼 전체를 확장해
+// 다른 컬럼(전화/파티/성별)이 좁아지는 문제 방지. 넘는 부분은 truncate 로 ... 표시.
+const MAX_NAME_WIDTH = 120;
 const measureMaxNameWidth = (rows: Reservation[]): number => {
   if (rows.length === 0) return 60;
   const canvas = document.createElement('canvas');
@@ -45,7 +48,7 @@ const measureMaxNameWidth = (rows: Reservation[]): number => {
     const w = ctx.measureText(text).width;
     if (w > max) max = w;
   }
-  return Math.ceil(max) + 16;
+  return Math.min(Math.ceil(max) + 16, MAX_NAME_WIDTH);
 };
 
 const MIN_WIDTHS: Record<string, number> = { ...DEFAULT_COL_WIDTHS };

@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Dayjs } from 'dayjs';
+import dayjs, { type Dayjs } from 'dayjs';
 import { GripVertical } from 'lucide-react';
 import { useDraggable } from '@dnd-kit/core';
 import { normalizeUtcString } from '../../../../lib/utils';
@@ -98,6 +98,28 @@ export function GuestRow({
   const subtleText = isDarkHexBg ? 'text-[#191F28] dark:text-white' : 'text-[#8B95A1] dark:text-[#4E5968]';
   const naverRoomText = isDarkHexBg ? 'text-[#191F28] dark:text-white' : 'text-[#8B95A1] dark:text-[#8B95A1]';
   const cellText = isCancelled ? 'text-[#F04452] line-through opacity-60' : hasCustomText ? 'text-inherit' : 'text-[#191F28] dark:text-white';
+
+  // 연박 진행 (예: "2/3"). 1박은 미표시.
+  // 경로 A (한 record 다박) + 경로 B (split + stay_group) 둘 다 처리.
+  const stayProgress = (() => {
+    if (!res.check_in_date) return null;
+    const inDate = dayjs(res.check_in_date);
+    if (res.stay_group_id && res.stay_group_total_nights && res.stay_group_total_nights >= 2) {
+      const recordNight = selectedDate.startOf('day').diff(inDate.startOf('day'), 'day') + 1;
+      const offset = res.stay_group_night_offset ?? 0;
+      const currentNight = offset + recordNight;
+      const totalNights = res.stay_group_total_nights;
+      if (currentNight < 1 || currentNight > totalNights) return null;
+      return `${currentNight}/${totalNights}`;
+    }
+    if (!res.check_out_date) return null;
+    const outDate = dayjs(res.check_out_date);
+    const totalNights = outDate.diff(inDate, 'day');
+    if (totalNights < 2) return null;
+    const currentNight = selectedDate.startOf('day').diff(inDate.startOf('day'), 'day') + 1;
+    if (currentNight < 1 || currentNight > totalNights) return null;
+    return `${currentNight}/${totalNights}`;
+  })();
 
   return (
     <div
@@ -230,6 +252,12 @@ export function GuestRow({
           <SmsCell reservation={res} templateLabels={templateLabels} selectedDate={selectedDate.format('YYYY-MM-DD')} onToggle={handleSmsToggle} onAssign={handleSmsAssign} onRemove={handleSmsRemove} />
         </div>
       </div>
+      {/* 연박 진행 (예: "2/3") — row 우측에 inline 표시. 1박은 비표시. 배경 없이 텍스트, 주황 톤. */}
+      {stayProgress && (
+        <span className="flex-shrink-0 pl-1.5 pr-2 text-tiny tabular-nums font-medium text-[#FF8800] dark:text-[#FFB366] leading-none select-none">
+          {stayProgress}
+        </span>
+      )}
     </div>
   );
 }
