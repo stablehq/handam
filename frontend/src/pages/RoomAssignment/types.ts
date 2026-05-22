@@ -51,6 +51,8 @@ export interface Reservation {
   sms_assignments: SmsAssignment[];
   stay_group_id?: string | null;
   stay_group_order?: number | null;
+  stay_group_total_nights?: number | null;  // 그룹 전체 박수 (경로 B 지원)
+  stay_group_night_offset?: number | null;  // 이 record 시작 전까지 누적 박수
   is_long_stay?: boolean;
   manually_extended_until?: string | null;
   bed_order?: number;

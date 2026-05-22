@@ -148,6 +148,8 @@ class ReservationResponse(BaseModel):
     section: Optional[str] = None  # 'room', 'unassigned', 'party', 'unstable'
     stay_group_id: Optional[str] = None
     stay_group_order: Optional[int] = None
+    stay_group_total_nights: Optional[int] = None  # 그룹 전체 박수 합 (경로 B: 1박×N split 케이스 지원)
+    stay_group_night_offset: Optional[int] = None  # 이 record 시작 전까지 누적된 박수 (cumulative)
     is_long_stay: bool = False
     manually_extended_until: Optional[str] = None
     bed_order: int = 0
@@ -210,6 +212,37 @@ def _to_response(res: Reservation, override_room: Optional[str] = None, override
             )
             for a in source
         ]
+
+    # 연박 그룹 총 박수 + 이 record 시작 전까지 누적 박수 계산.
+    # 경로 A (한 record 다박) 는 stay_group_id 없음 → 프론트가 date diff 로 계산 (현 동작 유지).
+    # 경로 B (1박씩 split → stay_group 묶음) 만 backend 가 계산해서 노출.
+    stay_group_total_nights: Optional[int] = None
+    stay_group_night_offset: Optional[int] = None
+    if res.stay_group_id and db is not None:
+        from datetime import date as _date
+        members = (
+            db.query(Reservation)
+            .filter(Reservation.stay_group_id == res.stay_group_id)
+            .order_by(Reservation.stay_group_order.asc().nullslast(), Reservation.check_in_date.asc())
+            .all()
+        )
+        cumulative = 0
+        total = 0
+        for m in members:
+            try:
+                ci = _date.fromisoformat(str(m.check_in_date)) if m.check_in_date else None
+                co = _date.fromisoformat(str(m.check_out_date)) if m.check_out_date else None
+                m_nights = (co - ci).days if (ci and co) else 1
+                if m_nights < 1:
+                    m_nights = 1
+            except (ValueError, TypeError):
+                m_nights = 1
+            if m.id == res.id:
+                stay_group_night_offset = cumulative
+            cumulative += m_nights
+            total += m_nights
+        stay_group_total_nights = total
+
     return ReservationResponse(
         id=res.id,
         external_id=res.external_id,
@@ -245,6 +278,8 @@ def _to_response(res: Reservation, override_room: Optional[str] = None, override
         section=res.section or 'unassigned',
         stay_group_id=res.stay_group_id,
         stay_group_order=res.stay_group_order,
+        stay_group_total_nights=stay_group_total_nights,
+        stay_group_night_offset=stay_group_night_offset,
         is_long_stay=bool(res.is_long_stay),
         manually_extended_until=res.manually_extended_until,
         bed_order=override_bed_order if override_bed_order is not None else 0,
