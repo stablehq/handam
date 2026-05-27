@@ -512,48 +512,27 @@ class UserTenantRole(Base):
     tenant = relationship("Tenant")
 
 
-class OnsiteSale(TenantMixin, Base):
-    """현장 판매 기록"""
-    __tablename__ = "onsite_sales"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(String(20), nullable=False, index=True)  # YYYY-MM-DD
-    item_name = Column(String(200), nullable=False)
-    amount = Column(Integer, nullable=False)  # 금액 (원)
-    payment_method = Column(String(20), nullable=True)  # 카드 / 이체 / 현금
-    created_by = Column(String(100), nullable=True)  # 기록한 사람
-    created_at = Column(DateTime, default=utc_now)
-
-
 class DailyHost(TenantMixin, Base):
-    """일자별 진행자(MC) 기록"""
+    """일자별 진행자(MC) 기록 + 그날 진행자에 귀속되는 경매/언스/포차 매출"""
     __tablename__ = "daily_hosts"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     date = Column(String(20), nullable=False, index=True)  # YYYY-MM-DD
     host_username = Column(String(100), nullable=False)
+    # 경매/포차/언스 매출 — 그날 단일 진행자에 귀속 (현금/이체/카드 각각 금액)
+    auction_cash = Column(Integer, nullable=True)     # 경매액 현금 (원)
+    auction_transfer = Column(Integer, nullable=True) # 경매액 이체 (원)
+    auction_card = Column(Integer, nullable=True)     # 경매액 카드 (원)
+    pocha_cash = Column(Integer, nullable=True)       # 포차매출 현금 (원)
+    pocha_transfer = Column(Integer, nullable=True)   # 포차매출 이체 (원)
+    pocha_card = Column(Integer, nullable=True)       # 포차매출 카드 (원)
+    uns_cash = Column(Integer, nullable=True)         # 언스매출 현금 (원)
+    uns_transfer = Column(Integer, nullable=True)     # 언스매출 이체 (원)
+    uns_card = Column(Integer, nullable=True)         # 언스매출 카드 (원)
     created_at = Column(DateTime, default=utc_now)
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "date", name="uq_daily_host_tenant_date"),
-    )
-
-
-class OnsiteAuction(TenantMixin, Base):
-    """일자별 경매 기록 (하루 1건)"""
-    __tablename__ = "onsite_auctions"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(String(20), nullable=False, index=True)  # YYYY-MM-DD
-    item_name = Column(String(200), nullable=False)
-    final_amount = Column(Integer, nullable=False)  # 낙찰가 (원)
-    winner_name = Column(String(100), nullable=False)  # 낙찰자명
-    payment_method = Column(String(20), nullable=True)  # 카드 / 이체 / 현금
-    created_by = Column(String(100), nullable=True)
-    created_at = Column(DateTime, default=utc_now)
-
-    __table_args__ = (
-        UniqueConstraint("tenant_id", "date", name="uq_onsite_auction_tenant_date"),
     )
 
 
@@ -612,7 +591,7 @@ for _model in [
     Reservation, MessageTemplate, ReservationSmsAssignment,
     RoomBizItemLink, Building, RoomGroup, Room, RoomAssignment,
     NaverBizItem, TemplateSchedule, ActivityLog, PartyCheckin, ReservationDailyInfo,
-    ParticipantSnapshot, OnsiteSale, DailyHost, OnsiteAuction, PartyHost,
+    ParticipantSnapshot, DailyHost, PartyHost,
     DailyReviewCount, OnsiteFemaleInvite,
 ]:
     _register(_model)

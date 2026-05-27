@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryKeys'
 import dayjs from 'dayjs'
@@ -10,10 +10,8 @@ import { Button } from '@/components/ui/button'
 import { TextInput } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
 import { Users, AlertTriangle, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
-import { partyCheckinAPI, onsiteSalesAPI, dailyHostAPI, onsiteAuctionAPI, partyHostsAPI, dailyReviewAPI, onsiteFemaleInviteAPI, reservationsAPI } from '@/services/api'
-import { normalizeUtcString } from '@/lib/utils'
+import { partyCheckinAPI, dailyHostAPI, partyHostsAPI, dailyReviewAPI, onsiteFemaleInviteAPI, reservationsAPI } from '@/services/api'
 import { toast } from 'sonner'
 
 declare global {
@@ -39,34 +37,6 @@ interface PartyGuest {
   is_long_stay?: boolean
 }
 
-type PaymentMethod = '카드' | '이체' | '현금'
-
-interface Sale {
-  id: number
-  item_name: string
-  amount: number
-  payment_method: PaymentMethod | null
-  created_by: string | null
-  created_at: string | null
-}
-
-const PAYMENT_METHODS: PaymentMethod[] = ['카드', '이체', '현금']
-const PAYMENT_BADGE_COLOR: Record<PaymentMethod, 'info' | 'purple' | 'success'> = {
-  '카드': 'info',
-  '이체': 'purple',
-  '현금': 'success',
-}
-
-interface Auction {
-  id: number
-  date: string
-  item_name: string
-  final_amount: number
-  winner_name: string
-  payment_method: PaymentMethod | null
-  created_by: string | null
-  created_at: string | null
-}
 
 interface HostItem {
   id: number
@@ -184,22 +154,18 @@ export default function PartyCheckin() {
     }
   }
 
-  // ── Sales state ──
-  // sales / salesLoading 은 useQuery 로 대체
-  const [newItemName, setNewItemName] = useState('')
-  const [newAmount, setNewAmount] = useState('')
-  const [newPaymentMethod, setNewPaymentMethod] = useState<PaymentMethod>('카드')
-
-  // ── Host state ──
+  // ── 매출 state (진행자 카드에 귀속, 현금/이체/카드 각각) ──
   // hosts 는 useQuery (partyHosts.list) 로 대체
   const [hostName, setHostName] = useState('')
-
-  // ── Auction state ──
-  const [, setAuction] = useState<Auction | null>(null)
-  const [auctionItemName, setAuctionItemName] = useState('')
-  const [auctionAmount, setAuctionAmount] = useState('')
-  const [auctionWinner, setAuctionWinner] = useState('')
-  const [auctionPaymentMethod, setAuctionPaymentMethod] = useState<PaymentMethod>('카드')
+  const [auctionCash, setAuctionCash] = useState('')
+  const [auctionTransfer, setAuctionTransfer] = useState('')
+  const [auctionCard, setAuctionCard] = useState('')
+  const [pochaCash, setPochaCash] = useState('')
+  const [pochaTransfer, setPochaTransfer] = useState('')
+  const [pochaCard, setPochaCard] = useState('')
+  const [unsCash, setUnsCash] = useState('')
+  const [unsTransfer, setUnsTransfer] = useState('')
+  const [unsCard, setUnsCard] = useState('')
 
   // ── Review state ──
   const [reviewCount, setReviewCount] = useState('')
@@ -243,24 +209,9 @@ export default function PartyCheckin() {
   // ── Sales tab queries (enabled: activeTab === 'sales') ──
   const salesActive = activeTab === 'sales'
 
-  const salesQuery = useQuery<Sale[]>({
-    queryKey: queryKeys.partyCheckin.sales(selectedDate),
-    queryFn: () => onsiteSalesAPI.getList(selectedDate).then(r => r.data ?? []),
-    staleTime: 30_000,
-    enabled: salesActive,
-  })
-  const sales = salesQuery.data ?? []
-  const salesLoading = salesQuery.isFetching
-
   const hostQuery = useQuery<any>({
     queryKey: queryKeys.partyCheckin.host(selectedDate),
     queryFn: () => dailyHostAPI.get(selectedDate).then(r => r.data),
-    staleTime: 30_000,
-    enabled: salesActive && canManageHost,
-  })
-  const auctionQuery = useQuery<any>({
-    queryKey: queryKeys.partyCheckin.auction(selectedDate),
-    queryFn: () => onsiteAuctionAPI.get(selectedDate).then(r => r.data),
     staleTime: 30_000,
     enabled: salesActive && canManageHost,
   })
@@ -287,7 +238,7 @@ export default function PartyCheckin() {
 
   useEffect(() => {
     if (!salesActive || !canManageHost) return
-    if (hostQuery.isFetching || auctionQuery.isFetching || reviewQuery.isFetching || invitesQuery.isFetching) return
+    if (hostQuery.isFetching || reviewQuery.isFetching || invitesQuery.isFetching) return
 
     // 같은 날짜 + 편집 중이면 보호 (사용자 입력 손실 방지)
     const sameDate = initializedDateRef.current === selectedDate
@@ -297,24 +248,25 @@ export default function PartyCheckin() {
     const fetchedHost = host?.host_username ?? ''
     setHostName(fetchedHost)
 
-    const auc = auctionQuery.data
-    setAuction(auc)
-    if (auc) {
-      setAuctionItemName(auc.item_name)
-      setAuctionAmount(String(auc.final_amount))
-      setAuctionWinner(auc.winner_name)
-      setAuctionPaymentMethod((auc.payment_method as PaymentMethod) ?? '카드')
-    } else {
-      setAuctionItemName('')
-      setAuctionAmount('')
-      setAuctionWinner('')
-      setAuctionPaymentMethod('카드')
-    }
+    // 경매/포차/언스 매출 (현금/이체/카드 각각, 진행자 레코드에 귀속)
+    const amt = (v: number | null | undefined) => (v != null ? String(v) : '')
+    setAuctionCash(amt(host?.auction_cash))
+    setAuctionTransfer(amt(host?.auction_transfer))
+    setAuctionCard(amt(host?.auction_card))
+    setPochaCash(amt(host?.pocha_cash))
+    setPochaTransfer(amt(host?.pocha_transfer))
+    setPochaCard(amt(host?.pocha_card))
+    setUnsCash(amt(host?.uns_cash))
+    setUnsTransfer(amt(host?.uns_transfer))
+    setUnsCard(amt(host?.uns_card))
 
     const rev = reviewQuery.data
     setReviewCount(rev ? String(rev.count) : '')
 
-    setCardEditing(!fetchedHost && !auc && !rev)
+    const noSales = host?.auction_cash == null && host?.auction_transfer == null && host?.auction_card == null
+      && host?.pocha_cash == null && host?.pocha_transfer == null && host?.pocha_card == null
+      && host?.uns_cash == null && host?.uns_transfer == null && host?.uns_card == null
+    setCardEditing(!fetchedHost && !rev && noSales)
 
     const fetchedInvites = invitesQuery.data ?? []
     const editingMode = fetchedInvites.length === 0
@@ -326,15 +278,15 @@ export default function PartyCheckin() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- cardEditing/inviteEditing 은 ref 가드 용도 (deps 포함 시 무한 toggle)
   }, [
     salesActive, canManageHost, selectedDate,
-    hostQuery.data, auctionQuery.data, reviewQuery.data, invitesQuery.data,
-    hostQuery.isFetching, auctionQuery.isFetching, reviewQuery.isFetching, invitesQuery.isFetching,
+    hostQuery.data, reviewQuery.data, invitesQuery.data,
+    hostQuery.isFetching, reviewQuery.isFetching, invitesQuery.isFetching,
   ])
 
   useEffect(() => {
-    if (salesQuery.error || hostQuery.error || auctionQuery.error || reviewQuery.error || invitesQuery.error) {
+    if (hostQuery.error || reviewQuery.error || invitesQuery.error) {
       toast.error('매출 데이터를 불러오지 못했습니다')
     }
-  }, [salesQuery.error, hostQuery.error, auctionQuery.error, reviewQuery.error, invitesQuery.error])
+  }, [hostQuery.error, reviewQuery.error, invitesQuery.error])
 
   // Fetch party hosts (admin/superadmin 전용)
   const partyHostsQuery = useQuery<HostItem[]>({
@@ -408,61 +360,27 @@ export default function PartyCheckin() {
   const checkedInPeople = allGuests.filter((g) => g.checked_in).reduce((sum, g) => sum + (g.male_count ?? 0) + (g.female_count ?? 0), 0)
   const notCheckedInPeople = totalPeople - checkedInPeople
 
-  // ── Sales handlers ──
-  const addSaleMutation = useMutation({
-    mutationFn: (vars: { item_name: string; amount: number; payment_method: PaymentMethod }) =>
-      onsiteSalesAPI.create({ date: selectedDate, ...vars }),
-    onSuccess: () => {
-      setNewItemName(''); setNewAmount(''); setNewPaymentMethod('카드')
-      toast.success('판매 기록이 추가되었습니다')
-      qc.invalidateQueries({ queryKey: queryKeys.partyCheckin.sales(selectedDate) })
-      qc.invalidateQueries({ queryKey: queryKeys.salesReport.all() })
-    },
-    onError: () => toast.error('판매 기록 추가에 실패했습니다'),
-  })
-
-  function handleAddSale() {
-    if (!newItemName.trim()) { toast.error('품명을 입력해주세요'); return }
-    if (!newAmount || Number(newAmount) <= 0) { toast.error('금액을 입력해주세요'); return }
-    addSaleMutation.mutate({ item_name: newItemName.trim(), amount: Number(newAmount), payment_method: newPaymentMethod })
-  }
-
-  const [deleteModal, setDeleteModal] = useState<{ open: boolean; id: number | null; name: string }>({ open: false, id: null, name: '' })
-
-  const deleteSaleMutation = useMutation({
-    mutationFn: (id: number) => onsiteSalesAPI.delete(id),
-    onSuccess: () => {
-      toast.success('판매 기록이 삭제되었습니다')
-      qc.invalidateQueries({ queryKey: queryKeys.partyCheckin.sales(selectedDate) })
-      qc.invalidateQueries({ queryKey: queryKeys.salesReport.all() })
-    },
-    onError: () => toast.error('삭제에 실패했습니다'),
-    onSettled: () => setDeleteModal({ open: false, id: null, name: '' }),
-  })
-
-  function confirmDeleteSale() {
-    if (!deleteModal.id) return
-    deleteSaleMutation.mutate(deleteModal.id)
-  }
-
-  const salesTotalAmount = sales.reduce((sum, s) => sum + s.amount, 0)
-
   // ── 진행자 카드 통합 저장 (진행자 + 리뷰수 + 경매액) ──
   const cardSaveMutation = useMutation({
     mutationFn: async () => {
+      const parseAmount = (v: string) =>
+        v !== '' && !isNaN(Number(v)) && Number(v) >= 0 ? Number(v) : null
       const promises: Promise<unknown>[] = []
-      promises.push(dailyHostAPI.upsert({ date: selectedDate, host_username: hostName }))
+      promises.push(dailyHostAPI.upsert({
+        date: selectedDate,
+        host_username: hostName,
+        auction_cash: parseAmount(auctionCash),
+        auction_transfer: parseAmount(auctionTransfer),
+        auction_card: parseAmount(auctionCard),
+        pocha_cash: parseAmount(pochaCash),
+        pocha_transfer: parseAmount(pochaTransfer),
+        pocha_card: parseAmount(pochaCard),
+        uns_cash: parseAmount(unsCash),
+        uns_transfer: parseAmount(unsTransfer),
+        uns_card: parseAmount(unsCard),
+      }))
       if (reviewCount !== '' && !isNaN(Number(reviewCount)) && Number(reviewCount) >= 0) {
         promises.push(dailyReviewAPI.upsert({ date: selectedDate, count: Number(reviewCount) }))
-      }
-      if (auctionAmount !== '' && !isNaN(Number(auctionAmount)) && Number(auctionAmount) >= 0) {
-        promises.push(onsiteAuctionAPI.upsert({
-          date: selectedDate,
-          item_name: auctionItemName.trim() || '경매',
-          final_amount: Number(auctionAmount),
-          winner_name: auctionWinner.trim() || '-',
-          payment_method: auctionPaymentMethod,
-        }))
       }
       await Promise.all(promises)
     },
@@ -470,7 +388,6 @@ export default function PartyCheckin() {
       setCardEditing(false)
       toast.success('저장되었습니다')
       qc.invalidateQueries({ queryKey: queryKeys.partyCheckin.host(selectedDate) })
-      qc.invalidateQueries({ queryKey: queryKeys.partyCheckin.auction(selectedDate) })
       qc.invalidateQueries({ queryKey: queryKeys.partyCheckin.review(selectedDate) })
       qc.invalidateQueries({ queryKey: queryKeys.salesReport.all() })
     },
@@ -724,7 +641,8 @@ export default function PartyCheckin() {
       <div className="flex items-center justify-center gap-1">
         {[
           { value: 'checkin' as const, label: '입장체크' },
-          { value: 'sales' as const, label: '파티매출' },
+          // 파티매출 탭은 admin/superadmin 전용 (판매기록 제거로 STAFF 가 볼 내용 없음)
+          ...(canManageHost ? [{ value: 'sales' as const, label: '파티매출' }] : []),
         ].map(tab => (
           <button
             key={tab.value}
@@ -841,51 +759,59 @@ export default function PartyCheckin() {
       {/* ════════ 파티매출 탭 ════════ */}
       {activeTab === 'sales' && (
         <>
-          {/* 진행자 영역 + 여자초대수 (admin / superadmin 전용, 좌우 2컬럼) */}
+          {/* 진행자 영역 + 여자초대수 (admin / superadmin 전용, 위아래 2행) */}
           {canManageHost && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="mx-auto w-full max-w-md space-y-3">
           <div className="section-card">
             <div className="p-5">
-            <div className="w-fit space-y-3">
-              {/* 진행자 + 리뷰수 한 줄 */}
-              <div className="flex items-end gap-3">
-                <div>
-                  <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">진행자</Label>
-                  <Select value={hostName} onChange={(e) => setHostName(e.target.value)} disabled={!cardEditing} sizing="sm" className={`h-9 w-24 ${!cardEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : !hostName ? 'text-label text-[#8B95A1]' : ''}`}>
-                    <option value="">진행자 선택</option>
-                    {hosts.map((h) => (
-                      <option key={h.id} value={h.name}>{h.name}</option>
-                    ))}
-                  </Select>
-                </div>
-                <div>
-                  <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">리뷰수</Label>
-                  <TextInput type="number" value={reviewCount} onChange={(e) => setReviewCount(e.target.value)} placeholder="0" disabled={!cardEditing} className={`h-9 w-24 ${!cardEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : ''}`} />
-                </div>
+            <div className="space-y-4">
+              {/* 1행: 진행자 + 리뷰수 */}
+              <div className="flex items-center gap-3">
+                <Label className="w-12 shrink-0 text-caption font-medium text-[#4E5968] dark:text-gray-300">진행자</Label>
+                <Select value={hostName} onChange={(e) => setHostName(e.target.value)} disabled={!cardEditing} sizing="sm" className={`h-9 min-w-0 flex-1 ${!cardEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : !hostName ? 'text-label text-[#8B95A1]' : ''}`}>
+                  <option value="">진행자 선택</option>
+                  {hosts.map((h) => (
+                    <option key={h.id} value={h.name}>{h.name}</option>
+                  ))}
+                </Select>
+                <Label className="shrink-0 text-caption font-medium text-[#4E5968] dark:text-gray-300">리뷰수</Label>
+                <TextInput type="number" value={reviewCount} onChange={(e) => setReviewCount(e.target.value)} placeholder="0" disabled={!cardEditing} className={`h-9 w-20 shrink-0 ${!cardEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : ''}`} />
               </div>
 
-              {/* 경매액: 결제방식 + 판매액 */}
-              <div>
-                <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">경매액</Label>
-                <div className="flex items-center gap-3">
-                  <Select value={auctionPaymentMethod} onChange={(e) => setAuctionPaymentMethod(e.target.value as PaymentMethod)} disabled={!cardEditing} sizing="sm" className={`h-9 w-24 ${!cardEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : ''}`}>
-                    {PAYMENT_METHODS.map((m) => (
-                      <option key={m} value={m}>{m}</option>
+              {/* 구분선 */}
+              <div className="border-t border-[#E5E8EB] dark:border-gray-800" />
+
+              {/* 매출 표: 항목 × 현금/이체/카드 */}
+              <div className="grid grid-cols-[4.5rem_1fr_1fr_1fr] items-center gap-x-2 gap-y-2">
+                {/* 헤더 */}
+                <div aria-hidden />
+                <span className="text-center text-caption text-[#8B95A1]">현금</span>
+                <span className="text-center text-caption text-[#8B95A1]">이체</span>
+                <span className="text-center text-caption text-[#8B95A1]">카드</span>
+
+                {([
+                  { label: '경매액', vals: [auctionCash, auctionTransfer, auctionCard], setters: [setAuctionCash, setAuctionTransfer, setAuctionCard] },
+                  { label: '포차매출', vals: [pochaCash, pochaTransfer, pochaCard], setters: [setPochaCash, setPochaTransfer, setPochaCard] },
+                  { label: '언스매출', vals: [unsCash, unsTransfer, unsCard], setters: [setUnsCash, setUnsTransfer, setUnsCard] },
+                ] as const).map((row) => (
+                  <Fragment key={row.label}>
+                    <Label className="text-caption font-medium text-[#4E5968] dark:text-gray-300">{row.label}</Label>
+                    {row.vals.map((v, i) => (
+                      <TextInput key={i} type="number" value={v} onChange={(e) => row.setters[i](e.target.value)} placeholder="0" disabled={!cardEditing} className={`h-9 w-full ${!cardEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : ''}`} />
                     ))}
-                  </Select>
-                  <TextInput type="number" value={auctionAmount} onChange={(e) => setAuctionAmount(e.target.value)} placeholder="판매액" disabled={!cardEditing} className={`h-9 w-24 ${!cardEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : ''}`} />
-                </div>
+                  </Fragment>
+                ))}
               </div>
 
               {/* 통합 저장/수정 */}
-              <div>
+              <div className="flex justify-end">
                 {cardEditing ? (
-                  <Button color="blue" size="sm" onClick={handleCardSave} disabled={cardSaving} className="h-9 w-full">
+                  <Button color="blue" size="sm" onClick={handleCardSave} disabled={cardSaving} className="h-9 px-6">
                     {cardSaving && <Spinner size="sm" className="mr-1.5" />}
                     저장
                   </Button>
                 ) : (
-                  <Button color="light" size="sm" onClick={() => setCardEditing(true)} className="h-9 w-full">수정</Button>
+                  <Button color="light" size="sm" onClick={() => setCardEditing(true)} className="h-9 px-6">수정</Button>
                 )}
               </div>
             </div>
@@ -911,7 +837,7 @@ export default function PartyCheckin() {
                           onChange={(e) => handleSavedInviteChange(inv.id, 'host', e.target.value)}
                           disabled={!inviteEditing}
                           sizing="sm"
-                          className={`h-9 min-w-0 flex-1 ${!inviteEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : !hostVal ? 'text-label text-[#8B95A1]' : ''}`}
+                          className={`h-9 min-w-0 flex-[2] ${!inviteEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : !hostVal ? 'text-label text-[#8B95A1]' : ''}`}
                         >
                           <option value="">초대자 선택</option>
                           {hosts.map((h) => (
@@ -924,7 +850,7 @@ export default function PartyCheckin() {
                           onChange={(e) => handleSavedInviteChange(inv.id, 'count', e.target.value)}
                           disabled={!inviteEditing}
                           placeholder="0"
-                          className={`h-9 w-16 ${!inviteEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : ''}`}
+                          className={`h-9 min-w-0 flex-1 ${!inviteEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : ''}`}
                         />
                         <button
                           onClick={() => handleInviteDelete(inv.id)}
@@ -939,13 +865,13 @@ export default function PartyCheckin() {
                   })}
                   {inviteEditing && pendingInvites.map((p) => (
                     <div key={`pending-${p.tempId}`} className="flex items-center gap-2">
-                      <Select value={p.host} onChange={(e) => handlePendingChange(p.tempId, 'host', e.target.value)} sizing="sm" className={`h-9 min-w-0 flex-1 ${!p.host ? 'text-label text-[#8B95A1]' : ''}`}>
+                      <Select value={p.host} onChange={(e) => handlePendingChange(p.tempId, 'host', e.target.value)} sizing="sm" className={`h-9 min-w-0 flex-[2] ${!p.host ? 'text-label text-[#8B95A1]' : ''}`}>
                         <option value="">초대자 선택</option>
                         {hosts.map((h) => (
                           <option key={h.id} value={h.name}>{h.name}</option>
                         ))}
                       </Select>
-                      <TextInput type="number" value={p.count} onChange={(e) => handlePendingChange(p.tempId, 'count', e.target.value)} placeholder="0" className="h-9 w-16" />
+                      <TextInput type="number" value={p.count} onChange={(e) => handlePendingChange(p.tempId, 'count', e.target.value)} placeholder="0" className="h-9 min-w-0 flex-1" />
                       <button onClick={() => handlePendingRemove(p.tempId)} className="shrink-0 rounded-lg p-1 text-[#B0B8C1] transition-colors hover:bg-[#FFF0F0] hover:text-[#F04452] dark:hover:bg-[#F04452]/10" title="제거">
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -969,97 +895,8 @@ export default function PartyCheckin() {
           </div>
           )}
 
-          {/* 판매 기록 */}
-          <div className="section-card">
-            <div className="section-header">
-              <span className="text-subheading font-semibold text-[#191F28] dark:text-white">판매 기록</span>
-            </div>
-            <div className="px-5 pb-5">
-              <div className="grid grid-cols-[1fr_auto_auto] gap-3 max-w-xl">
-                <div>
-                  <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">품명</Label>
-                  <TextInput value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder="품명 입력" className="h-9" onKeyDown={(e) => e.key === 'Enter' && handleAddSale()} />
-                </div>
-                <div>
-                  <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">결제방식</Label>
-                  <Select value={newPaymentMethod} onChange={(e) => setNewPaymentMethod(e.target.value as PaymentMethod)} sizing="sm" className="h-9 w-24">
-                    {PAYMENT_METHODS.map((m) => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </Select>
-                </div>
-                <div>
-                  <Label className="mb-1.5 block text-caption font-medium text-[#4E5968] dark:text-gray-300">금액</Label>
-                  <div className="flex items-center gap-2">
-                    <TextInput type="number" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} placeholder="0" className="h-9 w-24" onKeyDown={(e) => e.key === 'Enter' && handleAddSale()} />
-                    <Button color="blue" size="sm" onClick={handleAddSale} className="shrink-0 h-9">추가</Button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4">
-                {salesLoading ? (
-                  <div className="flex justify-center py-8"><Spinner size="md" /></div>
-                ) : sales.length === 0 ? (
-                  <div className="py-8 text-center text-body text-[#8B95A1] dark:text-gray-500">판매 기록이 없습니다</div>
-                ) : (
-                  <div className="divide-y divide-[#F2F4F6] rounded-xl border border-[#E5E8EB] dark:divide-gray-800 dark:border-gray-800">
-                    {sales.map((sale) => (
-                      <div key={sale.id} className="flex items-center justify-between px-4 py-3">
-                        <div className="flex items-center gap-3 flex-1">
-                          {sale.created_at && <span className="shrink-0 whitespace-nowrap text-tiny text-[#8B95A1] dark:text-gray-500 tabular-nums">{(() => { const d = new Date(normalizeUtcString(sale.created_at)); return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; })()}</span>}
-                          <span className="text-body font-medium text-[#191F28] dark:text-white">{sale.item_name}</span>
-                          {sale.payment_method && (
-                            <Badge color={PAYMENT_BADGE_COLOR[sale.payment_method as PaymentMethod] ?? 'gray'} size="xs">{sale.payment_method}</Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="tabular-nums text-body font-semibold text-[#191F28] dark:text-white">
-                            {sale.amount.toLocaleString()}<span className="ml-0.5 text-label font-normal text-[#B0B8C1]">원</span>
-                          </span>
-                          <button onClick={() => setDeleteModal({ open: true, id: sale.id, name: sale.item_name })} className="rounded-lg p-1 text-[#B0B8C1] transition-colors hover:bg-[#FFF0F0] hover:text-[#F04452] dark:hover:bg-[#F04452]/10" title="삭제">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {sales.length > 0 && (
-                <div className="mt-4 flex items-center justify-between rounded-xl bg-[#F8F9FA] px-4 py-3 dark:bg-[#1E1E24]">
-                  <span className="text-body font-semibold text-[#191F28] dark:text-white">총액</span>
-                  <span className="tabular-nums text-heading font-bold text-[#3182F6]">
-                    {salesTotalAmount.toLocaleString()}<span className="ml-0.5 text-body font-normal text-[#B0B8C1]">원</span>
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-
         </>
       )}
-
-      {/* 판매 삭제 확인 모달 */}
-      <Modal show={deleteModal.open} size="md" popup onClose={() => setDeleteModal({ open: false, id: null, name: '' })}>
-        <ModalHeader />
-        <ModalBody>
-          <div className="flex flex-col items-center gap-4 text-center">
-            <AlertTriangle size={48} className="text-[#F04452]" />
-            <div>
-              <h3 className="text-heading font-semibold text-[#191F28] dark:text-white">삭제 확인</h3>
-              <p className="mt-2 text-body text-[#4E5968] dark:text-gray-300">
-                <span className="font-semibold text-[#191F28] dark:text-white">{deleteModal.name}</span> 항목을 삭제하시겠습니까?
-              </p>
-            </div>
-            <div className="flex w-full gap-3">
-              <Button color="light" className="flex-1" onClick={() => setDeleteModal({ open: false, id: null, name: '' })}>취소</Button>
-              <Button color="failure" className="flex-1" onClick={confirmDeleteSale}>삭제</Button>
-            </div>
-          </div>
-        </ModalBody>
-      </Modal>
     </div>
   )
 }

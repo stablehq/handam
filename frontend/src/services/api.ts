@@ -404,19 +404,22 @@ export const salesReportAPI = {
   }) => api.get('/api/sales-report', { params }),
 };
 
-// Onsite Sales API
-export const onsiteSalesAPI = {
-  getList: (date: string) => api.get('/api/onsite-sales', { params: { date } }),
-  create: (data: { date: string; item_name: string; amount: number; payment_method: '카드' | '이체' | '현금' }) =>
-    api.post('/api/onsite-sales', data),
-  delete: (id: number) => api.delete(`/api/onsite-sales/${id}`),
-};
-
-// Daily Host API
+// Daily Host API (진행자 + 경매/언스/포차 매출)
 export const dailyHostAPI = {
   get: (date: string) => api.get('/api/daily-host', { params: { date } }),
-  upsert: (data: { date: string; host_username: string }) =>
-    api.put('/api/daily-host', data),
+  upsert: (data: {
+    date: string
+    host_username: string
+    auction_cash?: number | null
+    auction_transfer?: number | null
+    auction_card?: number | null
+    pocha_cash?: number | null
+    pocha_transfer?: number | null
+    pocha_card?: number | null
+    uns_cash?: number | null
+    uns_transfer?: number | null
+    uns_card?: number | null
+  }) => api.put('/api/daily-host', data),
 };
 
 // Party Hosts API
@@ -424,14 +427,6 @@ export const partyHostsAPI = {
   list: () => api.get('/api/party-hosts'),
   create: (data: { name: string }) => api.post('/api/party-hosts', data),
   delete: (id: number) => api.delete(`/api/party-hosts/${id}`),
-};
-
-// Onsite Auction API
-export const onsiteAuctionAPI = {
-  get: (date: string) => api.get('/api/onsite-auctions', { params: { date } }),
-  upsert: (data: { date: string; item_name: string; final_amount: number; winner_name: string; payment_method: '카드' | '이체' | '현금' }) =>
-    api.post('/api/onsite-auctions', data),
-  delete: (id: number) => api.delete(`/api/onsite-auctions/${id}`),
 };
 
 // Daily Review API

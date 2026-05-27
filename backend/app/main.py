@@ -14,11 +14,9 @@ from app.rate_limit import limiter
 
 from app.api import reservations, reservations_room, reservations_sms, reservations_stay, dashboard, scheduler, rooms, templates, template_schedules, auth, settings, activity_logs, buildings, party_checkin, events, tenants
 from app.api.event_sms import router as event_sms_router
-from app.api.onsite_sales import router as onsite_sales_router
 from app.api.sales_report import router as sales_report_router
 from app.api.daily_host import router as daily_host_router
 from app.api.party_hosts import router as party_hosts_router
-from app.api.onsite_auction import router as onsite_auction_router
 from app.api.daily_review import router as daily_review_router
 from app.api.onsite_female_invite import router as onsite_female_invite_router
 from app.api.cleancrew import router as cleancrew_router
@@ -213,11 +211,9 @@ app.include_router(party_checkin.router)
 app.include_router(events.router)
 app.include_router(tenants.router)
 app.include_router(event_sms_router)
-app.include_router(onsite_sales_router)
 app.include_router(sales_report_router)
 app.include_router(daily_host_router)
 app.include_router(party_hosts_router)
-app.include_router(onsite_auction_router)
 app.include_router(daily_review_router)
 app.include_router(onsite_female_invite_router)
 app.include_router(cleancrew_router)

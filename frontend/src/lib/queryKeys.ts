@@ -84,9 +84,7 @@ export const queryKeys = {
   partyCheckin: {
     guests: (date: string, section: 'stable' | 'unstable') =>
       ['partyCheckin', getTenantId(), 'guests', date, section] as const,
-    sales: (date: string) => ['partyCheckin', getTenantId(), 'sales', date] as const,
     host: (date: string) => ['partyCheckin', getTenantId(), 'host', date] as const,
-    auction: (date: string) => ['partyCheckin', getTenantId(), 'auction', date] as const,
     review: (date: string) => ['partyCheckin', getTenantId(), 'review', date] as const,
     invites: (date: string) => ['partyCheckin', getTenantId(), 'invites', date] as const,
     all: () => ['partyCheckin', getTenantId()] as const,
