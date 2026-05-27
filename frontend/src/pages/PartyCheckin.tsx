@@ -781,27 +781,51 @@ export default function PartyCheckin() {
               {/* 구분선 */}
               <div className="border-t border-[#E5E8EB] dark:border-gray-800" />
 
-              {/* 매출 표: 항목 × 현금/이체/카드 */}
-              <div className="grid grid-cols-[4.5rem_1fr_1fr_1fr] items-center gap-x-2 gap-y-2">
-                {/* 헤더 */}
-                <div aria-hidden />
-                <span className="text-center text-caption text-[#8B95A1]">현금</span>
-                <span className="text-center text-caption text-[#8B95A1]">이체</span>
-                <span className="text-center text-caption text-[#8B95A1]">카드</span>
-
-                {([
-                  { label: '경매액', vals: [auctionCash, auctionTransfer, auctionCard], setters: [setAuctionCash, setAuctionTransfer, setAuctionCard] },
-                  { label: '포차매출', vals: [pochaCash, pochaTransfer, pochaCard], setters: [setPochaCash, setPochaTransfer, setPochaCard] },
-                  { label: '언스매출', vals: [unsCash, unsTransfer, unsCard], setters: [setUnsCash, setUnsTransfer, setUnsCard] },
-                ] as const).map((row) => (
-                  <Fragment key={row.label}>
-                    <Label className="text-caption font-medium text-[#4E5968] dark:text-gray-300">{row.label}</Label>
-                    {row.vals.map((v, i) => (
-                      <TextInput key={i} type="number" value={v} onChange={(e) => row.setters[i](e.target.value)} placeholder="0" disabled={!cardEditing} className={`h-9 w-full ${!cardEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : ''}`} />
+              {/* 매출 표: 결제수단(행) × 항목(열) + 합계 행 */}
+              {(() => {
+                // 열 = 항목, 행 = 결제수단
+                const cell: Record<string, Record<string, [string, (v: string) => void]>> = {
+                  auction: { cash: [auctionCash, setAuctionCash], transfer: [auctionTransfer, setAuctionTransfer], card: [auctionCard, setAuctionCard] },
+                  pocha: { cash: [pochaCash, setPochaCash], transfer: [pochaTransfer, setPochaTransfer], card: [pochaCard, setPochaCard] },
+                  uns: { cash: [unsCash, setUnsCash], transfer: [unsTransfer, setUnsTransfer], card: [unsCard, setUnsCard] },
+                }
+                const cats = [['경매액', 'auction'], ['포차매출', 'pocha'], ['언스매출', 'uns']] as const
+                const methods = [['현금', 'cash'], ['이체', 'transfer'], ['카드', 'card']] as const
+                const catTotal = (cat: string) => methods.reduce((s, [, m]) => s + (Number(cell[cat][m][0]) || 0), 0)
+                // 입력 표시용 천단위 콤마 (state 에는 숫자만 저장)
+                const fmtComma = (v: string) => { const n = v.replace(/[^\d]/g, ''); return n ? Number(n).toLocaleString() : '' }
+                return (
+                  <div className="grid grid-cols-[3.5rem_1fr_1fr_1fr] items-center gap-x-2 gap-y-2">
+                    {/* 헤더 (항목) */}
+                    <div aria-hidden />
+                    {cats.map(([label]) => (
+                      <span key={label} className="text-center text-caption text-[#8B95A1]">{label}</span>
                     ))}
-                  </Fragment>
-                ))}
-              </div>
+
+                    {/* 결제수단 행 */}
+                    {methods.map(([mLabel, m]) => (
+                      <Fragment key={m}>
+                        <Label className="mb-0 text-caption font-medium text-[#4E5968] dark:text-gray-300">{mLabel}</Label>
+                        {cats.map(([, cat]) => {
+                          const [val, setter] = cell[cat][m]
+                          return <TextInput key={cat} type="text" inputMode="numeric" value={fmtComma(val)} onChange={(e) => setter(e.target.value.replace(/[^\d]/g, ''))} placeholder="0" disabled={!cardEditing} className={`h-9 w-full text-center ${!cardEditing ? 'bg-[#F2F4F6] text-[#8B95A1] dark:bg-[#2C2C34] dark:text-gray-500' : ''}`} />
+                        })}
+                      </Fragment>
+                    ))}
+
+                    {/* 합계 행 (위 간격 추가) */}
+                    <Label className="mb-0 mt-2 text-caption font-semibold text-[#4E5968] dark:text-gray-300">합계</Label>
+                    {cats.map(([, cat]) => (
+                      <div key={cat} className="mt-2 text-center text-body font-semibold tabular-nums text-[#191F28] dark:text-white">
+                        {catTotal(cat).toLocaleString()}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+
+              {/* 구분선 */}
+              <div className="border-t border-[#E5E8EB] dark:border-gray-800" />
 
               {/* 통합 저장/수정 */}
               <div className="flex justify-end">

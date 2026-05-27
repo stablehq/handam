@@ -19,6 +19,7 @@ const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           "dark:border-gray-600 dark:bg-[#1E1E24] dark:text-gray-100",
           "dark:focus:border-[#3182F6] dark:focus:ring-[#3182F6]",
           sizeClasses,
+          "select-arrow pr-9",
           className,
         )}
         {...props}
