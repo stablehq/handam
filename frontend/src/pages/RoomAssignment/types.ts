@@ -59,6 +59,8 @@ export interface Reservation {
   highlight_color?: string | null;
   has_unstable_booking?: boolean;
   cancelled_at?: string | null;
+  // 운영자가 객실배정 페이지 DELETE 로 soft-cancel 한 row 표식. 네이버 자동 취소와 구분.
+  is_manual_cancel?: boolean;
   created_at?: string;
 }
 

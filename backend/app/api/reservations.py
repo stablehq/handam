@@ -334,6 +334,35 @@ async def update_reservation(
     from app.services.reservation_mutator import ReservationMutator, ChangeSource
     ReservationMutator.apply_changes(db, db_reservation, ChangeSource.MANUAL, update_data)
 
+    # CANCELLED → CONFIRMED 복구 경로 — 운영자가 "삭제 취소" 액션 실행.
+    # delete_reservation soft-cancel 이 박은 mef["status"]=True 핀을 여기서 해제.
+    # 안 풀면 다음 naver_sync 가 영원히 status 갱신 못 함 (silent data drift).
+    # UI 메뉴 우회 (자동화 / 외부 API) 경로 안전 — 백엔드에서 정합성 책임.
+    #
+    # ⚠️ 순서 의존성 (변경 금지): 이 블록은 반드시 위 apply_changes(L335) **직후** 위치해야 함.
+    #    status 가 NAVER=guarded 라, MANUAL PATCH status=CONFIRMED 가 mutator 를 통과하면
+    #    auto-mark 규칙(reservation_mutator.py:170-173)이 mef["status"]=timestamp 를 다시 stamp 함.
+    #    이 블록이 그 직후 del 로 되돌리므로 net 결과가 "핀 해제"가 됨.
+    #    블록을 apply_changes 앞으로 옮기면 핀이 안 풀려 또 고아 핀 발생.
+    # 설계 문서: docs/plans/delete-soft-cancel-design.md, docs/plans/delete-soft-cancel-followup-234.md
+    if (
+        "status" in update_data
+        and update_data["status"] == ReservationStatus.CONFIRMED
+    ):
+        mef = dict(db_reservation.manually_edited_fields or {})
+        if "status" in mef:
+            del mef["status"]
+            db_reservation.manually_edited_fields = mef
+            diag(
+                "reservation.status_pin_released",
+                level="critical",
+                reservation_id=reservation_id,
+                actor=current_user.username if current_user else None,
+            )
+        # cancelled_at 도 클리어 — paired-state invariant (CANCELLED ⇔ cancelled_at NOT NULL) 유지.
+        if db_reservation.cancelled_at:
+            db_reservation.cancelled_at = None
+
     # status 가 CANCELLED 로 바뀌면 stay_group 자동 해제 (naver_sync 와 동일 정책)
     # — 취소된 예약이 그룹에 stay_group_id 로 남아있으면 이후 extend_stay 등이 stale 데이터로 실패함
     # S4 fix: 취소 시 manually_extended_until 클리어 — 재활성 시 stale flag로
@@ -384,7 +413,7 @@ async def update_reservation(
         if (db_reservation.manually_extended_until
                 and db_reservation.check_out_date
                 and db_reservation.manually_extended_until > db_reservation.check_out_date):
-            from app.diag_logger import diag
+            # NOTE: 중복 local import 제거 (Python 3.12 UnboundLocalError 회피) — top-level L16 의 diag 사용.
             diag(
                 "update_reservation.cleared_stale_extension_flag",
                 level="critical",
@@ -432,21 +461,72 @@ async def update_reservation(
 
 @router.delete("/{reservation_id}", response_model=ActionResponse)
 async def delete_reservation(reservation_id: int, db: Session = Depends(get_tenant_scoped_db), current_user: User = Depends(get_current_user)):
-    """Delete a reservation"""
+    """Delete a reservation.
+
+    네이버 예약 (naver_booking_id 있음): soft cancel — row 잔존.
+      - status=CANCELLED + cancelled_at=now + mef["status"]=True 핀
+      - on_status_cancelled 로 RA 정리 (sent 칩은 protect_sent=True 로 보존)
+      - naver_sync 가 5분 후 confirmed 로 부활시키지 못하게 차단
+    수동 예약 (naver_booking_id 없음): 기존 hard delete (cascade 전체 삭제).
+
+    설계 문서: docs/plans/delete-soft-cancel-design.md
+    """
+    from datetime import datetime
+    from app.config import KST, today_kst
+    from app.db.models import ReservationStatus
+    from app.services.reservation_lifecycle import on_status_cancelled, on_reservation_deleted
+
     db_reservation = db.query(Reservation).filter(Reservation.id == reservation_id).first()
     if not db_reservation:
         raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다")
 
-    # 연박 그룹 정리 (삭제 전에 unlink해야 남은 멤버의 is_long_stay가 복원됨)
+    is_soft_cancel = bool(db_reservation.naver_booking_id)
+
+    # 연박 그룹 정리 (양 경로 공통 — unlink 후 peer 의 is_long_stay 복원).
+    peer_ids: list[int] = []
     if db_reservation.stay_group_id:
         from app.services.consecutive_stay import unlink_from_group
+        peer_ids = [
+            r.id for r in db.query(Reservation).filter(
+                Reservation.stay_group_id == db_reservation.stay_group_id,
+                Reservation.id != reservation_id,
+            ).all()
+        ]
         unlink_from_group(db, reservation_id)
 
-    # 연관 레코드 정리 (lifecycle 단계 #12)
-    from app.services.reservation_lifecycle import on_reservation_deleted
-    on_reservation_deleted(db, reservation_id)
+    if is_soft_cancel:
+        # 네이버 예약: row 살려두고 cancelled 마킹 + RA/미발송 칩 정리.
+        today_str = today_kst()
+        check_in_str = str(db_reservation.check_in_date) if db_reservation.check_in_date else ""
+        is_same_day = (check_in_str == today_str)
 
-    db.delete(db_reservation)
+        # status/cancelled_at/핀 을 먼저 확정한 뒤 lifecycle 후처리 호출 (naver_sync 와 순서 통일).
+        # status 핀 — 다음 naver_sync 가 네이버 confirmed 응답으로 되살리지 못하게 차단.
+        # 해제는 update_reservation PATCH status=confirmed 경로에서 자동 처리.
+        # 현재 on_status_cancelled 는 reservation.status 를 읽지 않아 순서 무관하나,
+        # 미래에 status 분기가 추가돼도 안전하도록 방어적 정렬 (naver_sync L771→798 과 동일).
+        mef = dict(db_reservation.manually_edited_fields or {})
+        mef["status"] = True
+        db_reservation.manually_edited_fields = mef
+        db_reservation.status = ReservationStatus.CANCELLED
+        db_reservation.cancelled_at = datetime.now(KST).replace(tzinfo=None)
+
+        on_status_cancelled(db, db_reservation, same_day=is_same_day)
+    else:
+        # 수동 예약: 기존 cascade 삭제 (lifecycle 단계 #12).
+        on_reservation_deleted(db, reservation_id)
+        db.delete(db_reservation)
+
+    # peer 칩 재동기화 (양 경로 공통 — unlink 로 peer 의 is_long_stay/stay_group_order 갱신됨).
+    if peer_ids:
+        db.flush()
+        from app.services.reconcile import reconcile_all_chips
+        for peer_id in peer_ids:
+            try:
+                reconcile_all_chips(db, peer_id)
+            except Exception as e:
+                logger.warning(f"peer reconcile_all_chips after delete failed: res={peer_id} err={e}")
+
     db.commit()
 
     diag(
@@ -455,9 +535,13 @@ async def delete_reservation(reservation_id: int, db: Session = Depends(get_tena
         reservation_id=reservation_id,
         actor=current_user.username if current_user else None,
         customer_name=db_reservation.customer_name,
+        soft_cancel=is_soft_cancel,
     )
 
-    return {"success": True, "message": "예약이 삭제되었습니다"}
+    return {
+        "success": True,
+        "message": "예약이 취소 처리되었습니다" if is_soft_cancel else "예약이 삭제되었습니다",
+    }
 
 
 @router.post("/sync/naver")

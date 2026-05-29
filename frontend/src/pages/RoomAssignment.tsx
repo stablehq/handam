@@ -536,6 +536,46 @@ const RoomAssignment = () => {
     const contextIsNextDay = found?.isNextDay ?? false;
     if (!firstRes) return null;
 
+    // Cancelled 행 — "삭제 취소" 단일 액션만 노출 (다른 모든 메뉴 숨김).
+    // PATCH status=confirmed 가 백엔드에서 mef["status"] 핀 자동 해제 + cancelled_at 클리어.
+    if (firstRes.status === 'cancelled') {
+      const restore = async () => {
+        setContextMenu(null);
+        try {
+          // DIAG_BLOCK_START
+          window.__diagAction = 'ctx_menu:restore_cancelled';
+          // DIAG_BLOCK_END
+          const resp = await reservationsAPI.update(firstRes.id, { status: 'confirmed' });
+          toast.success((resp as any)?.data?.message || '삭제 취소 완료');
+          _invalidateReservations();
+        } catch (err: any) {
+          const detail = err?.response?.data?.detail || err?.response?.data?.message || err?.message || '알 수 없음';
+          const code = err?.response?.status;
+          console.error('[restore_cancelled] failed', { code, detail, err });
+          toast.error(`삭제 취소 실패 (${code || '?'}): ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`);
+        }
+      };
+      return {
+        targetCount: targetIds.length,
+        currentSection: 'unassigned' as const,
+        hasStayGroup: false,
+        isUnstableCopy: false,
+        isAlreadyCopiedToUnstable: false,
+        hasRealUnstableBooking: false,
+        onDelete: () => setContextMenu(null),
+        onSetColor: (_c: string | null) => setContextMenu(null),
+        onLinkStayGroup: undefined,
+        onUnlinkStayGroup: undefined,
+        onCopyToUnstable: undefined,
+        onRemoveFromUnstable: undefined,
+        onExtendStay: undefined,
+        onCancelExtendStay: undefined,
+        onChangeDates: undefined,
+        onCall: undefined,
+        onRestore: restore,
+      };
+    }
+
     const effectiveSection = firstRes.room_id ? 'room' : (sectionOverrides[firstRes.id] ?? firstRes.section ?? 'unassigned');
     const isCopied = contextMenu.zone === 'unstable' && firstRes.section !== 'unstable';
     const dateStr = (contextIsNextDay ? selectedDate.add(1, 'day') : selectedDate).format('YYYY-MM-DD');
@@ -557,6 +597,7 @@ const RoomAssignment = () => {
           const names = targetIds.map((id) => findReservation(id)?.res.customer_name?.trim() || '?').slice(0, 5);
           const nameList = names.join(', ') + (targetIds.length > 5 ? ` 외 ${targetIds.length - 5}명` : '');
           showConfirm('게스트 일괄 삭제', `${nameList} (총 ${targetIds.length}명) 을 삭제하시겠습니까?`, async () => {
+            // 네이버/수동 혼재 가능 — 네이버 예약은 soft-cancel(CancelledZone 이동), 수동 예약은 hard delete.
             for (const id of targetIds) {
               try {
                 // DIAG_BLOCK_START
@@ -565,7 +606,7 @@ const RoomAssignment = () => {
                 await reservationsAPI.delete(id);
               } catch { /* skip */ }
             }
-            toast.success(`${targetIds.length}명 삭제 완료`);
+            toast.success(`${targetIds.length}명 처리 완료`);
             _invalidateReservations();
           });
         } else {
@@ -1229,6 +1270,7 @@ const RoomAssignment = () => {
           onCancelExtendStay={contextMenuActions.onCancelExtendStay}
           onChangeDates={contextMenuActions.onChangeDates}
           onCall={contextMenuActions.onCall}
+          onRestore={(contextMenuActions as any).onRestore}
           onClose={() => setContextMenu(null)}
         />
         </>

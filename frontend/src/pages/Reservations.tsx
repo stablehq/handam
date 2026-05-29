@@ -313,8 +313,9 @@ export default function Reservations() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => reservationsAPI.delete(id),
-    onSuccess: () => {
-      toast.success('예약이 삭제되었습니다.');
+    onSuccess: (resp: any) => {
+      // 네이버 예약은 soft-cancel ("예약이 취소 처리되었습니다"), 수동 예약은 hard delete ("예약이 삭제되었습니다").
+      toast.success(resp?.data?.message || '예약이 삭제되었습니다.');
       setDeleteId(null);
       invalidateAllReservations();
     },

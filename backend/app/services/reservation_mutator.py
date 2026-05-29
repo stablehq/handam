@@ -47,7 +47,14 @@ FIELD_PERMISSIONS: dict[str, dict[ChangeSource, str]] = {
     "male_count":       {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
     "female_count":     {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
     "gender":           {ChangeSource.NAVER: "always",  ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
-    "status":           {ChangeSource.NAVER: "always",  ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
+    # status: NAVER=guarded.
+    #  - NAVER 측: 안전망 (naver_sync 는 Mutator 우회로 직접 setattr + 자체 핀 가드 → 현재 caller 0건).
+    #  - MANUAL 측 (의도된 동작): guarded 라 auto-mark(L170-173)가 동작 → 운영자 PATCH status=cancelled 시
+    #    mef["status"]=timestamp 핀이 자동으로 박힘. 즉 DELETE(우클릭 삭제)뿐 아니라 예약관리 PATCH 취소도
+    #    네이버 부활을 차단하고 is_manual_cancel=True 로 CancelledZone 에 노출됨 (어떤 경로의 운영자 취소든 통일).
+    #    복구는 PATCH status=confirmed 가 핀 해제 (reservations.py update_reservation restore 블록).
+    # 설계 문서: docs/plans/delete-soft-cancel-followup-234.md §3
+    "status":           {ChangeSource.NAVER: "guarded", ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "never" },
     "section":          {ChangeSource.NAVER: "never",   ChangeSource.MANUAL: "always", ChangeSource.SYSTEM: "always"},
     "naver_room_type":  {ChangeSource.NAVER: "always",  ChangeSource.MANUAL: "never",  ChangeSource.SYSTEM: "never" },
     "booking_options":  {ChangeSource.NAVER: "always",  ChangeSource.MANUAL: "never",  ChangeSource.SYSTEM: "never" },

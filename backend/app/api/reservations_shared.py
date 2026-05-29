@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 
-from app.db.models import Reservation
+from app.db.models import Reservation, ReservationStatus
 
 
 def _validate_dates(check_in: Optional[str], check_out: Optional[str]) -> None:
@@ -156,6 +156,10 @@ class ReservationResponse(BaseModel):
     unstable_party: bool = False
     has_unstable_booking: bool = False
     highlight_color: Optional[str] = None
+    # 운영자가 객실배정 페이지 DELETE 로 직접 취소한 경우 True.
+    # mef["status"]=True 핀이 박혀있고 status=CANCELLED 인 row.
+    # 네이버 자동 취소와 구분 (CancelledZone 표시 정책 분기용).
+    is_manual_cancel: bool = False
     created_at: datetime
     updated_at: datetime
     sms_assignments: List[SmsAssignmentResponse] = []
@@ -286,6 +290,11 @@ def _to_response(res: Reservation, override_room: Optional[str] = None, override
         unstable_party=override_unstable_party if override_unstable_party is not None else False,
         has_unstable_booking=override_has_unstable_booking,
         highlight_color=res.highlight_color,
+        # 운영자 수동 DELETE = soft-cancel 핀 박힌 row. 네이버 자동 cancel 과 구분.
+        is_manual_cancel=(
+            res.status == ReservationStatus.CANCELLED
+            and bool((res.manually_edited_fields or {}).get("status"))
+        ),
         created_at=res.created_at,
         updated_at=res.updated_at,
         sms_assignments=assignments,

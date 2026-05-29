@@ -744,10 +744,49 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
             existing.male_count = male_count
             existing.female_count = female_count
 
-    # Update status based on Naver status
+    # Update status based on Naver status.
+    # manually_edited_fields["status"] 핀 — 운영자가 DELETE 로 soft-cancel 한 row.
+    # 네이버가 confirmed/cancelled 어느 쪽으로 응답해도 status 변경 차단 (부활 방지).
+    # 해제는 update_reservation PATCH status=confirmed 경로에서 자동.
+    # 설계 문서: docs/plans/delete-soft-cancel-design.md
     naver_status = res_data.get("status", "confirmed")
     _prev_status = existing.status
-    if naver_status == "confirmed":
+    _mef = existing.manually_edited_fields or {}
+    _status_pinned = "status" in _mef
+    if _status_pinned:
+        # 운영자 수동 취소 — 네이버 상태와 무관하게 status 유지.
+        # cancelled_at 은 L726 에서 별도 처리 (핀 무관, 타임스탬프 정밀화 OK).
+        if _prev_status == ReservationStatus.CANCELLED:
+            # 정상 soft-cancel — 네이버가 confirmed/cancelled 어느 쪽이든 CANCELLED 유지 (부활 차단).
+            pass
+        elif naver_status == "confirmed":
+            # self-heal — 핀이 있는데 status=CONFIRMED 이고 네이버도 confirmed.
+            # 양측(시스템·네이버) 모두 confirmed 합의 → 핀은 stale (과거 부활 잔재).
+            # 핀을 제거해 매 sync 무한 invariant_violation critical 발화를 차단.
+            # (status 는 이미 CONFIRMED 라 변경 불필요 — L779 status_changed 블록 미진입.)
+            _mef_healed = dict(_mef)
+            del _mef_healed["status"]
+            existing.manually_edited_fields = _mef_healed
+            if existing.cancelled_at:
+                # paired-state invariant (CONFIRMED ⇔ cancelled_at NULL) 복원.
+                existing.cancelled_at = None
+            diag(
+                "naver_sync.status_pin_self_healed",
+                level="critical",
+                reservation_id=existing.id,
+                naver_status=naver_status,
+            )
+        else:
+            # 핀 있고 status≠CANCELLED 인데 네이버도 confirmed 가 아님 (cancelled 등) — 진짜 모순.
+            # 자동 보정은 위험하니 경보만 (auto-correct 보류, 데이터 안전 우선).
+            diag(
+                "naver_sync.status_pin_invariant_violation",
+                level="critical",
+                reservation_id=existing.id,
+                prev_status=str(_prev_status),
+                naver_status=naver_status,
+            )
+    elif naver_status == "confirmed":
         existing.status = ReservationStatus.CONFIRMED
     elif naver_status == "cancelled":
         existing.status = ReservationStatus.CANCELLED

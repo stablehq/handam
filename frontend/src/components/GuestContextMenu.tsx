@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Trash2, Link2, X, Zap, XCircle, CalendarPlus, CalendarMinus, Palette, ChevronRight, Calendar, Phone } from 'lucide-react';
+import { Trash2, Link2, X, Zap, XCircle, CalendarPlus, CalendarMinus, Palette, ChevronRight, Calendar, Phone, RotateCcw } from 'lucide-react';
 import { GOOGLE_SHEETS_PALETTE } from '../lib/highlight-colors';
 
 interface GuestContextMenuProps {
@@ -21,6 +21,11 @@ interface GuestContextMenuProps {
   onChangeDates?: () => void;
   onCall?: () => void;
   hideDelete?: boolean;
+  /**
+   * Cancelled 행 전용 — "삭제 취소" 단일 액션 모드.
+   * 정의되면 다른 모든 메뉴 항목은 무시하고 restore 버튼 1개만 표시.
+   */
+  onRestore?: () => void;
   onClose: () => void;
 }
 
@@ -42,6 +47,7 @@ export default function GuestContextMenu({
   onChangeDates,
   onCall,
   hideDelete,
+  onRestore,
   onClose,
 }: GuestContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -208,6 +214,38 @@ export default function GuestContextMenu({
       onClick: onCopyToUnstable,
       disabled: false,
     });
+  }
+
+  // Cancelled 행 전용 — "삭제 취소" 단일 액션 모드.
+  // RoomAssignment 가 status==='cancelled' 인 row 에 대해 onRestore 만 전달.
+  // 다른 모든 액션은 무시하고 restore 버튼 1개만 노출.
+  if (onRestore) {
+    return createPortal(
+      <div
+        ref={menuRef}
+        style={{
+          position: 'fixed',
+          left: adjusted.x,
+          top: adjusted.y,
+          zIndex: 10000,
+          WebkitTouchCallout: 'none',
+          WebkitUserSelect: 'none',
+          userSelect: 'none',
+          maxWidth: 'calc(100vw - 16px)',
+        } as React.CSSProperties}
+        className="w-44 rounded-xl border border-[#E5E8EB] dark:border-gray-800 bg-white dark:bg-[#1E1E24] shadow-lg py-1 animate-in fade-in zoom-in-95 duration-100 select-none"
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        <button
+          onClick={(e) => { e.stopPropagation(); onRestore(); }}
+          className="w-full px-3 py-2 text-body flex items-center gap-2 text-[#3182F6] hover:bg-[#E8F3FF] dark:hover:bg-[#3182F6]/15 cursor-pointer transition-colors"
+        >
+          <RotateCcw className="h-4 w-4" />
+          삭제 취소
+        </button>
+      </div>,
+      document.body,
+    );
   }
 
   return createPortal(

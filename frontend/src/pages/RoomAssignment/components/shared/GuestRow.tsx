@@ -137,13 +137,13 @@ export function GuestRow({
       } cursor-pointer`}
       style={{ height: ROOM_ROW_HEIGHT, ...(isCustomHex && !isSelected ? getCustomBgStyle(res.highlight_color!, isDarkMode) : {}) }}
       onContextMenu={(e) => {
-        if (isCancelled) return;
+        // cancelled 행도 컨텍스트 메뉴 허용 — RoomAssignment 가 "삭제 취소" 단일 액션만 노출.
         // 편집 중 InlineInput input이 활성이면 컨텍스트 메뉴 차단
         if (document.activeElement instanceof HTMLInputElement) return;
         onGuestContextMenu(e, res.id, zone);
       }}
       onTouchStart={(e) => {
-        if (isCancelled) return;
+        // cancelled 행도 long-press 메뉴 허용 (모바일).
         const target = e.target as HTMLElement;
         if (target.closest('input, textarea, button, a, [role="button"], [data-interactive]')) return;
         longPressFiredRef.current = false;

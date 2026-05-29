@@ -21,14 +21,21 @@ interface RoomGroup {
 }
 
 /**
- * 활성 예약만 통과 + 당일 취소도 시각 확인용으로 유지.
- * 본체의 navigateDate 최적화 로직에서도 사용하므로 export.
- * 추후 utils/ 로 이동 가능.
+ * 활성 예약 + cancelled 예약 (정책 분기) 통과.
+ *
+ * cancelled 분기:
+ *   1. 운영자 DELETE soft-cancel (is_manual_cancel=true) → check_in_date 매칭이면 시각 무관 표시.
+ *      체크인 전에 취소했어도 그 날짜 페이지의 CancelledZone 에 보여서 운영자가 추적 가능.
+ *   2. 네이버 자동 cancel (is_manual_cancel=false) → 기존 정책 (당일 취소 = cancelled_at 가 보는 날짜) 만 표시.
+ *      과거 취소된 네이버 예약은 노이즈라 미표시.
  */
 export const filterActive = (data: any[], dateStr: string): Reservation[] => {
   return data.filter((r: Reservation) => {
     if (r.status !== 'cancelled') return true;
     if (r.check_in_date !== dateStr) return false;
+    // 운영자 수동 DELETE: 시각 무관 표시 (체크인 전 cancel 도 보이게)
+    if (r.is_manual_cancel) return true;
+    // 네이버 자동 cancel: 당일 취소만 표시
     if (!r.cancelled_at) return false;
     return r.cancelled_at.startsWith(dateStr);
   });
