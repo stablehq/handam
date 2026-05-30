@@ -495,7 +495,9 @@ def setup_scheduler():
         max_instances=1,
     )
 
-    # Snapshot refresh - 4 times daily KST (08:50, 09:50, 11:50, 22:50)
+    # Snapshot refresh - 4 times daily KST (08:50, 09:50, 11:50, 00:50)
+    # 00:50 은 STABLE 연유(hook) 발송 01:00 직전 10분 신선화용
+    # (구 22:50 → 발송이 23:00→01:00 으로 이동하며 함께 이동. HANDAM 은 해당 시간대 발송 사실상 없음)
     scheduler.add_job(
         refresh_snapshots_job,
         trigger=CronTrigger(hour=8, minute=50, timezone='Asia/Seoul'),
@@ -528,9 +530,9 @@ def setup_scheduler():
     )
     scheduler.add_job(
         refresh_snapshots_job,
-        trigger=CronTrigger(hour=22, minute=50, timezone='Asia/Seoul'),
-        id='refresh_snapshots_night',
-        name='참여자 스냅샷 갱신 (22:50)',
+        trigger=CronTrigger(hour=0, minute=50, timezone='Asia/Seoul'),
+        id='refresh_snapshots_predawn',
+        name='참여자 스냅샷 갱신 (00:50, 연유 hook 01시 직전)',
         replace_existing=True,
         coalesce=True,
         misfire_grace_time=300,
