@@ -225,8 +225,10 @@ export function MobileGuestRow({
         )}
 
         {/* 이름 + unstable dot — 자연 너비 우선(shrink-0). 전화번호가 먼저 줄어듦.
-            items-baseline 으로 dot 도 텍스트 baseline 에 맞춤. grip 있으면 ml-1.5(6px). */}
-        <span className={`flex items-baseline gap-1 flex-shrink-0 ${showGrip && !isCancelled ? 'ml-1.5' : ''}`}>
+            items-center 로 행(items-center)·전화 셀과 세로 중앙 정렬을 맞춤
+            (items-baseline 이면 이름만 baseline 기준이라 전화보다 위로 떠 보였음).
+            grip 있으면 ml-1.5(6px). */}
+        <span className={`flex items-center gap-1 flex-shrink-0 ${showGrip && !isCancelled ? 'ml-1.5' : ''}`}>
           {/* visitor 가 별도로 있으면 visitor 정보만 노출(편집도 visitor 필드로). */}
           {(() => {
             const useVisitor = !!(res.visitor_name && res.visitor_name !== res.customer_name);
@@ -236,7 +238,7 @@ export function MobileGuestRow({
                 field={useVisitor ? 'visitor_name' : 'customer_name'}
                 resId={res.id}
                 onSave={handleFieldSave}
-                className={`font-medium text-label max-w-[100px] inline-block truncate align-bottom ${cellText}`}
+                className={`font-medium text-label max-w-[100px] inline-block truncate ${cellText}`}
                 placeholder="이름"
                 autoFocus={res.id === quickAddedId}
                 disabled={isCancelled}
