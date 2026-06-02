@@ -110,6 +110,20 @@ function transformDate(value: number, dd: DateDetail, mode: ViewMode, perPersonA
   return dd.participants > 0 ? fmt(Math.round(value / dd.participants)) : '-';
 }
 
+// 모드 전환으로 값이 변환(나눗셈)된 셀 강조 — 파란색. transform* 의 적용 규칙과 동일하게 판정.
+const CHANGED_TEXT = '!text-[#3182F6] dark:!text-[#3182F6]';
+
+// 진행자 요약 셀: daily = 모든 transformHost 셀이 나눠짐, per_person = perPersonApplies 인 셀만
+function hostChangedClass(mode: ViewMode, perPersonApplies: boolean = true): string {
+  const changed = mode === 'daily' ? true : mode === 'per_person' ? perPersonApplies : false;
+  return changed ? CHANGED_TEXT : '';
+}
+
+// 일자별 상세 셀: total/daily 동일(1일) → per_person 의 perPersonApplies 셀만 변함
+function dateChangedClass(mode: ViewMode, perPersonApplies: boolean = true): string {
+  return mode === 'per_person' && perPersonApplies ? CHANGED_TEXT : '';
+}
+
 
 // ---------------------------------------------------------------------------
 // Component
@@ -298,37 +312,37 @@ export default function SalesReport() {
                 <div className="grid grid-cols-2 gap-2 px-4 pb-4">
                   <div className="rounded-xl bg-[#F8F9FA] p-3 dark:bg-[#17171C]">
                     <div className="text-caption text-[#8B95A1]">게스트</div>
-                    <div className="mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white">
+                    <div className={`mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white ${hostChangedClass(viewMode, false)}`}>
                       {transformHost(host.total_participants, host, viewMode, false, undefined, 1)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">명</span>
                     </div>
                   </div>
                   <div className="rounded-xl bg-[#F8F9FA] p-3 dark:bg-[#17171C]">
                     <div className="text-caption text-[#8B95A1]">총매출</div>
-                    <div className="mt-0.5 text-label font-bold tabular-nums text-[#191F28] dark:text-white">
+                    <div className={`mt-0.5 text-label font-bold tabular-nums text-[#191F28] dark:text-white ${hostChangedClass(viewMode)}`}>
                       {transformHost(host.total_revenue, host, viewMode)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">원</span>
                     </div>
                   </div>
                   <div className="rounded-xl bg-[#F8F9FA] p-3 dark:bg-[#17171C]">
                     <div className="text-caption text-[#8B95A1]">리뷰수</div>
-                    <div className="mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white">
+                    <div className={`mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white ${hostChangedClass(viewMode, false)}`}>
                       {transformHost(host.total_reviews, host, viewMode, false, undefined, 1)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">건</span>
                     </div>
                   </div>
                   <div className="rounded-xl bg-[#F8F9FA] p-3 dark:bg-[#17171C]">
                     <div className="text-caption text-[#8B95A1]">초대수</div>
-                    <div className="mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white">
+                    <div className={`mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white ${hostChangedClass(viewMode, false)}`}>
                       {transformHost(host.total_invited_females, host, viewMode, false, rangeDays, 1)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">명</span>
                     </div>
                   </div>
                   <div className="rounded-xl bg-[#F8F9FA] p-3 dark:bg-[#17171C]">
                     <div className="text-caption text-[#8B95A1]">현장판매</div>
-                    <div className="mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white">
+                    <div className={`mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white ${hostChangedClass(viewMode)}`}>
                       {transformHost(host.total_sales, host, viewMode)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">원</span>
                     </div>
                   </div>
                   <div className="rounded-xl bg-[#F8F9FA] p-3 dark:bg-[#17171C]">
                     <div className="text-caption text-[#8B95A1]">경매</div>
-                    <div className="mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white">
+                    <div className={`mt-0.5 text-label font-semibold tabular-nums text-[#191F28] dark:text-white ${hostChangedClass(viewMode)}`}>
                       {transformHost(host.total_auction, host, viewMode)}<span className="ml-0.5 text-tiny font-normal text-[#B0B8C1]">원</span>
                     </div>
                   </div>
@@ -462,13 +476,13 @@ export default function SalesReport() {
                             <div className="flex items-center justify-center">{isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</div>
                           </TableCell>
                           <TableCell className="text-center font-semibold text-[#191F28] dark:text-white">{host.host_username}</TableCell>
-                          <TableCell className="text-center tabular-nums">{transformHost(host.total_invited_females, host, viewMode, false, rangeDays, 1)}<span className="text-[#B0B8C1] ml-0.5">명</span></TableCell>
+                          <TableCell className={`text-center tabular-nums ${hostChangedClass(viewMode, false)}`}>{transformHost(host.total_invited_females, host, viewMode, false, rangeDays, 1)}<span className="text-[#B0B8C1] ml-0.5">명</span></TableCell>
                           <TableCell className="text-center tabular-nums">{host.days_count}<span className="text-[#B0B8C1] ml-0.5">일</span></TableCell>
-                          <TableCell className="text-center tabular-nums">{transformHost(host.total_participants, host, viewMode, false, undefined, 1)}<span className="text-[#B0B8C1] ml-0.5">명</span></TableCell>
-                          <TableCell className="text-center tabular-nums">{transformHost(host.total_reviews, host, viewMode, false, undefined, 1)}<span className="text-[#B0B8C1] ml-0.5">건</span></TableCell>
-                          <TableCell className="text-center tabular-nums font-medium">{transformHost(host.total_sales, host, viewMode)}</TableCell>
-                          <TableCell className="text-center tabular-nums font-medium">{transformHost(host.total_auction, host, viewMode)}</TableCell>
-                          <TableCell className="text-center tabular-nums font-bold">{transformHost(host.total_revenue, host, viewMode)}</TableCell>
+                          <TableCell className={`text-center tabular-nums ${hostChangedClass(viewMode, false)}`}>{transformHost(host.total_participants, host, viewMode, false, undefined, 1)}<span className="text-[#B0B8C1] ml-0.5">명</span></TableCell>
+                          <TableCell className={`text-center tabular-nums ${hostChangedClass(viewMode, false)}`}>{transformHost(host.total_reviews, host, viewMode, false, undefined, 1)}<span className="text-[#B0B8C1] ml-0.5">건</span></TableCell>
+                          <TableCell className={`text-center tabular-nums font-medium ${hostChangedClass(viewMode)}`}>{transformHost(host.total_sales, host, viewMode)}</TableCell>
+                          <TableCell className={`text-center tabular-nums font-medium ${hostChangedClass(viewMode)}`}>{transformHost(host.total_auction, host, viewMode)}</TableCell>
+                          <TableCell className={`text-center tabular-nums font-bold ${hostChangedClass(viewMode)}`}>{transformHost(host.total_revenue, host, viewMode)}</TableCell>
                         </TableRow>
 
                         {/* 날짜별 상세 (펼침) */}
@@ -489,9 +503,9 @@ export default function SalesReport() {
                               <TableCell className={`text-center text-caption tabular-nums text-[#4E5968] dark:text-gray-300 ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>1일</TableCell>
                               <TableCell className={`text-center text-caption tabular-nums text-[#4E5968] dark:text-gray-300 ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{transformDate(dd.participants, dd, viewMode, false)}명</TableCell>
                               <TableCell className={`text-center text-caption tabular-nums text-[#4E5968] dark:text-gray-300 ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{dd.reviews_count > 0 ? `${transformDate(dd.reviews_count, dd, viewMode, false)}건` : '-'}</TableCell>
-                              <TableCell className={`text-center text-caption tabular-nums text-[#191F28] dark:text-white ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{transformDate(dd.sales_total, dd, viewMode)}</TableCell>
-                              <TableCell className={`text-center text-caption tabular-nums text-[#191F28] dark:text-white ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{transformDate(dd.auction_amount ?? 0, dd, viewMode)}</TableCell>
-                              <TableCell className={`text-center text-caption tabular-nums text-[#191F28] dark:text-white font-bold ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{transformDate(dd.sales_total + (dd.auction_amount ?? 0), dd, viewMode)}</TableCell>
+                              <TableCell className={`text-center text-caption tabular-nums text-[#191F28] dark:text-white ${dateChangedClass(viewMode)} ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{transformDate(dd.sales_total, dd, viewMode)}</TableCell>
+                              <TableCell className={`text-center text-caption tabular-nums text-[#191F28] dark:text-white ${dateChangedClass(viewMode)} ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{transformDate(dd.auction_amount ?? 0, dd, viewMode)}</TableCell>
+                              <TableCell className={`text-center text-caption tabular-nums text-[#191F28] dark:text-white font-bold ${dateChangedClass(viewMode)} ${DETAIL_ROW_BG}`} style={{ padding: '4px 8px' }}>{transformDate(dd.sales_total + (dd.auction_amount ?? 0), dd, viewMode)}</TableCell>
                             </TableRow>
                           ))}
                         </>}

@@ -58,6 +58,10 @@ import { QuickMenuBar } from './RoomAssignment/components/QuickMenuBar';
 // 데이터 shape 타입은 RoomAssignment/types.ts 로 분리 (Phase 1 단순 분리).
 // SmsAssignment, Reservation, ConfirmState 는 파일 상단 import 참조.
 
+// 표준 파티 신청값. 'X'/'x'(파티 미신청)·'파티' 등 비표준 값은 신청인원에서 제외.
+// 백엔드 party_checkin.py / sales_report.py 의 PARTY_TYPE_VALUES 와 동일 기준 → 세 페이지 인원 동기화.
+const PARTY_TYPE_VALUES = new Set(['1', '2', '2차만']);
+
 
 
 // formatGenderPeople, formatGuestSuffix 는 RoomAssignment/utils/reservationFormat.ts 로 분리 (Phase A-1).
@@ -913,8 +917,8 @@ const RoomAssignment = () => {
       roomTotal += m + f;
     }
 
-    // Party guest totals (only those with party_type)
-    const partyGuests = reservations.filter((r) => r.party_type);
+    // Party guest totals — 표준 파티값('1'/'2'/'2차만')만. 'X'/'x'(파티 미신청)·비표준 값 제외.
+    const partyGuests = reservations.filter((r) => r.party_type != null && PARTY_TYPE_VALUES.has(r.party_type));
     let partyMale = 0, partyFemale = 0;
     let firstMale = 0, firstFemale = 0;
     let secondOnlyMale = 0, secondOnlyFemale = 0;
