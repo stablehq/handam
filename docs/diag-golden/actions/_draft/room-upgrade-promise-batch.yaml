@@ -28,13 +28,20 @@ expected_trace:
       res_id: "*"
       date: "*"
 
-  # 정원 초과 객실 배정 시 — 도메인 룰 차단:
+  # 정원 초과 객실 배정 시 — 도메인 룰 차단 (일반실 상품 한정):
   - event: room_upgrade_promise.skipped_overcapacity
     category: CONDITIONAL
     fields:
       res_id: "*"
       guest_count: "*"
       base: "*"
+      date: "*"
+
+  # 도미토리 상품(침대 단가) 은 인원 초과 개념이 없어 가드 면제 (surcharge 예외와 대칭):
+  - event: room_upgrade_promise.dormitory_overcapacity_exempt
+    category: CONDITIONAL
+    fields:
+      res_id: "*"
       date: "*"
 
 forbidden_events:
@@ -46,4 +53,6 @@ notes: |
   - count=0 인 batch.enter 도 정상 (배치 요청은 들어왔으나 대상 없음).
   - matches_target_mode 못 통과한 res_id 는 reconcile.enter 도 안 찍힘 (조용히 skip).
   - 2026-05-14 첫 관측: 00:05:04~05 cron 혹은 sync hook 으로 batch.enter count=1 / count=0 다수 발화.
-    res=5318 (5/23) skipped_overcapacity guest=3 base=1 정상 차단.
+    res=5318 (5/23) 은 도미토리 상품(base=1)이므로 2026-06 수정 이후 skipped_overcapacity 가 아니라
+    dormitory_overcapacity_exempt 로 분류됨 (이전엔 도미를 인원초과로 오판해 차단하던 버그).
+    skipped_overcapacity 는 이제 일반실(default_capacity>=2) 상품의 진짜 추가금 케이스에만 발화.

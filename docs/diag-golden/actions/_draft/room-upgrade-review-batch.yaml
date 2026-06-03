@@ -29,13 +29,20 @@ expected_trace:
       res_id: "*"
       date: "*"   # last_night_of_stay (체크아웃 전날)
 
-  # 정원 초과 객실 배정 시 — 도메인 룰 차단:
+  # 정원 초과 객실 배정 시 — 도메인 룰 차단 (일반실 상품 한정):
   - event: room_upgrade_review.skipped_overcapacity
     category: CONDITIONAL
     fields:
       res_id: "*"
       guest_count: "*"
       base: "*"
+      date: "*"
+
+  # 도미토리 상품(침대 단가) 은 인원 초과 개념이 없어 가드 면제 (surcharge 예외와 대칭):
+  - event: room_upgrade_review.dormitory_overcapacity_exempt
+    category: CONDITIONAL
+    fields:
+      res_id: "*"
       date: "*"
 
 forbidden_events:
@@ -48,5 +55,6 @@ notes: |
   - matches_target_mode 못 통과한 res_id 는 reconcile.enter 도 안 찍힘 (조용히 skip).
   - chip 은 last_night_of_stay 에 배치 — date 필드는 체크아웃 전날.
   - 2026-05-14 첫 관측: 00:05:04~05, 01:57:19/22 (req=zly4krtf/dc54d504 ctx_menu:extend_stay 트리거)
-    등 다수 발화. res=5318 (5/23) skipped_overcapacity guest=3 base=1 정상 차단.
+    등 다수 발화. res=5318 (5/23) 은 도미토리 상품(base=1)이라 2026-06 수정 이후
+    dormitory_overcapacity_exempt 로 분류 (이전엔 도미를 인원초과로 오판해 차단하던 버그).
   - room_upgrade_promise 와 거의 항상 함께 발화 (동일 hook 체인).

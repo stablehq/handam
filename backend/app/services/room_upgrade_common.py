@@ -110,29 +110,45 @@ def decide_upgrade_eligible(
         return False
 
     # 1. 인원 초과 가드 — surcharge 와 동일한 공통 유틸 재사용
-    from app.services.surcharge import compute_guest_count, resolve_product_base_capacity
+    #    단, 도미토리 상품(침대 단가 결제)은 "인원 초과" 개념이 없으므로 가드 면제.
+    #    surcharge.reconcile_surcharge 의 도미토리 예외와 대칭:
+    #    "무료 업글 안내(약속/객후) 발송 ⇔ 추가금(surcharge) 미발생 AND 등급 상승".
+    #    (도미 3명을 일반실에 몰아넣는 등 침대 N개 예약은 초과가 아니라 정상 결제)
+    from app.services.surcharge import (
+        _is_dormitory_reservation,
+        compute_guest_count,
+        resolve_product_base_capacity,
+    )
 
-    guest_count = compute_guest_count(reservation)
-    booked_base = resolve_product_base_capacity(db, reservation, room)
-    if booked_base == 0:
+    if _is_dormitory_reservation(db, reservation):
         diag(
-            f"{diag_prefix}.base_capacity_unknown",
-            level="critical",
-            res_id=reservation.id,
-            biz_item_id=reservation.naver_biz_item_id,
-            date=target_date,
-        )
-        return False
-    if guest_count > booked_base:
-        diag(
-            f"{diag_prefix}.skipped_overcapacity",
+            f"{diag_prefix}.dormitory_overcapacity_exempt",
             level="verbose",
             res_id=reservation.id,
-            guest_count=guest_count,
-            base=booked_base,
             date=target_date,
         )
-        return False
+    else:
+        guest_count = compute_guest_count(reservation)
+        booked_base = resolve_product_base_capacity(db, reservation, room)
+        if booked_base == 0:
+            diag(
+                f"{diag_prefix}.base_capacity_unknown",
+                level="critical",
+                res_id=reservation.id,
+                biz_item_id=reservation.naver_biz_item_id,
+                date=target_date,
+            )
+            return False
+        if guest_count > booked_base:
+            diag(
+                f"{diag_prefix}.skipped_overcapacity",
+                level="verbose",
+                res_id=reservation.id,
+                guest_count=guest_count,
+                base=booked_base,
+                date=target_date,
+            )
+            return False
 
     # 2. 등급 비교
     biz_item = None
