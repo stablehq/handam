@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus } from 'lucide-react';
 import dayjs from 'dayjs';
 import { normalizeUtcString } from '../../../lib/utils';
 import { useIsMobile } from '../../../hooks/use-mobile';
+import { useClampedDropdown, type AnchorRect } from '../../../hooks/use-clamped-dropdown';
 import type { Reservation } from '../types';
 
 interface SmsCellProps {
@@ -28,10 +30,19 @@ export const SmsCell: React.FC<SmsCellProps> = ({
   const isMobile = useIsMobile();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [dropdownPos, setDropdownPos] = useState<{ top?: number; bottom?: number; right: number }>({ right: 0 });
+  const [anchorRect, setAnchorRect] = useState<AnchorRect | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const dropdownMenuRef = useRef<HTMLDivElement>(null);
-  const buttonRectRef = useRef<DOMRect | null>(null);
+
+  const closeDropdown = useCallback(() => setDropdownOpen(false), []);
+  // GuestContextMenu 와 동일한 visualViewport 클램프 + 스크롤/리사이즈/Escape 닫기 (공용 훅).
+  // 칩 스트립(scrollRef)의 사용자 가로 스와이프, 그리고 칩 추가/제거로 콘텐츠 폭이 변할 때
+  // 브라우저의 scrollLeft 자동 클램프가 발화시키는 scroll 이벤트는 닫기 트리거에서 제외.
+  const menuStyle = useClampedDropdown(dropdownOpen, anchorRect, dropdownMenuRef, {
+    align: 'end', // 기존 우측 정렬(right-anchor) 동작 유지
+    onClose: closeDropdown,
+    ignoreScrollWithinRef: scrollRef,
+  });
 
   // Deduplicate by template_key: prefer today's chip, fallback to most recent sent chip
   const assignments = (() => {
@@ -60,27 +71,17 @@ export const SmsCell: React.FC<SmsCellProps> = ({
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
+      const t = e.target as Node;
+      // 메뉴가 body 포탈로 분리됐으므로 버튼 영역(dropdownRef)과 메뉴(dropdownMenuRef) 둘 다 내부로 취급
+      if (dropdownRef.current?.contains(t)) return;
+      if (dropdownMenuRef.current?.contains(t)) return;
+      setDropdownOpen(false);
     };
     if (dropdownOpen) {
       document.addEventListener('mousedown', handler);
       return () => document.removeEventListener('mousedown', handler);
     }
   }, [dropdownOpen]);
-
-  // 드롭다운 실제 높이 측정 후 뷰포트 밖이면 위로 재배치
-  useEffect(() => {
-    if (dropdownOpen && dropdownMenuRef.current && buttonRectRef.current) {
-      const menuRect = dropdownMenuRef.current.getBoundingClientRect();
-      const rect = buttonRectRef.current;
-      if (menuRect.bottom > window.innerHeight) {
-        setDropdownPos({ bottom: window.innerHeight - rect.top + 4, right: window.innerWidth - rect.right });
-      }
-    }
-  }, [dropdownOpen]);
-
 
   const getLabel = (key: string) => {
     const tpl = templateLabels.find(t => t.template_key === key);
@@ -155,10 +156,9 @@ export const SmsCell: React.FC<SmsCellProps> = ({
           onClick={(e) => {
             e.stopPropagation();
             if (!dropdownOpen) {
-              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              buttonRectRef.current = rect;
-              // 일단 아래로 열고, useEffect에서 실제 높이 측정 후 재배치
-              setDropdownPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+              if (templateLabels.length === 0) return; // 템플릿 미로딩/0개 상태에서 유령 open 방지
+              // 열 때마다 anchor 갱신 — 새 참조가 훅의 재계산을 트리거
+              setAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect());
             }
             setDropdownOpen(!dropdownOpen);
           }}
@@ -167,11 +167,15 @@ export const SmsCell: React.FC<SmsCellProps> = ({
         >
           <Plus size={10} />
         </button>
-        {dropdownOpen && templateLabels.length > 0 && (
+        {dropdownOpen && templateLabels.length > 0 && createPortal(
+          // data-interactive: 행 long-press 가드 셀렉터(GuestRow.tsx L148) 대상 —
+          //   포탈 메뉴의 비버튼 영역 long-press 로 컨텍스트메뉴가 오발화하는 것 방지.
+          // style fallback: 측정 전 1프레임은 숨긴 채 자연 크기 측정 (maxWidth 만 미리 적용해 줄바꿈 폭 확정).
           <div
             ref={dropdownMenuRef}
-            className="fixed z-[60] w-max rounded-lg border border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24] shadow-lg py-1"
-            style={{ top: dropdownPos.top, bottom: dropdownPos.bottom, right: dropdownPos.right }}
+            data-interactive=""
+            className="z-[10000] w-max overflow-y-auto overscroll-contain scrollbar-thin rounded-lg border border-[#E5E8EB] dark:border-[#2C2C34] bg-white dark:bg-[#1E1E24] shadow-lg py-1"
+            style={menuStyle ?? { position: 'fixed', top: 0, left: 0, visibility: 'hidden', maxWidth: 'calc(100vw - 16px)' }}
           >
             {templateLabels.map(t => {
               const assigned = isAssigned(t.template_key);
@@ -205,7 +209,8 @@ export const SmsCell: React.FC<SmsCellProps> = ({
                 </button>
               );
             })}
-          </div>
+          </div>,
+          document.body,
         )}
       </div>
     </div>
