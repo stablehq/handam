@@ -91,6 +91,12 @@ class Reservation(TenantMixin, Base):
     stay_group_excluded = Column(Boolean, nullable=False, server_default='false', default=False)  # True: 사용자가 수동 unlink → 자동 재묶기 방지
     highlight_color = Column(String(20), nullable=True)              # UI highlight color for reservation card
 
+    # Naver multi-room split (다객실 분할) linking — naver_sync._split_multi_room_reservations 참조
+    # primary + sibling 이 같은 키 공유: "nsplit-{naver_booking_id}".
+    # 주의: sibling 식별은 계속 booking_source='naver_split' — 이 컬럼은 '연결' 전용 (식별용 아님).
+    #       sibling 의 external_id/naver_booking_id 는 NULL 불변 (existing_map 매칭 오염 방지).
+    split_group_id = Column(String(64), nullable=True, index=True)
+
     manually_extended_until = Column(String(20), nullable=True)  # protects against naver_sync overwrite when user manually extends
 
     # Mutator pin flags — set by manual paths, checked by naver_sync (단계 #4~#8 부터 활성)

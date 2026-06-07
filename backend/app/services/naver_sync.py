@@ -208,6 +208,13 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
     updated_count = 0
     new_reservation_ids = []  # 칩 생성 대상: 새 예약 ID
     date_changed_ids = []  # 칩 재계산 대상: 날짜 변경 예약 ID
+    # split-group P2: 그룹 정합 경보 후보 (Phase 2.8 에서 일괄 평가)
+    split_cancel_candidates = []   # primary id — incoming cancelled + 그룹 키 보유
+    split_drift_candidates = []    # (primary id, split_group_id, incoming_bc)
+    unsplit_multi_candidates = []  # (id, incoming_bc) — 비분할 매핑 일반실 bc 1→N
+    # split-group P3: 부활(CANCELLED→CONFIRMED 전이) 경보 후보 — 전이 기반
+    # (술어식이면 '운영자가 sibling 만 의도 취소한 정상 상태'를 영구 경보하게 됨)
+    split_reactivated_candidates = []  # primary id
 
     for res_data in reservations:
         external_id = res_data.get("external_id") or res_data.get("naver_booking_id")
@@ -215,11 +222,33 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
 
         if existing:
             old_dates = (existing.check_in_date, existing.check_out_date)
+            old_status_for_split = existing.status  # split-group P3: 부활 전이 감지용
             _update_reservation(db, existing, res_data)
             new_dates = (existing.check_in_date, existing.check_out_date)
             if old_dates != new_dates:
                 date_changed_ids.append(existing.id)
             updated_count += 1
+            # split-group P2: 경보 후보 수집 — 루프 내 DB 쓰기/flush 금지 (세션
+            # 오염 방지), 파이썬 리스트만. 평가·발화는 Phase 2.8 (commit 이후).
+            # 트리거는 status 트랜지션이 아닌 술어식 — 운영자 선취소(mef 핀)로
+            # 트랜지션이 영영 안 일어나는 사각 방지 (red-team 검증).
+            if existing.booking_source != "naver_split":
+                if (
+                    existing.split_group_id
+                    and old_status_for_split == ReservationStatus.CANCELLED
+                    and existing.status == ReservationStatus.CONFIRMED
+                ):
+                    split_reactivated_candidates.append(existing.id)
+                _incoming_bc = res_data.get("booking_count") or 1
+                if existing.split_group_id:
+                    if res_data.get("status") == "cancelled":
+                        split_cancel_candidates.append(existing.id)
+                    split_drift_candidates.append(
+                        (existing.id, existing.split_group_id, _incoming_bc))
+                elif (_incoming_bc > 1 and (existing.booking_count or 1) == 1
+                      and not res_data.get("_is_dormitory")
+                      and res_data.get("_has_room_link")):
+                    unsplit_multi_candidates.append((existing.id, _incoming_bc))
         else:
             new_res = _create_reservation(res_data)
             db.add(new_res)
@@ -228,6 +257,46 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
             added_count += 1
 
     db.commit()
+
+    # ── Phase 2.8: split 그룹 정합 가드 (split-group P2 경보 + P3 전파) ──
+    # 메인 commit 이후 격리 실행 — log_activity 의 명시적 db.flush() 가 Phase 2
+    # 루프 세션을 오염(PendingRollbackError)시키지 않도록 분리 (칩 phase 패턴).
+    # 실패는 suppress — sync 본 흐름(Phase 3~6) 무영향, 5분 후 자연 재시도.
+    # SPLIT_CANCEL_MODE: 'alert'(기본) 경보만 / 'auto' 비보호 sibling 자동 취소
+    # (auto 전환 절차: docs/plans/split-group-step-03-auto-propagation.md §7).
+    if (split_cancel_candidates or split_drift_candidates
+            or unsplit_multi_candidates or split_reactivated_candidates):
+        try:
+            from app.config import settings
+            from app.services.split_group_guard import (
+                alert_bc_drift,
+                alert_cancel_orphan,
+                alert_reactivated_orphan,
+                alert_unsplit_multi,
+                propagate_cancel,
+            )
+            _split_auto = settings.SPLIT_CANCEL_MODE == "auto"
+            for _res_id in split_cancel_candidates:
+                _primary = db.get(Reservation, _res_id)
+                if _primary is None:
+                    continue
+                if _split_auto:
+                    propagate_cancel(db, _primary, source="naver_sync")
+                else:
+                    alert_cancel_orphan(db, _primary, source="naver_sync")
+            for _res_id in split_reactivated_candidates:
+                _primary = db.get(Reservation, _res_id)
+                if _primary is not None:
+                    # 부활은 모드 무관 경보만 — 자동 복구 금지 (lifecycle 복구 이벤트 부재)
+                    alert_reactivated_orphan(db, _primary, source="naver_sync")
+            for _res_id, _gid, _bc in split_drift_candidates:
+                alert_bc_drift(db, _res_id, _gid, _bc, source="naver_sync")
+            for _res_id, _bc in unsplit_multi_candidates:
+                alert_unsplit_multi(db, _res_id, _bc, source="naver_sync")
+            db.commit()
+        except Exception as e:
+            logger.warning(f"split group guard phase failed (suppressed): {e}")
+            db.rollback()
 
     # ── Phase 3: 칩 reconcile은 Phase 5(자동배정) 이후 1회로 통합 ──
     # 이전에는 여기서 1차 reconcile 했으나, RoomAssignment 없는 상태에서
@@ -553,6 +622,9 @@ def _split_multi_room_reservations(
         res_data["people_count"] = primary_people
         res_data["_split_male"] = primary_male
         res_data["_split_female"] = primary_female
+        # split-group P1: primary↔sibling 영속 연결 키. sibling 은 dict(res_data)
+        # 복사(아래)로 자동 상속. ext_id 부재 시 None (키 없는 split — 기존 동작 동일).
+        res_data["_split_group_id"] = f"nsplit-{ext_id}" if ext_id else None
 
         # sibling N-1 개 생성 (수동 예약처럼)
         for _ in range(bc - 1):
@@ -573,6 +645,7 @@ def _split_multi_room_reservations(
             naver_booking_id=res_data.get("naver_booking_id") or ext_id,
             booking_count=bc,
             siblings_created=bc - 1,
+            split_group_id=res_data.get("_split_group_id"),
         )
 
     if extras or skip_bc1 or skip_dorm or skip_existing or skip_unmapped:
@@ -620,6 +693,7 @@ def _create_reservation(res_data: Dict[str, Any]) -> Reservation:
         check_in_time=res_data.get("time", ""),
         status=status_enum,
         booking_source=res_data.get("_booking_source_override", "naver"),
+        split_group_id=res_data.get("_split_group_id"),
         naver_room_type=naver_room_type,
         party_size=res_data.get("people_count") or 1,
         male_count=male_count,
@@ -655,7 +729,19 @@ def _update_reservation(db: Session, existing: Reservation, res_data: Dict[str, 
     # split 정책: 일반실(매핑된 biz_item)의 primary 는 booking_count/total_price/party_size 가
     # split 시 분할된 값이라 네이버 원본값으로 덮어쓰면 sibling 들과 합계 어긋남.
     # 도미토리(booking_count=인원수 의미)와 매핑 없는 정체불명 상품은 네이버 원본 그대로.
-    is_split_managed = (not res_data.get("_is_dormitory")) and res_data.get("_has_room_link")
+    _legacy_split_managed = (not res_data.get("_is_dormitory")) and res_data.get("_has_room_link")
+    # P4(split-group): OR 강화 — split_group_id 보유 row 는 매핑 해제돼도 freeze 유지
+    # (8cc7423 토글 사고의 마지막 구멍 봉인). 추가만, unfreeze 0건 — 비분할 일반실
+    # 과잉 동결 해소는 명시 보류 (red-team: on_constraints_changed 연쇄 폭발).
+    is_split_managed = _legacy_split_managed or (existing.split_group_id is not None)
+    if is_split_managed and not _legacy_split_managed:
+        # 구조가 실제로 사고를 막은 순간 — 매핑 해제 상태로 sync 가 도는 동안 발화
+        diag(
+            "naver_sync.split_freeze_rescue",
+            level="info",
+            reservation_id=existing.id,
+            split_group_id=existing.split_group_id,
+        )
 
     # PR1: 5 개 운영자 편집 가능 필드를 Mutator 통과 (manually_edited_fields 가드).
     # naver_room_type 은 NAVER=always 유지 (운영자 편집 안 함).

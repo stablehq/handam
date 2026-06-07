@@ -120,3 +120,43 @@ class TestSplitMultiRoom:
         # primary 들은 in-place 변경됨
         assert res_a["booking_count"] == 1
         assert res_b["booking_count"] == 1
+        # split-group P1: 그룹 키는 booking 별로 독립 (멤버 수까지 검증)
+        a_count = sum(1 for r in result if r.get("_split_group_id") == "nsplit-A")
+        b_count = sum(1 for r in result if r.get("_split_group_id") == "nsplit-B")
+        assert a_count == 2  # primary + sibling 1
+        assert b_count == 3  # primary + sibling 2
+
+    # ── split-group P1: 영속 연결 키 ──
+
+    def test_split_assigns_shared_group_key(self):
+        """primary 와 sibling 모두 같은 'nsplit-{ext_id}' 키를 가짐 (dict 복사 상속)."""
+        res = _make_res(booking_count=3)
+        result = _split_multi_room_reservations([res], existing_map={})
+        assert len(result) == 3
+        assert all(r["_split_group_id"] == "nsplit-12345" for r in result)
+        # sibling 식별자는 여전히 NULL (연결은 그룹 키 전담 — existing_map 오염 방지 불변)
+        assert result[1]["external_id"] is None
+        assert result[1]["naver_booking_id"] is None
+
+    def test_no_group_key_when_no_split(self):
+        """split 안 되는 4가지 경로(bc=1/도미토리/미매핑/재동기화)는 키 자체가 안 생김."""
+        cases = [
+            _make_res(booking_count=1),
+            _make_res(booking_count=4, _is_dormitory=True),
+            _make_res(booking_count=3, _has_room_link=False),
+        ]
+        for res in cases:
+            result = _split_multi_room_reservations([res], existing_map={})
+            assert "_split_group_id" not in result[0]
+
+        existing = _make_res(booking_count=2)
+        result = _split_multi_room_reservations([existing], existing_map={"12345": object()})
+        assert "_split_group_id" not in result[0]
+
+    def test_group_key_none_when_no_ext_id(self):
+        """ext_id 없는 raw (이론상) — split 은 진행하되 키는 None (graceful, 기존 동작 동일)."""
+        res = _make_res(external_id=None, naver_booking_id=None, booking_count=2)
+        result = _split_multi_room_reservations([res], existing_map={})
+        assert len(result) == 2
+        assert result[0]["_split_group_id"] is None
+        assert result[1]["_split_group_id"] is None

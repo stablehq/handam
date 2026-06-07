@@ -177,6 +177,11 @@ async def startup_event():
     init_db()
     logging.info("Database initialized")
 
+    # split-group P3/P4 — 운영 모드 가시화 (기동 1회. 일일 diag 검증이 모드 변경을
+    # 추적할 수 있게 — 'auto 켰다고 믿었는데 안 켜진' 무한 대기 방지)
+    from app.diag_logger import diag
+    diag("split_guard.mode", level="info", mode=app_settings.SPLIT_CANCEL_MODE)
+
     # Start scheduler for automated tasks
     if app_settings.DISABLE_SCHEDULER:
         logging.info("Scheduler disabled (DISABLE_SCHEDULER set)")

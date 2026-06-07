@@ -1,0 +1,44 @@
+action: job_split_orphan_sweep (분할예약 취소고아 일일 정합 sweep)
+description: |
+  09:45 KST cron — 취소된 분할 primary(split_group_id 보유) 에 CONFIRMED sibling 이
+  잔존하는 그룹을 테넌트별로 스캔해 경보. naver_sync Phase 2.8 경보가 네이버 fetch
+  윈도우(REGDATE 1일 + USEDATE 오늘~내일)를 벗어난 취소를 놓치는 경우의 마지막 그물.
+  sibling check_out >= today 한정. dedup 은 sync 경로와 공유 (같은 그룹 일 1회).
+  09:45 인 이유: 09:50 스냅샷 / 09:55 reconcile / 10:01 자동배정보다 먼저.
+
+reference_session: 2026-06-07 (split-group P2 도입 — 관측 전 provisional)
+created_at: 2026-06-07
+confidence: provisional
+promotion_threshold: 3
+
+preconditions:
+  trigger: split_orphan_sweep_job cron (09:45 KST, 테넌트별 루프)
+  req: "-"   # cron 경로
+
+expected_trace:
+  - event: split_guard.sweep
+    category: MANDATORY
+    fields:
+      today: "*"
+      groups_scanned: "*"     # 취소된 분할 primary 수 (키 보유)
+      groups_alerted: "*"     # CONFIRMED sibling 잔존 + 미dedup 그룹 수
+      siblings_alerted: "*"
+    notes: |
+      - groups_alerted=0 이 정상 상태 (고아 없음 또는 당일 sync 경보로 이미 dedup).
+      - 테넌트마다 1회씩 발화.
+
+  - event: split_guard.cancel_orphan
+    category: CONDITIONAL
+    condition: groups_alerted > 0 인 경우, 그룹당 1회 (source=sweep)
+    fields:
+      primary_id: "*"
+      split_group_id: "*"
+      sibling_ids: "*"
+      source: "sweep"
+
+forbidden_events: []
+
+notes: |
+  - alert-only — sweep 은 어떤 예약 데이터도 변경하지 않음.
+  - P3 (SPLIT_CANCEL_MODE=auto) 에서도 sweep 은 alert-only 유지 (전파 트리거는
+    naver_sync 경로 유일 — step-03 plan §1). 전파 이벤트는 naver-sync 정답지 소관.

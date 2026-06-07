@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings
 from pydantic import model_validator
 from functools import lru_cache
@@ -32,6 +34,15 @@ class Settings(BaseSettings):
     # 스케줄러 비활성화 (로컬 개발 시 운영 칩 덮어쓰기 방지용).
     # True면 main.py 의 start_scheduler() 호출 안 함. 기본 False → 기존 동작 유지.
     DISABLE_SCHEDULER: bool = False
+
+    # split-group P3: 분할 primary 취소 시 sibling 자동 전파 모드.
+    # 'alert' (기본): 경보만 (P2 동작 그대로) / 'auto': 비보호 sibling 자동 취소.
+    # Literal 타입 — 오타('AUTO'/'on' 등) 시 기동 거부 (조용히 alert 잔류 방지).
+    # ⚠️ auto 전환은 반드시 절차 준수: docs/plans/split-group-step-03-auto-propagation.md §7
+    #    (backfill 완료 + P0 정리 재실행 + 정답지 forbidden 해제 후에만.
+    #     롤백은 'alert' 복귀 — 재배포 불요. 그룹당 1회 ledger 는 단일 워커 전제 —
+    #     GUNICORN_WORKERS=1, entrypoint.sh 기본값)
+    SPLIT_CANCEL_MODE: Literal["alert", "auto"] = "alert"
 
     # Swagger UI — None이면 DEMO_MODE 따라감
     ENABLE_SWAGGER: bool | None = None

@@ -1,0 +1,29 @@
+action: app_startup_split_mode (기동 시 split 전파 모드 가시화)
+description: |
+  FastAPI startup_event 에서 SPLIT_CANCEL_MODE 를 기동 1회 기록 (split-group P3/P4).
+  일일 diag 검증이 "현재 어느 모드로 돌고 있는가"를 추적하는 anchor —
+  'auto 켰다고 믿었는데 안 켜진'(오타/배포 누락) 무한 대기를 로그로 즉시 판별.
+
+reference_session: 2026-06-07 (P3 auto 전환과 함께 도입 — 관측 전 provisional)
+created_at: 2026-06-07
+confidence: provisional
+promotion_threshold: 3
+
+preconditions:
+  trigger: 앱 기동 (startup_event, init_db 직후)
+  req: "-"
+
+expected_trace:
+  - event: split_guard.mode
+    category: MANDATORY
+    fields:
+      mode: "auto"   # 2026-06-07 부터 기대값. alert 롤백 시 이 값도 함께 갱신할 것
+    notes: |
+      - 기동마다 정확히 1회. 재배포/재시작 횟수만큼 출현.
+      - mode 가 기대값과 다르면 설정 사고 (env 누락/오타는 Literal 타입이 기동 거부하므로,
+        다른 값 관측 = 의도적 롤백 또는 정답지 미갱신).
+
+forbidden_events: []
+
+notes: |
+  - 모드 전환 절차: docs/plans/split-group-step-03-auto-propagation.md §7

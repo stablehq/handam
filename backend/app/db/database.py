@@ -248,6 +248,11 @@ def init_db():
             if "highlight_color" not in cols:
                 conn.execute(text("ALTER TABLE reservations ADD COLUMN highlight_color VARCHAR(20)"))
                 print("AUTO-MIGRATE: Added highlight_color column to reservations table")
+            # Naver multi-room split linking (split-group P1)
+            if "split_group_id" not in cols:
+                conn.execute(text("ALTER TABLE reservations ADD COLUMN split_group_id VARCHAR(64)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_reservations_split_group_id ON reservations (split_group_id)"))
+                print("AUTO-MIGRATE: Added split_group_id column to reservations table")
 
         # template_schedules.is_once_per_stay
         if "template_schedules" in inspector.get_table_names():

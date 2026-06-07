@@ -363,6 +363,18 @@ async def update_reservation(
         if db_reservation.cancelled_at:
             db_reservation.cancelled_at = None
 
+        # split-group P3: 분할 primary 복구 시 취소 상태 sibling 잔존 경보 (취소 방향
+        # 경보와의 대칭성 — naver_sync 전이 감지는 운영자 선복구를 못 잡음. alert-only)
+        if (
+            db_reservation.split_group_id
+            and db_reservation.booking_source != "naver_split"
+        ):
+            try:
+                from app.services.split_group_guard import alert_reactivated_orphan
+                alert_reactivated_orphan(db, db_reservation, source="patch")
+            except Exception as e:
+                logger.warning(f"split reactivated alert on patch failed (suppressed): {e}")
+
     # status 가 CANCELLED 로 바뀌면 stay_group 자동 해제 (naver_sync 와 동일 정책)
     # — 취소된 예약이 그룹에 stay_group_id 로 남아있으면 이후 extend_stay 등이 stale 데이터로 실패함
     # S4 fix: 취소 시 manually_extended_until 클리어 — 재활성 시 stale flag로
@@ -402,6 +414,21 @@ async def update_reservation(
                     reconcile_all_chips(db, peer_id)
                 except Exception as e:
                     logger.warning(f"peer reconcile_all_chips after unlink failed: res={peer_id} err={e}")
+
+    # split-group P2: 분할 primary 수동 취소(PATCH) 시 CONFIRMED 잔존 sibling 경보.
+    # 운영자 직접 행동이므로 dedup=False (즉시 발화). alert-only — 자동취소는 P3.
+    # endpoint 단일 트랜잭션 내 단발 호출이라 log_activity flush 안전 (루프 아님).
+    if (
+        "status" in update_data
+        and update_data["status"] == ReservationStatus.CANCELLED
+        and db_reservation.split_group_id
+        and db_reservation.booking_source != "naver_split"
+    ):
+        try:
+            from app.services.split_group_guard import alert_cancel_orphan
+            alert_cancel_orphan(db, db_reservation, source="patch", dedup=False)
+        except Exception as e:
+            logger.warning(f"split orphan alert on patch failed (suppressed): {e}")
 
     # 날짜 변경 시 orphan RoomAssignment 정리 (네이버 동기화와 동일)
     new_dates = (db_reservation.check_in_date, db_reservation.check_out_date)
@@ -538,9 +565,34 @@ async def delete_reservation(reservation_id: int, db: Session = Depends(get_tena
         soft_cancel=is_soft_cancel,
     )
 
+    # split-group P2: 분할 primary soft-cancel 시 CONFIRMED 잔존 sibling 경보 +
+    # 응답 메시지 안내 (alert-only — sibling 자동취소는 P3). 본 commit 이후 격리 —
+    # 실패해도 삭제 응답은 정상 반환.
+    orphan_note = ""
+    if (
+        is_soft_cancel
+        and db_reservation.split_group_id
+        and db_reservation.booking_source != "naver_split"
+    ):
+        try:
+            from app.services.split_group_guard import alert_cancel_orphan
+            orphan_ids = alert_cancel_orphan(db, db_reservation, source="delete", dedup=False)
+            if orphan_ids:
+                _ids = ", ".join(str(i) for i in orphan_ids)
+                orphan_note = (
+                    f" — 분할 동반 객실 {len(orphan_ids)}건이 아직 확정 상태입니다"
+                    f" (res={_ids}). 함께 취소할지 확인하세요."
+                )
+                # commit 은 note 구성 후 마지막 — 실패 시 except 가 ActivityLog 까지 롤백
+                db.commit()
+        except Exception as e:
+            logger.warning(f"split orphan alert on delete failed (suppressed): {e}")
+            db.rollback()
+            orphan_note = ""
+
     return {
         "success": True,
-        "message": "예약이 취소 처리되었습니다" if is_soft_cancel else "예약이 삭제되었습니다",
+        "message": ("예약이 취소 처리되었습니다" if is_soft_cancel else "예약이 삭제되었습니다") + orphan_note,
     }
 
 
