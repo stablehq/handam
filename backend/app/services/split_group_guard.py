@@ -49,6 +49,9 @@ TYPE_BC_DRIFT = "split_bc_drift"
 # P3: 전파 원장 (그룹당 1회 전파 ledger — 일일 dedup 아님) + 부활 경보
 TYPE_CANCEL_PROPAGATED = "split_cancel_propagated"
 TYPE_REACTIVATED = "split_reactivated_orphan"
+# P0 cleanup 스크립트의 원장 type — ledger 조회에 OR 포함 (최종감사: 스크립트로
+# 취소된 그룹의 sibling 을 운영자가 복구해도 재전파 금지가 동일하게 적용되도록)
+TYPE_ORPHAN_CLEANUP = "split_orphan_cleanup"
 
 
 def _kst_day_start_utc() -> datetime:
@@ -133,16 +136,20 @@ def alert_cancel_orphan(
     primary: Reservation,
     source: str,
     dedup: bool = True,
+    min_checkout: str | None = None,
 ) -> list[int]:
     """primary 취소 상태에서 CONFIRMED 잔존 sibling 경보. 반환: 경보된 sibling id 목록.
 
     alert-only — sibling 의 status/배정/칩을 변경하지 않는다 (P3 에서 auto 모드 확장).
     dedup=True: 같은 그룹 일 1회 (naver_sync 5분 cron / sweep 경로).
     dedup=False: 운영자 직접 행동 (DELETE/PATCH) — 즉시 발화.
+    min_checkout: sweep 경로에서 게이트와 동일 기준 전달 — 과거 체크아웃 sibling 이
+    경보 detail/카운트에 혼입되는 것 방지 (최종감사 반영).
     """
     if not primary.split_group_id:
         return []
-    siblings = find_confirmed_siblings(db, primary.split_group_id, primary.id)
+    siblings = find_confirmed_siblings(
+        db, primary.split_group_id, primary.id, min_checkout=min_checkout)
     if not siblings:
         return []
     # JSON 경계 포함 마커 — 부분문자열 충돌 방지 (nsplit-77 이 nsplit-777 에 매칭 금지)
@@ -252,24 +259,53 @@ def alert_unsplit_multi(
     if _alerted_today(db, TYPE_BC_DRIFT, marker):
         return False
 
+    # 키 누락 분할 그룹 구분 — 이미 분할됐는데 split_group_id 만 없는 primary
+    # (backfill ambiguous 잔존분)를 '분할 미적용'으로 오도하면 운영자가 수동으로
+    # 객실을 추가 생성해 중복 예약이 됨 (최종감사 F: unsplit 오탐). 6-필드로
+    # naver_split 동반 row 존재를 확인해 문구/kind 분기.
+    tid = get_session_tenant_id(db)
+    has_split_sibling = (
+        db.query(Reservation.id)
+        .filter(
+            Reservation.tenant_id == tid,
+            Reservation.booking_source == "naver_split",
+            Reservation.customer_name == res.customer_name,
+            Reservation.phone == res.phone,
+            Reservation.check_in_date == res.check_in_date,
+            Reservation.check_out_date == res.check_out_date,
+            Reservation.naver_biz_item_id == res.naver_biz_item_id,
+        )
+        .first()
+        is not None
+    )
+    kind = "keyless_split_group" if has_split_sibling else "unsplit_multi"
     diag(
         "split_guard.unsplit_multi_bc",
         level="critical",
         reservation_id=reservation_id,
         naver_booking_id=res.naver_booking_id,
         incoming_bc=incoming_bc,
+        kind=kind,
         source=source,
     )
+    if has_split_sibling:
+        title = (
+            f"[{res.customer_name}] 분할그룹 키 누락 감지 — sibling 은 존재 "
+            f"(분할은 적용됨, backfill ambiguous 잔존 — 수동 키 부여 필요. 객실 추가 생성 금지)"
+        )
+    else:
+        title = (
+            f"[{res.customer_name}] 예약 객실수 변경 감지 — 네이버 {incoming_bc}개 "
+            f"(시스템은 1개, 분할 미적용. 수동 처리 필요)"
+        )
     log_activity(
         db,
         type=TYPE_BC_DRIFT,
-        title=(
-            f"[{res.customer_name}] 예약 객실수 변경 감지 — 네이버 {incoming_bc}개 "
-            f"(시스템은 1개, 분할 미적용. 수동 처리 필요)"
-        ),
+        title=title,
         detail={
             "reservation_id": reservation_id,
             "incoming_bc": incoming_bc,
+            "kind": kind,
             "source": source,
         },
         status="failed",
@@ -288,7 +324,9 @@ def _propagated_before(db: Session, split_group_id: str) -> bool:
     return (
         db.query(ActivityLog.id)
         .filter(
-            ActivityLog.activity_type == TYPE_CANCEL_PROPAGATED,
+            # cleanup 스크립트 원장도 포함 — 비-전파 취소(스크립트 처리) 그룹의
+            # sibling 복구 후 재취소 방지 (최종감사 F: ledger 비대칭)
+            ActivityLog.activity_type.in_((TYPE_CANCEL_PROPAGATED, TYPE_ORPHAN_CLEANUP)),
             ActivityLog.detail.like(f"%{marker}%"),
         )
         .first()
@@ -373,7 +411,12 @@ def propagate_cancel(db: Session, primary: Reservation, source: str) -> dict:
     if primary.status != ReservationStatus.CANCELLED:
         alert_cancel_orphan(db, primary, source=source, dedup=True)
         return {"propagated": [], "skipped": {}, "failed": [], "ledger_skip": False}
-    siblings = find_confirmed_siblings(db, primary.split_group_id, primary.id)
+    today_str = today_kst()
+    # min_checkout=today — 과거 체류 sibling 은 전파 제외 (발송/배정 실위험이 없고,
+    # from_date 수동 sync 가 과거 RA 이력을 소급 삭제하는 것 방지. sweep 정책과 대칭 —
+    # 최종감사 F: 과거 체류 가드 부재). 과거분은 경보 경로가 가시화.
+    siblings = find_confirmed_siblings(
+        db, primary.split_group_id, primary.id, min_checkout=today_str)
     if not siblings:
         return {"propagated": [], "skipped": {}, "failed": [], "ledger_skip": False}
 
@@ -382,7 +425,6 @@ def propagate_cancel(db: Session, primary: Reservation, source: str) -> dict:
         alert_cancel_orphan(db, primary, source=source, dedup=True)
         return {"propagated": [], "skipped": {}, "failed": [], "ledger_skip": True}
 
-    today_str = today_kst()
     propagated: list[int] = []
     skipped: dict[int, list[str]] = {}
     failed: list[int] = []
@@ -437,7 +479,13 @@ def propagate_cancel(db: Session, primary: Reservation, source: str) -> dict:
         failed=failed,
         source=source,
     )
-    # ledger 기록 — 부분 skip/실패여도 그룹당 1회 (잔존은 일일 경보가 담당)
+    # ledger 기록 — 부분 skip/실패여도 그룹당 1회 (잔존은 일일 경보가 담당).
+    # 단 전원 failed(transient DB 오류 등)면 ledger 미기록 → 다음 sync 자연 재시도
+    # (일시 오류 1회가 그룹 자동전파를 영구 차단하지 않도록 — 최종감사 반영)
+    if not (propagated or skipped):
+        if failed:
+            alert_cancel_orphan(db, primary, source=source, dedup=False)
+        return {"propagated": [], "skipped": {}, "failed": failed, "ledger_skip": False}
     log_activity(
         db,
         type=TYPE_CANCEL_PROPAGATED,
@@ -548,7 +596,10 @@ def sweep_orphan_groups(db: Session, today_str: str) -> dict:
         )
         if not siblings:
             continue
-        alerted = alert_cancel_orphan(db, primary, source="sweep", dedup=True)
+        # min_checkout 전달 — 게이트와 경보 내용의 기준 일치 (과거 체크아웃 sibling
+        # 이 detail/카운트에 혼입 금지 — 최종감사 반영)
+        alerted = alert_cancel_orphan(
+            db, primary, source="sweep", dedup=True, min_checkout=today_str)
         if alerted:
             groups_alerted += 1
             sibling_total += len(alerted)

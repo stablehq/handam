@@ -284,6 +284,11 @@ async def sync_naver_to_db(reservation_provider, db: Session, target_date=None, 
                     propagate_cancel(db, _primary, source="naver_sync")
                 else:
                     alert_cancel_orphan(db, _primary, source="naver_sync")
+            # 전파분 선확정 — 후행 경보(reactivated/drift/unsplit)의 예외가 선행
+            # 전파(sibling 취소+ledger)를 롤백시키지 않게 분리 + diag↔ledger 원자성
+            # 확보 (최종감사 F: Phase 2.8 단일 commit 묶음)
+            if split_cancel_candidates:
+                db.commit()
             for _res_id in split_reactivated_candidates:
                 _primary = db.get(Reservation, _res_id)
                 if _primary is not None:

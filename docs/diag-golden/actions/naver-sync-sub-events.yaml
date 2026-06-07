@@ -104,6 +104,7 @@ expected_trace:
       reservation_id: "*"
       naver_booking_id: "*"
       incoming_bc: "*"
+      kind: "*"     # 'unsplit_multi'(진짜 미분할) | 'keyless_split_group'(분할됐는데 키만 누락 — backfill ambiguous 잔존, 객실 추가 생성 금지)
       source: "*"
 
   - event: split_guard.cancel_propagated

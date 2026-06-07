@@ -332,6 +332,10 @@ async def update_reservation(
         pass
 
     from app.services.reservation_mutator import ReservationMutator, ChangeSource
+    # split-group 최종감사: 전이 기반 경보 게이트용 — payload 값만으로 발화하면
+    # '부분취소 정상 상태'(primary CONFIRMED + sibling CANCELLED 의도 유지)의 일반
+    # 편집/멱등 재호출에서 오경보 (apply_changes 이전 스냅샷 필수)
+    old_status_for_split = db_reservation.status
     ReservationMutator.apply_changes(db, db_reservation, ChangeSource.MANUAL, update_data)
 
     # CANCELLED → CONFIRMED 복구 경로 — 운영자가 "삭제 취소" 액션 실행.
@@ -351,28 +355,42 @@ async def update_reservation(
     ):
         mef = dict(db_reservation.manually_edited_fields or {})
         if "status" in mef:
-            del mef["status"]
-            db_reservation.manually_edited_fields = mef
-            diag(
-                "reservation.status_pin_released",
-                level="critical",
-                reservation_id=reservation_id,
-                actor=current_user.username if current_user else None,
-            )
+            if db_reservation.booking_source == "naver_split":
+                # split-group 최종감사: sibling 은 핀 **유지** — naver_sync 매칭이
+                # 없어 핀이 무해하고, 핀이 곧 '운영자가 복구한 sibling' 보호신호가 됨
+                # (_protection_signals mef any-key) → auto 전파의 재취소 영구 차단.
+                # ledger 없는 그룹(cleanup/수동취소 출신)까지 커버하는 근본 방어.
+                pass
+            else:
+                del mef["status"]
+                db_reservation.manually_edited_fields = mef
+                diag(
+                    "reservation.status_pin_released",
+                    level="critical",
+                    reservation_id=reservation_id,
+                    actor=current_user.username if current_user else None,
+                )
         # cancelled_at 도 클리어 — paired-state invariant (CANCELLED ⇔ cancelled_at NOT NULL) 유지.
         if db_reservation.cancelled_at:
             db_reservation.cancelled_at = None
 
         # split-group P3: 분할 primary 복구 시 취소 상태 sibling 잔존 경보 (취소 방향
         # 경보와의 대칭성 — naver_sync 전이 감지는 운영자 선복구를 못 잡음. alert-only)
+        # 최종감사: 전이 게이트(old==CANCELLED) — payload 값 기반이면 부분취소 정상
+        # 상태의 일반 편집에서 오경보. SAVEPOINT 격리 — log_activity flush 실패가
+        # 세션을 오염시켜 본 PATCH 까지 500 으로 롤백되는 것 방지.
         if (
-            db_reservation.split_group_id
+            old_status_for_split == ReservationStatus.CANCELLED
+            and db_reservation.split_group_id
             and db_reservation.booking_source != "naver_split"
         ):
+            _sp = db.begin_nested()
             try:
                 from app.services.split_group_guard import alert_reactivated_orphan
                 alert_reactivated_orphan(db, db_reservation, source="patch")
+                _sp.commit()
             except Exception as e:
+                _sp.rollback()
                 logger.warning(f"split reactivated alert on patch failed (suppressed): {e}")
 
     # status 가 CANCELLED 로 바뀌면 stay_group 자동 해제 (naver_sync 와 동일 정책)
@@ -417,17 +435,22 @@ async def update_reservation(
 
     # split-group P2: 분할 primary 수동 취소(PATCH) 시 CONFIRMED 잔존 sibling 경보.
     # 운영자 직접 행동이므로 dedup=False (즉시 발화). alert-only — 자동취소는 P3.
-    # endpoint 단일 트랜잭션 내 단발 호출이라 log_activity flush 안전 (루프 아님).
+    # 최종감사: 전이 게이트(old!=CANCELLED) — 멱등 재호출(이미 취소된 행 재저장)
+    # 마다 중복 발화 방지. SAVEPOINT 격리 — flush 실패의 세션 오염 차단.
     if (
         "status" in update_data
         and update_data["status"] == ReservationStatus.CANCELLED
+        and old_status_for_split != ReservationStatus.CANCELLED
         and db_reservation.split_group_id
         and db_reservation.booking_source != "naver_split"
     ):
+        _sp = db.begin_nested()
         try:
             from app.services.split_group_guard import alert_cancel_orphan
             alert_cancel_orphan(db, db_reservation, source="patch", dedup=False)
+            _sp.commit()
         except Exception as e:
+            _sp.rollback()
             logger.warning(f"split orphan alert on patch failed (suppressed): {e}")
 
     # 날짜 변경 시 orphan RoomAssignment 정리 (네이버 동기화와 동일)

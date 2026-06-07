@@ -349,6 +349,85 @@ class TestPropagateCancel:
         assert sib.stay_group_id is None  # unlink (lifecycle docstring: caller 책임)
 
 
+class TestFinalAuditFixes:
+    """2026-06-08 최종 전수감사 finding 수정 회귀 고정."""
+
+    def test_propagate_skips_past_stay(self, db):
+        """과거 체류 sibling 은 전파 제외 (RA 이력 소급 삭제 방지) + ledger 미기록."""
+        primary, (sib,) = _make_group(db, check_in="2026-05-01", check_out="2026-05-02")
+        result = propagate_cancel(db, primary, source="naver_sync")
+        db.commit()
+        db.refresh(sib)
+
+        assert result["propagated"] == []
+        assert sib.status == ReservationStatus.CONFIRMED  # 과거분 미접촉
+        assert not _alert_logs(db, TYPE_CANCEL_PROPAGATED)  # ledger 없음
+
+    def test_cleanup_ledger_blocks_propagation(self, db):
+        """cleanup 스크립트(TYPE_ORPHAN_CLEANUP) 원장도 재전파 차단 — ledger OR 조회."""
+        from app.services.activity_logger import log_activity
+        from app.services.split_group_guard import TYPE_ORPHAN_CLEANUP
+
+        primary, (sib,) = _make_group(db)
+        # cleanup 스크립트가 남기는 원장 시뮬레이션
+        log_activity(db, type=TYPE_ORPHAN_CLEANUP, title="정리",
+                     detail={"split_group_id": "nsplit-777"})
+        db.commit()
+
+        result = propagate_cancel(db, primary, source="naver_sync")
+        db.commit()
+        db.refresh(sib)
+
+        assert result["ledger_skip"] is True
+        assert sib.status == ReservationStatus.CONFIRMED  # 재취소 안 됨
+
+    def test_unsplit_alert_distinguishes_keyless_split_group(self, db):
+        """키 없는 분할 primary 는 '분할 미적용' 오도 문구 대신 '키 누락' 으로 분기."""
+        import json
+        res = _make_res(db, naver_booking_id="999")          # 키 없는 primary
+        _make_res(db, source="naver_split")                   # 6-필드 동일 sibling (분할은 됨)
+        db.commit()
+
+        assert alert_unsplit_multi(db, res.id, 2, source="naver_sync") is True
+        log = _alert_logs(db, TYPE_BC_DRIFT)[0]
+        assert "키 누락" in log.title and "객실 추가 생성 금지" in log.title
+        assert json.loads(log.detail)["kind"] == "keyless_split_group"
+
+    def test_failed_only_propagation_skips_ledger(self, db, monkeypatch):
+        """전원 SAVEPOINT 실패 시 ledger 미기록 → 다음 sync 자연 재시도 허용."""
+        from app.services import split_group_guard as g
+
+        primary, (sib,) = _make_group(db)
+
+        def _boom(*a, **kw):
+            raise RuntimeError("transient db error")
+        monkeypatch.setattr(
+            "app.services.reservation_lifecycle.on_status_cancelled", _boom)
+
+        result = propagate_cancel(db, primary, source="naver_sync")
+        db.commit()
+
+        assert result["propagated"] == [] and result["failed"] == [sib.id]
+        assert not _alert_logs(db, TYPE_CANCEL_PROPAGATED)  # ledger 없음 → 재시도 가능
+        assert g._propagated_before(db, "nsplit-777") is False
+
+    def test_sweep_alert_excludes_past_checkout_from_detail(self, db):
+        """sweep 경보 detail 에 과거 체크아웃 sibling 혼입 금지 (min_checkout 전달)."""
+        import json
+        primary, sibs = _make_group(db, sibling_count=2, check_in="2026-07-01",
+                                    check_out="2026-07-02")
+        # 한 sibling 만 과거 체류로 변경
+        sibs[1].check_in_date = "2026-05-01"
+        sibs[1].check_out_date = "2026-05-02"
+        db.commit()
+
+        result = sweep_orphan_groups(db, today_str="2026-06-08")
+        assert result["groups_alerted"] == 1
+        log = _alert_logs(db, TYPE_CANCEL_ORPHAN)[0]
+        ids = json.loads(log.detail)["sibling_ids"]
+        assert ids == [sibs[0].id]  # 미래분만 — 과거 sibs[1] 미혼입
+
+
 class TestReactivatedAlert:
     def test_alerts_when_cancelled_siblings_remain(self, db):
         primary, (sib,) = _make_group(db, primary_status=ReservationStatus.CONFIRMED)

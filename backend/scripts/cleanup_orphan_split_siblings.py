@@ -40,7 +40,10 @@ from app.db.models import (  # noqa: E402
     Tenant,
 )
 from app.services.activity_logger import log_activity  # noqa: E402
-from app.services.split_group_guard import _protection_signals  # noqa: E402
+from app.services.split_group_guard import (  # noqa: E402
+    TYPE_ORPHAN_CLEANUP,
+    _protection_signals,
+)
 
 
 def _find_orphans(db) -> list[tuple[Reservation, Reservation, str]]:
@@ -85,12 +88,14 @@ def _find_orphans(db) -> list[tuple[Reservation, Reservation, str]]:
     for sib in unkeyed_sibs:
         if sib.id in seen_sibling_ids:
             continue
-        candidates = (
+        # status 무필터 후보 조회 — backfill 의 ambiguous 안전기준과 대칭 (최종감사 F:
+        # CANCELLED 필터로 좁히면 '취소A + 재예약 확정B 공존' 상황에서 확정B 소속일 수
+        # 있는 sibling 을 취소A 에 오귀속해 살아있는 예약을 취소할 수 있음)
+        candidates_all = (
             db.query(Reservation)
             .filter(
                 Reservation.booking_source != "naver_split",
                 Reservation.naver_booking_id.isnot(None),
-                Reservation.status == ReservationStatus.CANCELLED,
                 Reservation.customer_name == sib.customer_name,
                 Reservation.phone == sib.phone,
                 Reservation.check_in_date == sib.check_in_date,
@@ -99,12 +104,15 @@ def _find_orphans(db) -> list[tuple[Reservation, Reservation, str]]:
             )
             .all()
         )
-        if len(candidates) == 1:
-            orphans.append((sib, candidates[0], "heuristic"))
-        elif len(candidates) > 1:
+        cancelled_cands = [c for c in candidates_all if c.status == ReservationStatus.CANCELLED]
+        if len(candidates_all) == 1 and len(cancelled_cands) == 1:
+            orphans.append((sib, cancelled_cands[0], "heuristic"))
+        elif candidates_all:
+            others = [f"res={c.id}({c.status})" for c in candidates_all]
             print(
                 f"  AMBIGUOUS [tid={sib.tenant_id}] sibling res={sib.id} "
-                f"({sib.customer_name}) — 취소 primary 후보 {len(candidates)}개, 수동 검토"
+                f"({sib.customer_name}) — 후보 {len(candidates_all)}개 [{', '.join(others)}]"
+                f" → 수동 검토 (재예약 공존 가능 — created_at 으로 귀속 판별)"
             )
     return orphans
 
@@ -180,9 +188,11 @@ def cleanup_tenant(db, tenant, apply: bool) -> dict:
                             reconcile_all_chips(db, peer_id)
                         except Exception as e:
                             print(f"    peer reconcile 실패 res={peer_id}: {e}")
+            # TYPE_ORPHAN_CLEANUP 은 _propagated_before 의 ledger 조회에 OR 포함됨 —
+            # 스크립트 정리 그룹의 sibling 복구 후 auto 재취소 방지 (최종감사 반영)
             log_activity(
                 db,
-                type="split_orphan_cleanup",
+                type=TYPE_ORPHAN_CLEANUP,
                 title=f"[{sib.customer_name}] 고아 sibling 정리 — res={sib.id} 취소 처리",
                 detail={
                     "sibling_id": sib.id,

@@ -1,10 +1,11 @@
 action: job_split_orphan_sweep (분할예약 취소고아 일일 정합 sweep)
 description: |
-  09:45 KST cron — 취소된 분할 primary(split_group_id 보유) 에 CONFIRMED sibling 이
+  09:43 KST cron — 취소된 분할 primary(split_group_id 보유) 에 CONFIRMED sibling 이
   잔존하는 그룹을 테넌트별로 스캔해 경보. naver_sync Phase 2.8 경보가 네이버 fetch
   윈도우(REGDATE 1일 + USEDATE 오늘~내일)를 벗어난 취소를 놓치는 경우의 마지막 그물.
   sibling check_out >= today 한정. dedup 은 sync 경로와 공유 (같은 그룹 일 1회).
-  09:45 인 이유: 09:50 스냅샷 / 09:55 reconcile / 10:01 자동배정보다 먼저.
+  09:43 인 이유: */5 그리드 회피(5분 sync 와의 dedup race 제거 — 최종감사) +
+  09:50 스냅샷 / 09:55 reconcile / 10:01 자동배정보다 먼저.
 
 reference_session: 2026-06-07 (split-group P2 도입 — 관측 전 provisional)
 created_at: 2026-06-07
@@ -12,7 +13,7 @@ confidence: provisional
 promotion_threshold: 3
 
 preconditions:
-  trigger: split_orphan_sweep_job cron (09:45 KST, 테넌트별 루프)
+  trigger: split_orphan_sweep_job cron (09:43 KST, 테넌트별 루프)
   req: "-"   # cron 경로
 
 expected_trace:

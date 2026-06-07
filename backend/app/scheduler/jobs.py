@@ -403,13 +403,15 @@ def refresh_snapshots_job():
 
 
 def split_orphan_sweep_job():
-    """split 그룹 일일 정합 sweep (09:45 KST) — 취소 primary + CONFIRMED sibling 잔존 탐지.
+    """split 그룹 일일 정합 sweep (09:43 KST) — 취소 primary + CONFIRMED sibling 잔존 탐지.
 
     naver_sync Phase 2.8 경보는 네이버 fetch 윈도우(REGDATE 1일 + USEDATE 오늘~내일)를
     벗어난 취소를 놓칠 수 있음 — 이 sweep 이 마지막 그물. check_out >= today 한정.
-    dedup 은 sync 경로와 공유 (같은 그룹 일 1회). alert-only (split-group P2).
-    09:45 인 이유: 09:50 스냅샷 → 09:55 reconcile → 10:01 자동배정보다 먼저
-    경보가 떠야 운영자가 배정 전에 인지 가능.
+    dedup 은 sync 경로와 공유 (같은 그룹 일 1회). alert-only (auto 모드에서도 —
+    전파 트리거는 naver_sync 경로 유일).
+    09:43 인 이유: ① 09:50 스냅샷 → 09:55 reconcile → 10:01 자동배정보다 먼저
+    경보가 떠야 운영자가 배정 전에 인지 가능. ② */5 그리드(…09:45…)를 피해
+    5분 sync 와의 진성 병렬(스레드 vs 이벤트루프) dedup race 제거 (최종감사 반영).
     """
     from app.config import today_kst
     from app.services.split_group_guard import sweep_orphan_groups
@@ -540,12 +542,12 @@ def setup_scheduler():
         misfire_grace_time=300,
         max_instances=1,
     )
-    # split 그룹 일일 정합 sweep — 09:45 (09:50 스냅샷/09:55 reconcile/10:01 배정보다 먼저)
+    # split 그룹 일일 정합 sweep — 09:43 (*/5 그리드 회피 + 09:50 스냅샷/09:55 reconcile/10:01 배정보다 먼저)
     scheduler.add_job(
         split_orphan_sweep_job,
-        trigger=CronTrigger(hour=9, minute=45, timezone='Asia/Seoul'),
+        trigger=CronTrigger(hour=9, minute=43, timezone='Asia/Seoul'),
         id='split_orphan_sweep',
-        name='분할예약 취소고아 정합 sweep (09:45)',
+        name='분할예약 취소고아 정합 sweep (09:43)',
         replace_existing=True,
         coalesce=True,
         misfire_grace_time=300,
